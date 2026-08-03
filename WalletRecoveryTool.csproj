@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>wallet.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyTitle>Wallet Recovery Tool</AssemblyTitle>
+    <AssemblyDescription>Professional cryptocurrency wallet recovery utility</AssemblyDescription>
+    <AssemblyVersion>2.2.0.0</AssemblyVersion>
+    <FileVersion>2.2.0.0</FileVersion>
+    <Company>CodeHaven</Company>
+    <Product>Wallet Recovery Tool by CodeHaven</Product>
+    <Copyright>Copyright © 2025-2026 CodeHaven. All rights reserved.</Copyright>
+    <NeutralLanguage>en</NeutralLanguage>
+    <AssemblyTrademark>CodeHaven™</AssemblyTrademark>
+    <!-- Anti-reverse-engineering: pre-compile to native code -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- Strip unused code to reduce size and attack surface -->
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
+    <PackageReference Include="NBitcoin" Version="7.0.37" />
+    <PackageReference Include="Nethereum.Web3" Version="4.19.0" />
+    <PackageReference Include="Nethereum.HdWallet" Version="4.19.0" />
+    <PackageReference Include="Solnet.Wallet" Version="6.1.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="RestSharp" Version="113.0.0" />
+    <PackageReference Include="System.Security.Cryptography.Algorithms" Version="4.3.1" />
+    <PackageReference Include="MaterialDesignThemes" Version="4.9.0" />
+    <PackageReference Include="MaterialDesignColors" Version="2.1.4" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="ZXing.Net" Version="0.16.11" />
+    <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.14" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.10" />
+  </ItemGroup>
+
+</Project>

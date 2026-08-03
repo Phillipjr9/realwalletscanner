@@ -1,0 +1,119 @@
+<Window x:Class="WalletRecoveryTool.AnalyticsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="Analytics" Height="720" Width="1200"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource SurfaceDark}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        FontFamily="{DynamicResource MaterialDesignFont}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{StaticResource SurfaceMid}" Padding="20,14" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="ChartLine" Height="22" Width="22" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
+                <TextBlock Text="Analytics Dashboard" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20">
+            <StackPanel>
+                <!-- Stats Cards Row -->
+                <UniformGrid Columns="4" Margin="0,0,0,16">
+                    <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="SPEED" Style="{StaticResource StatLabel}"/>
+                            <TextBlock x:Name="SpeedTextBlock" Text="0/s" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}"/>
+                            <TextBlock x:Name="SpeedSubTextBlock" Text="Avg over 60s" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="PROCESSED" Style="{StaticResource StatLabel}"/>
+                            <TextBlock x:Name="TotalProcessedTextBlock" Text="0" Style="{StaticResource StatValue}" Foreground="#64B5F6"/>
+                            <TextBlock x:Name="TotalSubTextBlock" Text="Since start" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="SUCCESS RATE" Style="{StaticResource StatLabel}"/>
+                            <TextBlock x:Name="SuccessRateTextBlock" Text="0.00%" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentOrange}"/>
+                            <TextBlock x:Name="FoundCountTextBlock" Text="0 found" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource DashCard}">
+                        <StackPanel>
+                            <TextBlock Text="RUNTIME" Style="{StaticResource StatLabel}"/>
+                            <TextBlock x:Name="RunningTimeTextBlock" Text="00:00:00" Style="{StaticResource StatValue}" Foreground="#CE93D8"/>
+                            <TextBlock x:Name="ETATextBlock" Text="ETA: --" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- Charts -->
+                <Border Style="{StaticResource DashCard}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="PERFORMANCE OVER TIME" Style="{StaticResource SectionHeader}"/>
+                        <Canvas x:Name="PerformanceChart" Height="200" Background="{StaticResource SurfaceLight}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource DashCard}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="USD VALUE HISTORY" Style="{StaticResource SectionHeader}"/>
+                            <TextBlock x:Name="TotalUsdTextBlock" Text="" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                        </StackPanel>
+                        <Canvas x:Name="UsdHistoryChart" Height="180" Background="{StaticResource SurfaceLight}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Session Info -->
+                <Border Style="{StaticResource DashCard}">
+                    <StackPanel>
+                        <TextBlock Text="SESSION INFO" Style="{StaticResource SectionHeader}"/>
+                        <UniformGrid Columns="5">
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="Session ID" Style="{StaticResource StatLabel}"/>
+                                <TextBlock x:Name="SessionIdTextBlock" Text="N/A" FontFamily="Consolas" FontSize="11"/>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="Start Time" Style="{StaticResource StatLabel}"/>
+                                <TextBlock x:Name="StartTimeTextBlock" Text="N/A" FontSize="11"/>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="Recovery Type" Style="{StaticResource StatLabel}"/>
+                                <TextBlock x:Name="RecoveryTypeTextBlock" Text="N/A" FontSize="11"/>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="Threads" Style="{StaticResource StatLabel}"/>
+                                <TextBlock x:Name="ThreadCountTextBlock" Text="N/A" FontSize="11"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Memory" Style="{StaticResource StatLabel}"/>
+                                <TextBlock x:Name="MemoryUsageTextBlock" Text="N/A" FontSize="11"/>
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="{StaticResource SurfaceMid}" Padding="20,10" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="REFRESH" Click="RefreshData_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
+                <Button Content="EXPORT REPORT" Click="ExportReport_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
+                <Button Content="CLOSE" Click="Close_Click" Style="{StaticResource SecondaryActionButton}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

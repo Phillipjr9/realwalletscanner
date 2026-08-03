@@ -1,0 +1,67 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build WalletRecoveryTool",
+			"type": "shell",
+			"command": "dotnet build .\\WalletRecoveryTool.csproj --configuration Release",
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Run Wallet Recovery Tool",
+			"type": "shell",
+			"command": ".\\run.bat",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build Application",
+			"type": "shell",
+			"command": "dotnet build .\\WalletRecoveryTool.csproj",
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "Build and Run",
+			"type": "shell",
+			"command": "dotnet build WalletRecoveryTool.csproj; if ($?) { .\\bin\\Debug\\net8.0-windows\\WalletRecoveryTool.exe }",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Run CLI Wallet Scan (Visible)",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--project",
+				".\\WalletRecoveryTool.csproj",
+				"--",
+				"--cli",
+				"--mode",
+				"smart",
+				"--coins",
+				"btc,eth,sol,usdt,ltc",
+				"--threads",
+				"12",
+				"--limit",
+				"0"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "CLI Wallet Scan - STRICT SAFE MODE",
+			"type": "shell",
+			"command": "dotnet run --project .\\WalletRecoveryTool.csproj -- --cli --mode smart --coins btc,eth,sol,usdt,ltc --threads 12 --limit 0"
+		},
+		{
+			"label": "CLI Scan - STRICT MODE + Fixed Keys",
+			"type": "shell",
+			"command": "dotnet run --project .\\WalletRecoveryTool.csproj -- --cli --mode smart --coins btc,eth,sol,usdt,ltc --threads 12 --limit 0"
+		}
+	]
+}

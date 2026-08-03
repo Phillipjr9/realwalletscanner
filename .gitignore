@@ -1,0 +1,11 @@
+bin/
+obj/
+publish/
+build-output/
+btcrecover/
+.vs/
+.vscode/
+*.user
+*.suo
+*.pdb
+*.log
