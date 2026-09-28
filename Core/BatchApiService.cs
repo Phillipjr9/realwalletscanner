@@ -51,11 +51,27 @@ namespace WalletRecoveryTool.Core
             IEnumerable<string> addresses,
             CancellationToken cancellationToken = default)
         {
-            var results = new Dictionary<string, decimal>();
-            var addressList = addresses.ToList();
+            var results = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            var addressList = (addresses ?? Enumerable.Empty<string>())
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             if (!addressList.Any())
                 return results;
+
+            // Etherscan's batch endpoint requires an API key. Avoid sending
+            // guaranteed-to-fail requests when the app is configured for public RPC
+            // fallbacks, and preserve the provider fallback behavior.
+            if (string.IsNullOrWhiteSpace(_settings.EtherscanApiKey))
+            {
+                var fallbackChecker = new BalanceChecker(_settings);
+                foreach (var address in addressList)
+                {
+                    if (cancellationToken.IsCancellationRequested) break;
+                    results[address] = await fallbackChecker.GetEthereumBalance(address);
+                }
+                return results;
+            }
 
             // Process in batches of 20
             var batches = addressList
@@ -78,15 +94,38 @@ namespace WalletRecoveryTool.Core
                     {
                         results[kvp.Key] = kvp.Value;
                     }
+
+                    // A missing row means the batch response was incomplete or the
+                    // provider rejected the request. Do not convert that uncertainty
+                    // into a false zero; use the same RPC fallback chain as the rest
+                    // of the application.
+                    if (batchResults.Count < batch.Count)
+                    {
+                        var fallbackChecker = new BalanceChecker(_settings);
+                        foreach (var addr in batch)
+                        {
+                            if (batchResults.ContainsKey(addr) || cancellationToken.IsCancellationRequested)
+                                continue;
+                            results[addr] = await fallbackChecker.GetEthereumBalance(addr);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     DebugLogger.Log($"Ethereum batch API error: {ex.Message}");
-                    // Add zeros for failed addresses
+                    var fallbackChecker = new BalanceChecker(_settings);
                     foreach (var addr in batch)
                     {
-                        if (!results.ContainsKey(addr))
-                            results[addr] = 0;
+                        if (cancellationToken.IsCancellationRequested)
+                            break;
+                        try
+                        {
+                            results[addr] = await fallbackChecker.GetEthereumBalance(addr);
+                        }
+                        catch (Exception fallbackEx)
+                        {
+                            DebugLogger.Log($"Ethereum single-address fallback failed: {fallbackEx.Message}");
+                        }
                     }
                 }
             }
@@ -98,7 +137,7 @@ namespace WalletRecoveryTool.Core
             List<string> addresses,
             CancellationToken cancellationToken)
         {
-            var results = new Dictionary<string, decimal>();
+            var results = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
             var addressParam = string.Join(",", addresses);
 
             // Use Etherscan V2 API with chainid=1 for mainnet

@@ -129,8 +129,10 @@ namespace WalletRecoveryTool
                     Dispatcher.BeginInvoke((Action)(() => ValidateApiKeysOnStartup()));
                     await VerifyApiConnectivity();
                     
-                    // Auto-download funded address bloom filter data if not present
-                    if (!Core.FundedAddressFilter.HasBloomData())
+                    // Only download the optional snapshot when the user explicitly opted
+                    // into offline filtering. The built-in downloader is not complete chain
+                    // state and must not be treated as a correctness requirement.
+                    if (AppSettings.Current.EnableOfflineFilter && !Core.FundedAddressFilter.HasBloomData())
                     {
                         try
                         {
@@ -1687,12 +1689,12 @@ namespace WalletRecoveryTool
             StatusTextBlock.Text = $"🔍 Random Recovery - Scanning {cryptoList} continuously (press Stop to end)...";
 
             // ⚡ BLOOM FILTER CHECK: Warn if no funded address data loaded (100x speed penalty)
-            if (!FundedAddressFilter.HasBloomData())
+            if (AppSettings.Current.EnableOfflineFilter && !FundedAddressFilter.HasBloomData())
             {
                 var bloomResult = MessageBox.Show(
-                    "⚠️ NO FUNDED ADDRESS BLOOM FILTER LOADED\n\n" +
-                    "Without a bloom filter, EVERY wallet requires an API call (~600/sec max).\n" +
-                    "With a bloom filter, 99.99% are skipped locally (~10,000+/sec).\n\n" +
+                    "⚠️ OFFLINE FILTER IS ENABLED BUT NO DATA IS LOADED\n\n" +
+                    "Without a filter, every candidate is verified by a live API.\n" +
+                    "The filter is optional and must be complete/current to avoid false negatives.\n\n" +
                     "To set up the bloom filter:\n" +
                     "1. Run download_funded_addresses.ps1 from the project folder\n" +
                     "   OR manually download from https://gz.blockchair.com/bitcoin/addresses/\n" +

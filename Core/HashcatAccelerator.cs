@@ -216,7 +216,7 @@ namespace WalletRecoveryTool.Core
 
                 Interlocked.Increment(ref _totalDerived);
 
-                // ===== STAGE 5: Bloom filter pre-check =====
+                // ===== STAGE 5: Optional bloom-filter pre-check =====
                 if (_bloomEnabled && !CheckBloomFilter(wallet, scanBitcoin, scanEthereum))
                 {
                     Interlocked.Increment(ref _bloomSkipped);

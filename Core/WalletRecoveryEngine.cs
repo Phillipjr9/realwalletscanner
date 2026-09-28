@@ -450,14 +450,11 @@ namespace WalletRecoveryTool.Core
                     bool hasBalance = false;
 
                     // Apply batch ETH result
-                    if (ethBalances != null && !string.IsNullOrEmpty(wallet.EthereumAddress))
+                    if (ethBalances != null && !string.IsNullOrEmpty(wallet.EthereumAddress) &&
+                        ethBalances.TryGetValue(wallet.EthereumAddress, out var ethBal))
                     {
-                        var ethAddr = wallet.EthereumAddress.ToLowerInvariant();
-                        if (ethBalances.TryGetValue(ethAddr, out var ethBal))
-                        {
-                            wallet.Balances["ETH"] = ethBal;
-                            if (ethBal > 0.00000001m) hasBalance = true;
-                        }
+                        wallet.Balances["ETH"] = ethBal;
+                        if (ethBal > 0.00000001m) hasBalance = true;
                     }
                     else if (options.ScanEthereum && !string.IsNullOrEmpty(wallet.EthereumAddress))
                     {
@@ -777,8 +774,8 @@ namespace WalletRecoveryTool.Core
                 speedMult > 1.1 ? $"🚀 Random Mnemonic Generation ({threadCount} threads, {speedMult:F1}x speed boost!)..."
                                 : $"🚀 Random Mnemonic Generation ({threadCount} threads)..."));
 
-            // Initialize bloom filters for pre-check (skip API calls for definitely-not-funded addresses)
-            // Works in both normal and StrictScanMode — bloom filter is always a pre-filter
+            // Initialize optional bloom filters for pre-check. Keep them opt-in: a
+            // partial address snapshot must never be treated as complete chain state.
             if (settings.EnableOfflineFilter)
             {
                 try

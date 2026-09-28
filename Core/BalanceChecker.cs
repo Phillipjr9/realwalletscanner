@@ -1370,33 +1370,41 @@ public class BalanceChecker
 		_ = (DateTime.Now - callStart).TotalMilliseconds;
 		if (restResponse.IsSuccessful && restResponse.Content != null)
 		{
-			dynamic jsonResp = JsonConvert.DeserializeObject(restResponse.Content);
-			string val = jsonResp?.result?.ToString();
-			if (!string.IsNullOrEmpty(val) && val != "0x")
+			var jsonResp = JObject.Parse(restResponse.Content);
+			// A JSON-RPC error is a provider failure, not a zero balance. Returning 0 here
+			// prevents GetEthereumBalance from trying its other providers and can hide funds.
+			if (jsonResp["error"] != null)
 			{
-				string val2 = val.StartsWith("0x") ? val.Substring(2) : val;
-				if (val2 == "0" || string.IsNullOrEmpty(val2))
-				{
-					AddToCache("ETH:" + address, 0m);
-					return default(decimal);
-				}
-				var val3 = BigInteger.Parse("0" + val2, NumberStyles.HexNumber);
-				decimal num = (decimal)val3 / 1000000000000000000m;
+				var errorText = jsonResp["error"]?.ToString();
+				DebugLogger.Log($"[ETH-RPC] {name} returned an RPC error: {TruncateResponse(errorText)}");
+				return null;
+			}
+
+			var val = jsonResp["result"]?.ToString();
+			if (string.IsNullOrWhiteSpace(val))
+			{
+				DebugLogger.Log($"[ETH-RPC] {name} returned no result");
+				return null;
+			}
+
+			var hex = val.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+				? val.Substring(2)
+				: val;
+			if (string.IsNullOrEmpty(hex)) return null;
+
+			try
+			{
+				var wei = BigInteger.Parse("0" + hex, NumberStyles.HexNumber);
+				decimal num = (decimal)wei / 1000000000000000000m;
 				DebugLogger.LogApi(name, "ETH/" + TruncateAddress(address), success: true, 0.0, $"Balance: {num}");
 				DebugLogger.LogBalanceCheck(address, "ETH", num, 0.0);
 				AddToCache("ETH:" + address, num);
 				return num;
 			}
-			if (val == "0x0" || val == "0x")
+			catch (FormatException)
 			{
-				AddToCache("ETH:" + address, 0m);
-				return default(decimal);
-			}
-			// Result is null/empty — RPC returned error or empty result. Treat as zero, not provider failure.
-			if (string.IsNullOrEmpty(val))
-			{
-				AddToCache("ETH:" + address, 0m);
-				return default(decimal);
+				DebugLogger.Log($"[ETH-RPC] {name} returned an invalid hex balance: {val}");
+				return null;
 			}
 		}
 		if (restResponse.StatusCode == HttpStatusCode.TooManyRequests)
@@ -2683,87 +2691,138 @@ public class BalanceChecker
 
 	public async Task<Dictionary<string, decimal>> GetEthereumBalancesBatch(List<string> addresses)
 	{
-		Dictionary<string, decimal> results = new Dictionary<string, decimal>();
+		// Use a case-insensitive dictionary: Ethereum addresses can be returned by a
+		// provider in checksum case while callers commonly normalize them to lowercase.
+		var results = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 		if (addresses == null || addresses.Count == 0)
-		{
 			return results;
-		}
-		List<string> uncachedAddresses = new List<string>();
-		foreach (string address in addresses)
+
+		var uniqueAddresses = addresses
+			.Where(a => !string.IsNullOrWhiteSpace(a))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		var uncachedAddresses = new List<string>();
+		var cacheExpiry = GetCacheExpiry();
+
+		foreach (var address in uniqueAddresses)
 		{
-			var cacheExpiry = GetCacheExpiry();
-			if (cacheExpiry > TimeSpan.Zero && _balanceCache.TryGetValue("ETH:" + address, out (decimal, DateTime) value) && DateTime.Now - value.Item2 < cacheExpiry)
+			var cacheKey = "ETH:" + address.ToLowerInvariant();
+			if (cacheExpiry > TimeSpan.Zero &&
+				_balanceCache.TryGetValue(cacheKey, out var cached) &&
+				DateTime.Now - cached.Item2 < cacheExpiry)
 			{
-				(results[address], _) = value;
+				results[address] = cached.Item1;
 			}
 			else
 			{
 				uncachedAddresses.Add(address);
 			}
 		}
+
 		if (uncachedAddresses.Count == 0)
-		{
 			return results;
-		}
-		if (_settings.UseLocalNodeForBalances && !string.IsNullOrWhiteSpace(_settings.LocalEthereumRpcUrl))
+
+		// Etherscan's balancemulti endpoint requires an API key. The previous code
+		// called it without one and returned an empty dictionary, which made the batch
+		// caller treat every ETH balance as zero. Use the same provider fallback chain
+		// as the single-address path when no key is configured.
+		if (_settings.UseLocalNodeForBalances || string.IsNullOrWhiteSpace(_settings.EtherscanApiKey))
 		{
-			foreach (string addr in uncachedAddresses)
+			foreach (var address in uncachedAddresses)
 			{
-				var localBalance = await TryGetEthereumBalanceFromLocalNode(addr, DateTime.Now);
-				results[addr] = localBalance ?? 0m;
+				if (_globalCancellationToken.IsCancellationRequested) break;
+				results[address] = await GetEthereumBalance(address).ConfigureAwait(false);
 			}
 			return results;
 		}
-		// Etherscan balancemulti supports up to 20 addresses per call.
-		// Process all uncached addresses in pages of 20 so nothing is silently dropped.
+
 		const int ethBatchSize = 20;
 		for (int offset = 0; offset < uncachedAddresses.Count; offset += ethBatchSize)
 		{
 			var page = uncachedAddresses.Skip(offset).Take(ethBatchSize).ToList();
+			var returned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			bool pageSucceeded = false;
+
 			try
 			{
-				await _apiThrottle.WaitAsync();
-				try
+				if (IsProviderAvailableWithReset(_etherscanCooldownUntil, ref _etherscanBackoffLevel))
 				{
-					await EnforceRateLimit();
-					string value2 = string.Join(",", page);
-					RestRequest request = new RestRequest("");
-					request.AddParameter("chainid", "1");
-					request.AddParameter("module", "account");
-					request.AddParameter("action", "balancemulti");
-					request.AddParameter("address", value2);
-					request.AddParameter("tag", "latest");
-					if (!string.IsNullOrEmpty(_settings.EtherscanApiKey))
+					await _apiThrottle.WaitAsync(_globalCancellationToken).ConfigureAwait(false);
+					try
 					{
+						await EnforceRateLimit().ConfigureAwait(false);
+						var request = new RestRequest("");
+						request.AddParameter("chainid", "1");
+						request.AddParameter("module", "account");
+						request.AddParameter("action", "balancemulti");
+						request.AddParameter("address", string.Join(",", page));
+						request.AddParameter("tag", "latest");
 						request.AddParameter("apikey", _settings.EtherscanApiKey);
-					}
-					RestResponse restResponse = await _etherscanClient.ExecuteAsync(request, _globalCancellationToken);
-					if (restResponse.IsSuccessful && restResponse.Content != null)
-					{
-						dynamic val = JsonConvert.DeserializeObject(restResponse.Content);
-						if (val.status == "1" && val.result != null)
+						ApiUsageTracker.RecordCall("Etherscan");
+
+						var response = await _etherscanClient.ExecuteAsync(request, _globalCancellationToken).ConfigureAwait(false);
+						if (response.IsSuccessful && !string.IsNullOrWhiteSpace(response.Content))
 						{
-							foreach (dynamic item in val.result)
+							var json = JObject.Parse(response.Content);
+							if (json["status"]?.ToString() == "1" && json["result"] is JArray rows)
 							{
-								dynamic val2 = item.account.ToString();
-								dynamic val3 = decimal.Parse(item.balance.ToString());
-								dynamic val4 = val3 / 1000000000000000000m;
-								results[val2] = val4;
-								_balanceCache[$"ETH:{(object)val2}"] = (val4, DateTime.Now);
+								foreach (var row in rows)
+								{
+									var account = row["account"]?.ToString();
+									var rawBalance = row["balance"]?.ToString();
+									if (string.IsNullOrWhiteSpace(account) ||
+										!decimal.TryParse(rawBalance, NumberStyles.Integer, CultureInfo.InvariantCulture, out var wei))
+										continue;
+
+									var balance = wei / 1000000000000000000m;
+									var normalized = account.ToLowerInvariant();
+									results[normalized] = balance;
+									returned.Add(normalized);
+									_balanceCache["ETH:" + normalized] = (balance, DateTime.Now);
+								}
+								pageSucceeded = returned.Count > 0 || page.Count == 0;
+							}
+							else
+							{
+								var message = json["message"]?.ToString() ?? "unknown response";
+								DebugLogger.Log($"[ETH] Etherscan batch rejected: {message}");
+								if (message.Contains("rate", StringComparison.OrdinalIgnoreCase) ||
+									message.Contains("limit", StringComparison.OrdinalIgnoreCase) ||
+									json["status"]?.ToString() == "0")
+								{
+									SetProviderCooldown(ref _etherscanCooldownUntil, ref _etherscanBackoffLevel, "Etherscan");
+								}
 							}
 						}
 					}
+					finally
+					{
+						_apiThrottle.Release();
+					}
 				}
-				finally
+				else
 				{
-					_apiThrottle.Release();
+					DebugLogger.Log("[ETH] Etherscan batch provider is on cooldown; using RPC fallback");
 				}
 			}
 			catch (Exception ex)
 			{
 				DebugLogger.Log("Error in batch Ethereum balance check: " + ex.Message);
 			}
+
+			// Never assume omitted rows are zero. A partial/failed batch response must
+			// be completed through the single-address fallback chain.
+			if (!pageSucceeded || returned.Count < page.Count)
+			{
+				foreach (var address in page)
+				{
+					if (returned.Contains(address)) continue;
+					if (_globalCancellationToken.IsCancellationRequested) break;
+					results[address] = await GetEthereumBalance(address).ConfigureAwait(false);
+				}
+			}
 		}
+
 		return results;
 	}
 

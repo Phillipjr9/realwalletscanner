@@ -332,10 +332,15 @@ namespace WalletRecoveryTool.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool MightBeFunded(string address)
         {
-            // NOTE: StrictScanMode does NOT bypass this filter — the bloom filter is always used as a pre-filter.
-            // StrictScanMode only means we verify any MATCH via live API (never skip a positive hit).
-            if (!_isLoaded || _bitArray == null) return true; // If no filter loaded, assume all could be funded (fall back to API)
+            // A bloom filter built from a snapshot is not proof that an address is empty:
+            // addresses funded after the snapshot are absent by definition. Only use it as
+            // a hard gate when the user explicitly enables the opt-in setting.
+            if (!AppSettings.Current.EnableOfflineFilter ||
+                AppSettings.Current.StrictScanMode ||
+                !_isLoaded || _bitArray == null)
+                return true; // No trusted filter: fall back to the live API
 
+            if (string.IsNullOrWhiteSpace(address)) return false;
             var hashes = GetHashes(address);
 
             _lock.EnterReadLock();
@@ -359,8 +364,10 @@ namespace WalletRecoveryTool.Core
         /// </summary>
         public List<string> FilterPotentiallyFunded(List<string> addresses)
         {
-            // NOTE: StrictScanMode does NOT bypass this filter — see MightBeFunded note above.
-            if (!_isLoaded) return addresses; // No filter → check all via API
+            if (addresses == null || addresses.Count == 0) return addresses ?? new List<string>();
+            if (!AppSettings.Current.EnableOfflineFilter ||
+                AppSettings.Current.StrictScanMode || !_isLoaded)
+                return addresses; // No trusted filter: check every address via the live API
 
             return addresses.Where(MightBeFunded).ToList();
         }
@@ -548,7 +555,11 @@ namespace WalletRecoveryTool.Core
         /// </summary>
         public void MarkAsEmpty(string address)
         {
-            if (string.IsNullOrEmpty(address) || !_isLoaded || _bitArray == null || AppSettings.Current.StrictScanMode) return;
+            // A bloom filter has false positives. It is therefore unsafe to use for a
+            // "known empty" negative cache: a false positive would skip a real balance.
+            if (!AppSettings.Current.EnableEmptyAddressCache ||
+                string.IsNullOrEmpty(address) || !_isLoaded || _bitArray == null ||
+                AppSettings.Current.StrictScanMode) return;
 
             // Warn if bloom filter is at/over capacity (false positive rate degrades sharply)
             if (_expectedCapacity > 0 && _addressCount >= _expectedCapacity)
@@ -598,8 +609,10 @@ namespace WalletRecoveryTool.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsKnownEmpty(string address)
         {
-            if (AppSettings.Current.StrictScanMode) return false;
-            if (!_isLoaded || _bitArray == null || _addressCount == 0) return false;
+            if (!AppSettings.Current.EnableEmptyAddressCache ||
+                AppSettings.Current.StrictScanMode) return false;
+            if (string.IsNullOrWhiteSpace(address) ||
+                !_isLoaded || _bitArray == null || _addressCount == 0) return false;
 
             var hashes = GetHashes(address);
             _lock.EnterReadLock();

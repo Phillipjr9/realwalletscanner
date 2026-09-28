@@ -81,7 +81,14 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
         public bool EnableMultiLanguageBrainWallets { get; set; } = true; // Brain wallets in Japanese, Spanish, Chinese, etc.
         
         // OFFLINE FUNDED ADDRESS FILTER - Pre-filter addresses locally before API calls
-        public bool EnableOfflineFilter { get; set; } = true; // Enable bloom filter pre-filtering when a meaningful dataset is available
+        // An address list is a useful hint, but an incomplete snapshot must never be used
+        // as proof that an address is empty. Keep this opt-in because the built-in downloader
+        // only retrieves a small/top-address sample, not the complete chain state.
+        public bool EnableOfflineFilter { get; set; } = false;
+        // Bloom filters cannot safely represent a negative result: false positives would
+        // incorrectly classify a funded address as empty. Keep the learned-empty shortcut off
+        // unless the operator accepts that trade-off.
+        public bool EnableEmptyAddressCache { get; set; } = false;
         
         // Update settings
         public DateTime LastUpdateCheck { get; set; } = DateTime.MinValue; // Last time we checked for updates
@@ -287,6 +294,8 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
                     QuickScanMode = this.QuickScanMode,
                     StrictScanMode = this.StrictScanMode,
                     ValidateAddressesBeforeCheck = this.ValidateAddressesBeforeCheck,
+                    EnableOfflineFilter = this.EnableOfflineFilter,
+                    EnableEmptyAddressCache = this.EnableEmptyAddressCache,
                     TurboMode = this.TurboMode,
                     UseHashcatPipeline = this.UseHashcatPipeline,
                     HashcatBatchSize = this.HashcatBatchSize,
@@ -322,6 +331,12 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
                     ScanIncrementalMnemonics = this.ScanIncrementalMnemonics,
                     PrioritizeHighValuePrefixes = this.PrioritizeHighValuePrefixes,
                     SmartHuntingMaxAttempts = this.SmartHuntingMaxAttempts,
+                    EnableMultiAccountScan = this.EnableMultiAccountScan,
+                    EnablePassphraseScan = this.EnablePassphraseScan,
+                    EnableERC20Scan = this.EnableERC20Scan,
+                    EnableChangeAddresses = this.EnableChangeAddresses,
+                    EnableCrossChainEVM = this.EnableCrossChainEVM,
+                    EnableMultiLanguageBrainWallets = this.EnableMultiLanguageBrainWallets,
                     
                     // Update settings
                     LastUpdateCheck = this.LastUpdateCheck,
@@ -382,7 +397,8 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
                     WalletPreset = this.WalletPreset,
                     CustomDerivationPaths = this.CustomDerivationPaths != null 
                         ? new List<string>(this.CustomDerivationPaths) 
-                        : new List<string>()
+                        : new List<string>(),
+                    CustomBrainWalletListPath = this.CustomBrainWalletListPath
                 };
 
                 var json = JsonSerializer.Serialize(settingsToSave, new JsonSerializerOptions { WriteIndented = true });

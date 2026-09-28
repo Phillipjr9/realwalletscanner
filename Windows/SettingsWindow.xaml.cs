@@ -22,6 +22,7 @@ namespace WalletRecoveryTool
         private System.Windows.Controls.CheckBox _skipEmptyCheckBox;
         private System.Windows.Controls.CheckBox _quickScanCheckBox;
         private System.Windows.Controls.CheckBox _strictScanModeCheckBox;
+        private System.Windows.Controls.CheckBox _enableOfflineFilterCheckBox;
         private System.Windows.Controls.CheckBox _validateAddressesCheckBox;
         private System.Windows.Controls.CheckBox _logAllWalletsCheckBox;
         private System.Windows.Controls.ComboBox _exportFormatComboBox;
@@ -50,6 +51,7 @@ namespace WalletRecoveryTool
                 _skipEmptyCheckBox = FindName("SkipEmptyCheckBox") as System.Windows.Controls.CheckBox;
                 _quickScanCheckBox = FindName("QuickScanCheckBox") as System.Windows.Controls.CheckBox;
                 _strictScanModeCheckBox = FindName("StrictScanModeCheckBox") as System.Windows.Controls.CheckBox;
+                _enableOfflineFilterCheckBox = FindName("EnableOfflineFilterCheckBox") as System.Windows.Controls.CheckBox;
                 _validateAddressesCheckBox = FindName("ValidateAddressesCheckBox") as System.Windows.Controls.CheckBox;
                 _logAllWalletsCheckBox = FindName("LogAllWalletsCheckBox") as System.Windows.Controls.CheckBox;
                 _exportFormatComboBox = FindName("ExportFormatComboBox") as System.Windows.Controls.ComboBox;
@@ -115,6 +117,8 @@ namespace WalletRecoveryTool
                 _quickScanCheckBox.IsChecked = _settings.QuickScanMode;
             if (_strictScanModeCheckBox != null)
                 _strictScanModeCheckBox.IsChecked = _settings.StrictScanMode;
+            if (_enableOfflineFilterCheckBox != null)
+                _enableOfflineFilterCheckBox.IsChecked = _settings.EnableOfflineFilter;
             if (_validateAddressesCheckBox != null)
                 _validateAddressesCheckBox.IsChecked = _settings.ValidateAddressesBeforeCheck;
             if (_logAllWalletsCheckBox != null)
@@ -231,6 +235,8 @@ namespace WalletRecoveryTool
                 _settings.QuickScanMode = _quickScanCheckBox.IsChecked == true;
             if (_strictScanModeCheckBox != null)
                 _settings.StrictScanMode = _strictScanModeCheckBox.IsChecked == true;
+            if (_enableOfflineFilterCheckBox != null)
+                _settings.EnableOfflineFilter = _enableOfflineFilterCheckBox.IsChecked == true;
             if (_validateAddressesCheckBox != null)
                 _settings.ValidateAddressesBeforeCheck = _validateAddressesCheckBox.IsChecked == true;
             if (_logAllWalletsCheckBox != null)
@@ -615,13 +621,13 @@ namespace WalletRecoveryTool
                 if (FindName("BTCFilterStatusText") is System.Windows.Controls.TextBlock btcStatus)
                 {
                     btcStatus.Text = FundedAddressFilter.BTC.IsLoaded
-                        ? $"{FundedAddressFilter.BTC.AddressCount:N0} addresses loaded"
+                        ? $"{FundedAddressFilter.BTC.AddressCount:N0} addresses loaded ({(_settings.EnableOfflineFilter ? "active" : "inactive")})"
                         : "No filter loaded";
                 }
                 if (FindName("ETHFilterStatusText") is System.Windows.Controls.TextBlock ethStatus)
                 {
                     ethStatus.Text = FundedAddressFilter.ETH.IsLoaded
-                        ? $"{FundedAddressFilter.ETH.AddressCount:N0} addresses loaded"
+                        ? $"{FundedAddressFilter.ETH.AddressCount:N0} addresses loaded ({(_settings.EnableOfflineFilter ? "active" : "inactive")})"
                         : "No filter loaded";
                 }
             }
@@ -676,8 +682,8 @@ namespace WalletRecoveryTool
                         $"{displayName} addresses imported successfully!\n\n" +
                         $"Files ({importedFiles.Count}):\n  {fileList}\n\n" +
                         $"Total loaded: {count:N0} addresses\n\n" +
-                        $"Offline pre-filtering is now enabled for {displayName}.\n" +
-                        "The scanner will check addresses locally at 50,000+/sec before making API calls.",
+                        "The dataset is ready for optional offline filtering.\n" +
+                        "Leave the offline-filter checkbox off unless this is a complete, current dataset; otherwise it can miss newer funded addresses.",
                         "Import Success",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);

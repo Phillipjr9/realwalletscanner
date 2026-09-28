@@ -143,6 +143,8 @@
                         <CheckBox x:Name="QuickScanCheckBox" Content="Quick scan mode" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
                         <CheckBox x:Name="StrictScanModeCheckBox" Content="Strict Scan Mode (Comprehensive - Disables all optimizations)" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource AccentCyan}" FontWeight="SemiBold"/>
                         <TextBlock Text="⚠️ Strict mode ensures no funded wallets are missed by disabling speed optimizations. Slightly slower but MUCH safer." Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                        <CheckBox x:Name="EnableOfflineFilterCheckBox" Content="Use offline funded-address filter (faster, but incomplete snapshots can miss current funds)" Style="{StaticResource CryptoCheckBox}"/>
+                        <TextBlock Text="Leave this off unless your imported dataset is complete and current. The built-in downloader only fetches a sample." Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,8"/>
                         <CheckBox x:Name="ValidateAddressesCheckBox" Content="Validate addresses before API calls" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
                         <CheckBox x:Name="LogAllWalletsCheckBox" Content="Log ALL checked wallets (verbose)" IsChecked="False" Style="{StaticResource CryptoCheckBox}"/>
 
@@ -228,7 +230,7 @@
                     <StackPanel>
                         <TextBlock Text="FUNDED ADDRESS FILTERS" Style="{StaticResource SectionHeader}"/>
 
-                        <TextBlock Text="Import funded address lists to enable offline pre-filtering (50,000+ checks/sec locally). Supports .txt files with one address per line, or .tsv/.csv from Blockchair dumps." 
+                        <TextBlock Text="Import funded address lists for optional offline pre-filtering. Supports .txt files with one address per line, or .tsv/.csv from Blockchair dumps. Only enable it for a complete, current dataset; incomplete snapshots can miss funded addresses."
                                    Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
                         <!-- BTC Filter Status + Import -->
