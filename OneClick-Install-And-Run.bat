@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title CodeHaven Wallet Recovery Workstation - One-Click Windows Installer & Launcher
+title CodeHaven Wallet Recovery Workstation - One-Click Windows Installer and Launcher
 color 0B
 
 echo ============================================================================
@@ -40,6 +40,10 @@ if not exist "%INSTALL_DIR%\smtp.local.json" (
     echo       SMTP configuration saved locally.
 ) else (
     echo [1/4] Existing SMTP profile detected in %INSTALL_DIR%\smtp.local.json
+    copy /Y "%INSTALL_DIR%\smtp.local.json" "%REPO_DIR%smtp.local.json" >nul 2>&1
+    if exist "%REPO_DIR%WebWorkstation" (
+        copy /Y "%INSTALL_DIR%\smtp.local.json" "%REPO_DIR%WebWorkstation\smtp_config.json" >nul 2>&1
+    )
 )
 
 REM ----------------------------------------------------------------------------
@@ -81,22 +85,11 @@ if exist "%REPO_DIR%WebWorkstation" (
 )
 
 REM ----------------------------------------------------------------------------
-REM STEP 3: Create Desktop & Start Menu One-Click Shortcuts
+REM STEP 3: Create Desktop and Start Menu One-Click Shortcuts
 REM ----------------------------------------------------------------------------
 echo.
 echo [3/4] Creating Desktop and Start Menu shortcuts...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ws = New-Object -ComObject WScript.Shell; ^
-   $desktop = [Environment]::GetFolderPath('Desktop'); ^
-   $startMenu = [Environment]::GetFolderPath('Programs'); ^
-   foreach ($dir in @($desktop, $startMenu)) { ^
-     $lnk = $ws.CreateShortcut((Join-Path $dir 'Wallet Recovery Workstation.lnk')); ^
-     $lnk.TargetPath = '%INSTALL_DIR%\WalletRecoveryTool.exe'; ^
-     $lnk.WorkingDirectory = '%INSTALL_DIR%'; ^
-     if (Test-Path '%INSTALL_DIR%\wallet.ico') { $lnk.IconLocation = '%INSTALL_DIR%\wallet.ico'; } ^
-     $lnk.Description = 'CodeHaven Quantum Wallet Recovery Workstation'; ^
-     $lnk.Save(); ^
-   }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { $lnk = $ws.CreateShortcut((Join-Path $dir 'Wallet Recovery Workstation.lnk')); $lnk.TargetPath = '%INSTALL_DIR%\WalletRecoveryTool.exe'; $lnk.WorkingDirectory = '%INSTALL_DIR%'; if (Test-Path '%INSTALL_DIR%\wallet.ico') { $lnk.IconLocation = '%INSTALL_DIR%\wallet.ico'; }; $lnk.Description = 'CodeHaven Quantum Wallet Recovery Workstation'; $lnk.Save(); }"
 echo       Desktop shortcut created: "Wallet Recovery Workstation"
 
 REM ----------------------------------------------------------------------------
@@ -129,10 +122,7 @@ if exist "%INSTALL_DIR%\WalletRecoveryTool.exe" (
     exit /b 0
 ) else (
     echo.
-    echo Launching Web Workstation directly...
-    where node >nul 2>&1
-    if %ERRORLEVEL% EQU 0 (
-        start "" "http://localhost:3000"
-    )
+    echo ERROR: WalletRecoveryTool.exe was not produced. Check compiler output above.
     pause
+    exit /b 1
 )
