@@ -261,24 +261,64 @@ namespace WalletRecoveryTool.Core
             var scanner = new ForensicWalletRecovery();
             var result = new RecoveryResult { JobId = job.JobId, Method = job.Method };
 
-            var mnemonics = new List<string>();
-            // ExtractFromBrowser requires BrowserType parameter
-            var chromeWallets = await scanner.ExtractFromBrowser(ForensicWalletRecovery.BrowserType.Chrome);
-            if (chromeWallets != null)
-                mnemonics.AddRange(chromeWallets.SelectMany(w => w.FoundMnemonics ?? Enumerable.Empty<string>()));
-            
-            var walletFiles = scanner.ScanForWalletFiles();
-            // ScanForWalletFiles returns List<WalletFile>, not strings
-            // mnemonics.AddRange(scanner.ScanForWalletFiles());
+            var mnemonics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var privateKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            result.Success = mnemonics.Count > 0;
-            if (result.Success)
+            // Scan all major browsers (Chrome, Brave, Edge, Opera, Firefox)
+            foreach (ForensicWalletRecovery.BrowserType browser in Enum.GetValues(typeof(ForensicWalletRecovery.BrowserType)))
             {
-                result.FoundMnemonic = mnemonics.First();
-                result.Metadata["FoundCount"] = mnemonics.Count;
+                cancellationToken.ThrowIfCancellationRequested();
+                var browserWallets = await scanner.ExtractFromBrowser(browser);
+                if (browserWallets != null)
+                {
+                    foreach (var w in browserWallets)
+                    {
+                        if (w.FoundMnemonics != null)
+                        {
+                            foreach (var m in w.FoundMnemonics.Where(m => !MnemonicTracker.IsRestrictedTrivialMnemonic(m)))
+                                mnemonics.Add(m);
+                        }
+                        if (w.FoundPrivateKeys != null)
+                        {
+                            foreach (var k in w.FoundPrivateKeys)
+                                privateKeys.Add(k);
+                        }
+                    }
+                }
             }
 
-            return await Task.FromResult(result);
+            // Scan disk for wallet files and extract mnemonics from readable text/backup files
+            var walletFiles = scanner.ScanForWalletFiles();
+            foreach (var wf in walletFiles.Where(f => !f.IsEncrypted && f.FileSize > 0 && f.FileSize <= 2 * 1024 * 1024))
+            {
+                try
+                {
+                    var text = System.IO.File.ReadAllText(wf.FilePath);
+                    foreach (var m in scanner.ExtractMnemonicsFromText(text))
+                    {
+                        if (!MnemonicTracker.IsRestrictedTrivialMnemonic(m))
+                            mnemonics.Add(m);
+                    }
+                    foreach (var k in scanner.ExtractPrivateKeysFromText(text))
+                        privateKeys.Add(k);
+                }
+                catch { }
+            }
+
+            result.Success = mnemonics.Count > 0 || privateKeys.Count > 0 || walletFiles.Count > 0;
+            if (mnemonics.Count > 0)
+            {
+                result.FoundMnemonic = mnemonics.First();
+            }
+            if (privateKeys.Count > 0)
+            {
+                result.FoundPrivateKey = privateKeys.First();
+            }
+            result.Metadata["FoundCount"] = mnemonics.Count;
+            result.Metadata["PrivateKeyCount"] = privateKeys.Count;
+            result.Metadata["WalletFileCount"] = walletFiles.Count;
+
+            return result;
         }
 
         private async Task<RecoveryResult> ExecuteWalletFingerprinting(RecoveryJob job, CancellationToken cancellationToken)
@@ -334,23 +374,27 @@ namespace WalletRecoveryTool.Core
             var recovery = new IntelligentMnemonicRecovery();
             var result = new RecoveryResult { JobId = job.JobId, Method = job.Method };
 
-            var partialMnemonic = job.Parameters["partialMnemonic"] as string;
-            var address = job.Parameters["address"] as string;
-            var walletHint = job.Parameters.ContainsKey("walletHint") ? job.Parameters["walletHint"] as string : null;
+            var partialMnemonic = job.Parameters.TryGetValue("partialMnemonic", out var pmObj) ? pmObj as string : null;
+            var address = job.Parameters.TryGetValue("address", out var addrObj) ? addrObj as string : null;
+            var walletHint = job.Parameters.TryGetValue("walletHint", out var whObj) ? whObj as string : null;
+
+            if (string.IsNullOrWhiteSpace(partialMnemonic))
+            {
+                result.ErrorMessage = "Missing 'partialMnemonic' parameter";
+                return result;
+            }
 
             // Parse partial mnemonic into dictionary format
             var knownWords = new Dictionary<int, string>();
-            var words = partialMnemonic?.Split(' ');
-            if (words != null)
+            var words = partialMnemonic.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < words.Length; i++)
             {
-                for (int i = 0; i < words.Length; i++)
-                {
-                    if (!string.IsNullOrWhiteSpace(words[i]) && words[i] != "?")
-                        knownWords[i] = words[i];
-                }
+                if (!string.IsNullOrWhiteSpace(words[i]) && words[i] != "?" && words[i] != "_" && words[i] != "*")
+                    knownWords[i] = words[i];
             }
 
-            var recoveryResult = await recovery.SmartWordPrediction(knownWords, 12, walletHint, null, address, cancellationToken);
+            int totalWords = words.Length == 24 ? 24 : 12;
+            var recoveryResult = await recovery.SmartWordPrediction(knownWords, totalWords, walletHint, null, address, cancellationToken);
 
             result.Success = recoveryResult != null && !string.IsNullOrEmpty(recoveryResult.Mnemonic);
             if (result.Success)
@@ -359,7 +403,7 @@ namespace WalletRecoveryTool.Core
                 result.AttemptsCount = recoveryResult.AttemptsRequired;
             }
 
-            return await Task.FromResult(result);
+            return result;
         }
 
         private async Task<RecoveryResult> ExecuteBlockchainAnalysis(RecoveryJob job, CancellationToken cancellationToken)
@@ -367,13 +411,22 @@ namespace WalletRecoveryTool.Core
             var analyzer = new BlockchainPatternAnalyzer();
             var result = new RecoveryResult { JobId = job.JobId, Method = job.Method };
 
-            var address = job.Parameters["address"] as string;
+            var address = job.Parameters.TryGetValue("address", out var addrObj) ? addrObj as string : null;
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                result.ErrorMessage = "Missing 'address' parameter";
+                return result;
+            }
+
             var metadata = await analyzer.AnalyzeWalletBehavior(address);
 
             result.Success = metadata != null;
-            result.Metadata["WalletSoftware"] = metadata.LikelyWalletSoftware;
-            result.Metadata["DerivationPath"] = metadata.DerivationPathHint;
-            result.Metadata["TransactionCount"] = metadata.TransactionCount;
+            if (metadata != null)
+            {
+                result.Metadata["WalletSoftware"] = metadata.LikelyWalletSoftware;
+                result.Metadata["DerivationPath"] = metadata.DerivationPathHint;
+                result.Metadata["TransactionCount"] = metadata.TransactionCount;
+            }
 
             return result;
         }
@@ -382,7 +435,13 @@ namespace WalletRecoveryTool.Core
         {
             var result = new RecoveryResult { JobId = job.JobId, Method = job.Method };
 
-            var mnemonic = job.Parameters["mnemonic"] as string;
+            var mnemonic = job.Parameters.TryGetValue("mnemonic", out var mnObj) ? mnObj as string : null;
+            if (string.IsNullOrWhiteSpace(mnemonic))
+            {
+                result.ErrorMessage = "Missing 'mnemonic' parameter";
+                return result;
+            }
+
             var correctionResult = AdvancedTypoCorrection.AutoCorrectMnemonic(mnemonic);
 
             result.Success = correctionResult.IsValid;
@@ -400,9 +459,15 @@ namespace WalletRecoveryTool.Core
             var gpu = new GPUAccelerator();
             var result = new RecoveryResult { JobId = job.JobId, Method = job.Method };
 
-            var partialMnemonic = job.Parameters["partialMnemonic"] as string;
-            var address = job.Parameters["address"] as string;
-            var maxAttempts = job.Parameters.ContainsKey("maxAttempts") ? (int)job.Parameters["maxAttempts"] : 1000000;
+            var partialMnemonic = job.Parameters.TryGetValue("partialMnemonic", out var pmObj) ? pmObj as string : null;
+            var address = job.Parameters.TryGetValue("address", out var addrObj) ? addrObj as string : null;
+            var maxAttempts = job.Parameters.TryGetValue("maxAttempts", out var maObj) && maObj is int ma ? ma : 1000000;
+
+            if (string.IsNullOrWhiteSpace(partialMnemonic))
+            {
+                result.ErrorMessage = "Missing 'partialMnemonic' parameter";
+                return result;
+            }
 
             var foundMnemonics = await gpu.AcceleratedMnemonicSearch(partialMnemonic, address, maxAttempts, (count) =>
             {

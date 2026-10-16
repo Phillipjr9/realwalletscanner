@@ -1,0 +1,2106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CodeHaven Quantum Wallet Recovery Suite — Institutional Workstation</title>
+<style>
+  :root {
+    --bg-canvas: #080A0F;
+    --bg-sidebar: #0C0F17;
+    --bg-card: #10141F;
+    --bg-elevated: #161B29;
+    --bg-input: #0A0D14;
+    --border-hairline: #1C2333;
+    --border-subtle: #252E42;
+    --border-focus: #38BDF8;
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --accent-primary: #38BDF8;
+    --accent-indigo: #818CF8;
+    --accent-emerald: #10B981;
+    --accent-amber: #F59E0B;
+    --accent-rose: #F43F5E;
+    --btc-color: #F7931A;
+    --eth-color: #627EEA;
+    --sol-color: #14F195;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ═══════════════════════ LEFT ARCHITECTURAL SIDEBAR ═══════════════════════ */
+  .sidebar {
+    width: 228px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-hairline);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .brand-header {
+    height: 58px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-hairline);
+    display: flex;
+    align-items: center;
+    gap: 11px;
+  }
+
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.16) 0%, rgba(129, 140, 248, 0.16) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .brand-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+
+  .brand-sub {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .nav-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .nav-group-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 0 10px 4px;
+  }
+
+  .nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .tab-btn {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    text-align: left;
+  }
+
+  .tab-btn-left {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .tab-btn svg {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+    opacity: 0.8;
+    flex-shrink: 0;
+  }
+
+  .tab-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .tab-btn.active {
+    color: #FFFFFF;
+    background: rgba(56, 189, 248, 0.1);
+    border-color: rgba(56, 189, 248, 0.25);
+    font-weight: 600;
+  }
+
+  .tab-btn.active svg {
+    stroke: var(--accent-primary);
+    opacity: 1;
+  }
+
+  .nav-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+  }
+
+  /* Sidebar Brain Status Card */
+  .sidebar-brain-box {
+    margin: 10px;
+    padding: 12px;
+    border-radius: 9px;
+    background: linear-gradient(180deg, rgba(129, 140, 248, 0.08) 0%, rgba(16, 20, 31, 0.9) 100%);
+    border: 1px solid rgba(129, 140, 248, 0.22);
+  }
+
+  .sb-brain-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .sb-brain-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #C7D2FE;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-emerald);
+    box-shadow: 0 0 8px var(--accent-emerald);
+  }
+
+  /* ═══════════════════════ MAIN CONTENT SHELL ═══════════════════════ */
+  .main-shell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100vh;
+  }
+
+  /* Single Clean Top Bar */
+  .topbar {
+    height: 58px;
+    background: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-hairline);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .view-title {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* Unified Inline Telemetry Metrics */
+  .metrics-strip {
+    display: flex;
+    align-items: center;
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+
+  .metric-item {
+    padding: 3px 12px;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    border-right: 1px solid var(--border-hairline);
+  }
+
+  .metric-item:last-child {
+    border-right: none;
+  }
+
+  .metric-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+
+  .metric-val {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Buttons */
+  .btn {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .btn:hover {
+    border-color: #3B4966;
+    background: #1D2436;
+  }
+
+  .btn-primary {
+    background: #0284C7;
+    border-color: #38BDF8;
+    color: #FFFFFF;
+  }
+
+  .btn-primary:hover {
+    background: #0369A1;
+  }
+
+  .btn-emerald {
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: #34D399;
+  }
+
+  .btn-emerald:hover {
+    background: rgba(16, 185, 129, 0.22);
+  }
+
+  .btn-danger {
+    background: rgba(244, 63, 94, 0.1);
+    border-color: rgba(244, 63, 94, 0.35);
+    color: #FB7185;
+  }
+
+  .btn-danger:hover {
+    background: rgba(244, 63, 94, 0.18);
+  }
+
+  /* Badges */
+  .pill {
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+
+  .pill-cyan { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.28); color: #7DD3FC; }
+  .pill-emerald { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.28); color: #6EE7B7; }
+  .pill-indigo { background: rgba(129, 140, 248, 0.12); border: 1px solid rgba(129, 140, 248, 0.3); color: #C7D2FE; }
+  .pill-amber { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.28); color: #FCD34D; }
+
+  /* ═══════════════════════ WORKSPACE AREA ═══════════════════════ */
+  .workspace {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    min-height: 0;
+  }
+
+  .tab-pane {
+    display: none;
+    height: 100%;
+  }
+
+  .tab-pane.active {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .layout-sidebar-main {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .layout-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-hairline);
+    flex-shrink: 0;
+  }
+
+  .card-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-secondary);
+  }
+
+  .card-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+
+  /* Checkboxes & Form Controls */
+  .check-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 5px;
+  }
+
+  .check-row:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .check-row input {
+    accent-color: var(--accent-primary);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  .chain-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  .chain-chip {
+    background: var(--bg-input);
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    padding: 5px 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .divider {
+    height: 1px;
+    background: var(--border-hairline);
+    margin: 12px 0;
+    flex-shrink: 0;
+  }
+
+  .input-box, textarea.input-box {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-size: 12.5px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .input-box:focus {
+    border-color: var(--border-focus);
+  }
+
+  /* Cognitive Brain Telemetry Banner inside Smart Hunter */
+  .brain-banner {
+    background: linear-gradient(90deg, rgba(129, 140, 248, 0.07) 0%, rgba(56, 189, 248, 0.05) 100%);
+    border: 1px solid rgba(129, 140, 248, 0.22);
+    border-radius: 9px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .brain-thought-line {
+    font-size: 11.5px;
+    color: #E0E7FF;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  /* Clean Data Tables */
+  .table-container {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    background: var(--bg-input);
+    min-height: 0;
+  }
+
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    table-layout: fixed;
+  }
+
+  table.data-table th {
+    position: sticky;
+    top: 0;
+    background: #0D111A;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border-hairline);
+    z-index: 2;
+  }
+
+  table.data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(28, 35, 51, 0.65);
+    color: #CBD5E1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  table.data-table tr:hover td {
+    background: rgba(56, 189, 248, 0.05);
+  }
+
+  table.data-table tr.row-hit td {
+    background: rgba(16, 185, 129, 0.12) !important;
+    color: #A7F3D0;
+  }
+
+  /* ═══════════════════════ COMPACT BOTTOM LIVE TICKER BAR ═══════════════════════ */
+  .bottom-ticker {
+    height: 38px;
+    background: var(--bg-sidebar);
+    border-top: 1px solid var(--border-hairline);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .ticker-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .ticker-seed {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .ticker-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  /* Strategy Arm Progress Bars */
+  .arm-row {
+    background: var(--bg-input);
+    border: 1px solid var(--border-hairline);
+    border-radius: 7px;
+    padding: 9px 12px;
+    margin-bottom: 7px;
+  }
+
+  .arm-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+
+  .bar-track {
+    width: 100%;
+    height: 5px;
+    background: #1A2130;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #818CF8, #38BDF8);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  /* Modals */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 7, 12, 0.78);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-backdrop.open { display: flex; }
+
+  .modal-window {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    width: 780px;
+    max-width: 92vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+    overflow: hidden;
+  }
+
+  .modal-header {
+    height: 52px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--border-hairline);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ═══════════════════════ LEFT NAVIGATION SIDEBAR ═══════════════════════ -->
+  <aside class="sidebar">
+    <div class="brand-header">
+      <div class="brand-logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <circle cx="12" cy="11" r="2.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">CODEHAVEN</div>
+        <div class="brand-sub">Quantum Recovery v2.3</div>
+      </div>
+    </div>
+
+    <div class="nav-scroll">
+      <div>
+        <div class="nav-group-label">Recovery Engines</div>
+        <div class="nav-list">
+          <button class="tab-btn active" data-tab="Smart" data-title="Multi-Vector Smart Hunter" onclick="switchTab('Smart')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 3"/></svg>
+              <span>Smart Hunter</span>
+            </span>
+            <span class="nav-badge" style="color:#34D399;">AI</span>
+          </button>
+
+          <button class="tab-btn" onclick="openModal('settingsModal')" style="border:1px solid rgba(16,185,129,0.45); background:rgba(16,185,129,0.12);">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <span style="color:#34D399; font-weight:700;">⚙️ Settings &amp; SMTP</span>
+            </span>
+            <span class="nav-badge" style="color:#34D399;">ON</span>
+          </button>
+
+          <button class="tab-btn" data-tab="BrainEngine" data-title="Cognitive Self-Learning Brain Engine" onclick="switchTab('BrainEngine')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 3 2 5 4 6v3h6v-3c2-1 4-3 4-6a7 7 0 0 0-7-7z"/><path d="M9 21h6"/></svg>
+              <span>Cognitive Brain</span>
+            </span>
+            <span id="NavBrainGenBadge" class="nav-badge" style="color:#C7D2FE;">v1.1</span>
+          </button>
+
+          <button class="tab-btn" data-tab="Random" data-title="CSPRNG High-Entropy Scanner" onclick="switchTab('Random')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.2"/><circle cx="15.5" cy="15.5" r="1.2"/><circle cx="12" cy="12" r="1.2"/></svg>
+              <span>CSPRNG Stream</span>
+            </span>
+          </button>
+
+          <button class="tab-btn" data-tab="Brain" data-title="Brainwallet Passphrase Scanner" onclick="switchTab('Brain')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              <span>Brainwallets</span>
+            </span>
+          </button>
+
+          <button class="tab-btn" data-tab="Key" data-title="256-Bit Hex Private Key Sweep" onclick="switchTab('Key')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              <span>Private Key Sweep</span>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div class="nav-group-label">Reconstruction &amp; Repair</div>
+        <div class="nav-list">
+          <button class="tab-btn" data-tab="Mnemonic" data-title="Partial Mnemonic &amp; Checksum Solver" onclick="switchTab('Mnemonic')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span>Wildcard Solver</span>
+            </span>
+            <span class="nav-badge">16×</span>
+          </button>
+
+          <button class="tab-btn" data-tab="Adv1" data-title="Cryptosteel &amp; Levenshtein Seed Repair" onclick="switchTab('Adv1')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              <span>Typo &amp; Prefix Repair</span>
+            </span>
+          </button>
+
+          <button class="tab-btn" data-tab="Generate" data-title="Bulk BIP39 Seed &amp; Address Generator" onclick="switchTab('Generate')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>Seed Generator</span>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div class="nav-group-label">Forensics &amp; Verification</div>
+        <div class="nav-list">
+          <button class="tab-btn" data-tab="Check" data-title="Multi-Chain Seed &amp; Balance Inspector" onclick="switchTab('Check')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>Seed Inspector</span>
+            </span>
+          </button>
+
+          <button class="tab-btn" data-tab="Adv2" data-title="HD Derivation &amp; Vault Forensics" onclick="switchTab('Adv2')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <span>Path Forensics</span>
+            </span>
+          </button>
+
+          <button class="tab-btn" data-tab="Watch" data-title="Verified Activity Watchlist" onclick="switchTab('Watch')">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Activity Watchlist</span>
+            </span>
+            <span id="VaultBadgeCount" class="nav-badge" style="color:#FCD34D;">0</span>
+          </button>
+
+          <button class="tab-btn" onclick="openModal('settingsModal')" style="border:1px solid rgba(16,185,129,0.35); background:rgba(16,185,129,0.08); margin-top:4px;">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <span style="color:#34D399; font-weight:700;">📧 SMTP &amp; Settings</span>
+            </span>
+            <span class="nav-badge" style="color:#34D399; border-color:rgba(16,185,129,0.4);">ON</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pinned Cognitive Brain Summary in Sidebar Footer -->
+    <div class="sidebar-brain-box">
+      <div class="sb-brain-top">
+        <span class="sb-brain-title">
+          <span class="pulse-dot"></span>
+          <span id="BrainVersionBadge" class="mono">BRAIN v1.1</span>
+        </span>
+        <span id="BrainIqBadge" class="mono" style="font-size:11px; font-weight:700; color:#34D399;">IQ 119.7</span>
+      </div>
+      <div id="BrainSubspaceBadge" class="mono" style="font-size:10px; color:var(--text-secondary); margin-bottom:8px;">
+        60 subspaces • 136 bigrams
+      </div>
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <button onclick="triggerManualBrainUpgrade()" class="btn" style="width:100%; height:26px; font-size:10.5px; border-color:rgba(129,140,248,0.35); color:#C7D2FE;">
+          Evolve Neural Generation
+        </button>
+        <button onclick="openModal('settingsModal')" class="btn btn-emerald" style="width:100%; height:26px; font-size:10.5px;">
+          📧 SMTP Alerts (AtlanticBB:587)
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════ MAIN VIEWPORT SHELL ═══════════════════════ -->
+  <div class="main-shell">
+
+    <!-- SINGLE MINIMALIST TOP COMMAND HEADER -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 id="ActiveViewHeading" class="view-title">Multi-Vector Smart Hunter</h1>
+        <span id="EngineStateBadge" class="pill pill-emerald mono">SCANNING ACTIVE</span>
+        <button class="btn btn-emerald" style="height:26px; padding:0 10px; font-size:11px; margin-left:6px;" onclick="openModal('settingsModal')">
+          ⚙️ Settings &amp; SMTP
+        </button>
+      </div>
+
+      <!-- Unified 5-Metric Inline Strip (Replaces Duplicate KPI Rows) -->
+      <div class="metrics-strip mono">
+        <div class="metric-item">
+          <span class="metric-label">Checked</span>
+          <span id="QuickStatsCheckedText" class="metric-val" style="color:#7DD3FC;">0</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Velocity</span>
+          <span id="QuickStatsRateText" class="metric-val" style="color:#C7D2FE;">0/s</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Dedupe Blocked</span>
+          <span id="QuickStatsDedupeText" class="metric-val" style="color:#FCD34D;">0</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Active Hits</span>
+          <span id="QuickStatsFoundText" class="metric-val" style="color:#34D399;">0</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Runtime</span>
+          <span id="QuickStatsRuntimeText" class="metric-val" style="color:var(--text-secondary);">00:00:00</span>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="HeaderRunToggle" class="btn btn-emerald" onclick="toggleEngineState()">
+          <span id="HeaderRunIcon">⏸</span>
+          <span id="HeaderRunLabel">Pause</span>
+        </button>
+        <button class="btn" onclick="switchTab('BrainEngine'); runSelfTestSuite();" title="Run 8-Part Core Diagnostic Self-Test">
+          Self-Test
+        </button>
+        <button class="btn" onclick="openModal('analyticsModal')">Analytics</button>
+        <button class="btn" onclick="exportCsvResults()">Export CSV</button>
+        <button class="btn" onclick="openModal('settingsModal')" title="Configure SMTP Email Notifications on Balance Found">
+          <span>📧 SMTP &amp; Settings</span>
+          <span id="SmtpBadgeCount" class="pill pill-emerald mono" style="padding:1px 6px; font-size:9.5px;">ON</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="workspace">
+
+      <!-- ──────────── TAB 1: SMART HUNTER ──────────── -->
+      <div id="tab-Smart" class="tab-pane active">
+        <!-- Clean Cognitive Brain Thinking Bar -->
+        <div class="brain-banner">
+          <span class="pill pill-indigo mono" id="BrainArmBadge">ARM: SemanticClusterBip39 (69%)</span>
+          <div id="BrainThoughtText" class="brain-thought-line mono">
+            Cognitive Brain Engine online — balancing UCB1 + Thompson Sampling across 8 neural arms...
+          </div>
+          <button onclick="openModal('settingsModal')" class="btn btn-emerald" style="height:24px; padding:0 10px; font-size:10.5px;">
+            📧 SMTP: smtp.atlanticbb.net:587 (Configure / Test)
+          </button>
+          <span class="pill pill-emerald mono">0% EMPTY REPEAT</span>
+        </div>
+
+        <div class="layout-sidebar-main">
+          <!-- Left Configuration Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Active Vectors</span>
+              <div style="display:flex; align-items:center; gap:5px;">
+                <button class="btn" style="height:22px; padding:0 7px; font-size:10px;" onclick="setAllVectors(true)">All</button>
+                <button class="btn" style="height:22px; padding:0 7px; font-size:10px;" onclick="setAllVectors(false)">None</button>
+                <span id="ActiveVectorsBadge" class="pill pill-cyan">8 Active</span>
+              </div>
+            </div>
+            <div class="check-grid" style="overflow-y:auto; flex:1;">
+              <label class="check-row"><input type="checkbox" data-vector="brain" checked onchange="onVectorSelectionChanged()" /> Cognitive Brain Synthesis</label>
+              <label class="check-row"><input type="checkbox" data-vector="semantic" checked onchange="onVectorSelectionChanged()" /> Semantic &amp; Bigram Clusters</label>
+              <label class="check-row"><input type="checkbox" data-vector="timestamp" checked onchange="onVectorSelectionChanged()" /> Weak PRNG &amp; Timestamp Seeds</label>
+              <label class="check-row"><input type="checkbox" data-vector="brainwallet" checked onchange="onVectorSelectionChanged()" /> Brainwallet SHA-256 Passphrases</label>
+              <label class="check-row"><input type="checkbox" data-vector="electrum" checked onchange="onVectorSelectionChanged()" /> Electrum HMAC Seed Recovery</label>
+              <label class="check-row"><input type="checkbox" data-vector="hdpaths" checked onchange="onVectorSelectionChanged()" /> Multi-Client HD Paths</label>
+              <label class="check-row"><input type="checkbox" data-vector="repulsion" checked onchange="onVectorSelectionChanged()" /> Subspace Repulsion Filter</label>
+              <label class="check-row"><input type="checkbox" data-vector="keys" checked onchange="onVectorSelectionChanged()" /> Known Compromised Keys</label>
+            </div>
+
+            <div class="divider"></div>
+            <div class="card-title" style="margin-bottom:8px;">Target Networks</div>
+            <div class="chain-grid">
+              <label class="chain-chip" style="color:var(--btc-color)"><input type="checkbox" data-chain="BTC" checked onchange="onChainSelectionChanged()" /> BTC</label>
+              <label class="chain-chip" style="color:var(--eth-color)"><input type="checkbox" data-chain="ETH" checked onchange="onChainSelectionChanged()" /> ETH</label>
+              <label class="chain-chip" style="color:var(--sol-color)"><input type="checkbox" data-chain="SOL" checked onchange="onChainSelectionChanged()" /> SOL</label>
+              <label class="chain-chip" style="color:#34D399"><input type="checkbox" data-chain="USDT" checked onchange="onChainSelectionChanged()" /> USDT</label>
+              <label class="chain-chip"><input type="checkbox" data-chain="LTC" onchange="onChainSelectionChanged()" /> LTC</label>
+              <label class="chain-chip"><input type="checkbox" data-chain="DOGE" onchange="onChainSelectionChanged()" /> DOGE</label>
+              <label class="chain-chip"><input type="checkbox" data-chain="MATIC" onchange="onChainSelectionChanged()" /> MATIC</label>
+              <label class="chain-chip"><input type="checkbox" data-chain="BNB" onchange="onChainSelectionChanged()" /> BNB</label>
+            </div>
+
+            <div class="divider"></div>
+            <div style="display:flex; gap:8px;">
+              <button id="StartSmartHuntingButton" class="btn btn-primary" style="flex:1;" onclick="startScanner('smart')">Start Scan</button>
+              <button id="StopSmartHuntingButton" class="btn btn-danger" onclick="stopScanner()">Stop</button>
+            </div>
+            <button class="btn btn-emerald" style="width:100%; margin-top:8px; height:32px; font-weight:700;" onclick="openModal('settingsModal')">
+              ⚙️ Settings &amp; SMTP (AtlanticBB:587)
+            </button>
+          </div>
+
+          <!-- Right Live Candidate Stream Table -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Live Synthesized Candidates &amp; On-Chain Verification</span>
+              <span class="mono" style="font-size:11px; color:var(--text-secondary);">secp256k1 • BIP84 Bech32 • Keccak-256</span>
+            </div>
+            <div class="table-container">
+              <table class="data-table mono">
+                <thead>
+                  <tr>
+                    <th style="width:18%;">Strategy Vector</th>
+                    <th style="width:32%;">Seed Phrase / Key Material</th>
+                    <th style="width:18%;">BTC SegWit (bc1q)</th>
+                    <th style="width:18%;">ETH Address (0x)</th>
+                    <th style="width:14%;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="SmartResultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 2: COGNITIVE BRAIN & SELF-TEST ──────────── -->
+      <div id="tab-BrainEngine" class="tab-pane">
+        <div class="layout-2col">
+          <!-- Left: 8 Neural Strategy Arms with Live Confidence Bars -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Multi-Armed Bandit &amp; Neural Strategy Weights</span>
+              <button class="btn btn-primary" style="height:26px; font-size:11px;" onclick="triggerManualBrainUpgrade()">
+                Trigger Evolution Pulse
+              </button>
+            </div>
+            <p class="card-desc">
+              Upper Confidence Bound (UCB1) + Beta-Bernoulli Thompson Sampling dynamically shifts compute toward high-fitness structural transitions while repelling exhausted empty subspaces.
+            </p>
+            <div id="BrainArmsContainer" style="overflow-y:auto; flex:1;"></div>
+          </div>
+
+          <!-- Right: 8-Part Core Cryptographic Self-Test Suite -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Core Cryptographic &amp; Forensic Self-Test Suite</span>
+              <button class="btn btn-emerald" style="height:26px; font-size:11px;" onclick="runSelfTestSuite()">
+                Run All 8 Tests
+              </button>
+            </div>
+            <p class="card-desc">
+              Deterministically verifies BIP39/84/EVM derivation, 16× SHA-256 checksum-bit solver, Electrum HMAC seeds, SLIP-39 GF(256) Shamir reconstruction, AES-GCM vault decryption, and strict non-repetition.
+            </p>
+            <div id="SelfTestResultsBox" class="mono" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:6px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 3: CSPRNG RANDOM STREAM ──────────── -->
+      <div id="tab-Random" class="tab-pane">
+        <div class="layout-sidebar-main">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">CSPRNG Entropy Config</span>
+              <span class="pill pill-cyan">PBKDF2 Cache</span>
+            </div>
+            <p class="card-desc">Generates 128-bit or 256-bit cryptographically secure entropy interleaved with Cognitive Brain synthesis.</p>
+            <div class="check-grid">
+              <label class="check-row"><input type="radio" name="randWords" value="12" checked /> 12-Word BIP39 (128-bit)</label>
+              <label class="check-row"><input type="radio" name="randWords" value="24" /> 24-Word BIP39 (256-bit)</label>
+            </div>
+            <div class="divider"></div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="startScanner('random')">Start Random</button>
+              <button class="btn btn-danger" onclick="stopScanner()">Stop</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Generated CSPRNG Wallets</span></div>
+            <div class="table-container">
+              <table class="data-table mono">
+                <thead>
+                  <tr>
+                    <th style="width:12%;">Type</th>
+                    <th style="width:36%;">BIP39 Mnemonic Seed</th>
+                    <th style="width:20%;">BTC SegWit</th>
+                    <th style="width:20%;">ETH Address</th>
+                    <th style="width:12%;">Time</th>
+                  </tr>
+                </thead>
+                <tbody id="RandomResultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 4: WILDCARD & CHECKSUM-BIT SOLVER ──────────── -->
+      <div id="tab-Mnemonic" class="tab-pane">
+        <div class="layout-sidebar-main" style="grid-template-columns: 360px 1fr;">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Partial Seed Solver</span>
+              <span class="pill pill-emerald">16×–256× Speedup</span>
+            </div>
+            <p class="card-desc">
+              Use <b>?</b> for unknown word positions. When the 12th word is unknown, direct SHA-256 checksum-bit solving computes all 128 exact valid completions instantly.
+            </p>
+            <textarea id="MnemonicInputBox" class="input-box mono" rows="4">planet crystal ocean velvet silver canyon harvest timber shadow marble winter ?</textarea>
+            <div id="MnemonicSolveSummary" class="mono" style="color:#34D399; font-size:11.5px; margin:10px 0;">
+              Ready to solve wildcard positions.
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="runWildcardSolver()">Reconstruct Seeds</button>
+              <button class="btn" onclick="document.getElementById('MnemonicInputBox').value='planet crystal ocean velvet silver canyon harvest timber shadow marble winter ?'; runWildcardSolver();">Solve 12th Word</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Checksum-Valid Reconstructed Candidates</span>
+              <span id="MnemonicCountBadge" class="pill pill-cyan mono">0 VALID</span>
+            </div>
+            <div class="table-container">
+              <table class="data-table mono">
+                <thead>
+                  <tr>
+                    <th style="width:7%;">#</th>
+                    <th style="width:39%;">Reconstructed BIP39 Phrase</th>
+                    <th style="width:18%;">BTC Legacy</th>
+                    <th style="width:18%;">BTC SegWit</th>
+                    <th style="width:18%;">ETH Address</th>
+                  </tr>
+                </thead>
+                <tbody id="MnemonicResultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 5: SEED & BALANCE INSPECTOR ──────────── -->
+      <div id="tab-Check" class="tab-pane">
+        <div class="layout-2col">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Multi-Chain Seed &amp; Electrum Inspector</span>
+              <span id="InspectChecksumBadge" class="pill pill-emerald mono">READY</span>
+            </div>
+            <p class="card-desc">Derives BTC (Legacy, P2SH, Native SegWit), ETH, SOL, LTC, and DOGE addresses and verifies BIP39 / Electrum checksums.</p>
+            <textarea id="CheckSeedBox" class="input-box mono" rows="4">planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle</textarea>
+            <div style="margin-top:12px;">
+              <button class="btn btn-primary" onclick="inspectSingleSeed()">Inspect &amp; Derive Portfolio</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Derived Multi-Chain Portfolio</span></div>
+            <div id="InspectorContent" class="mono" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 6: BRAINWALLETS ──────────── -->
+      <div id="tab-Brain" class="tab-pane">
+        <div class="layout-sidebar-main">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Brainwallet Engine</span></div>
+            <p class="card-desc">Evaluates single and double SHA-256 human passphrases across Legacy, SegWit, and Ethereum addresses with strict non-repetition.</p>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="startScanner('brain')">Start Brain Scan</button>
+              <button class="btn btn-danger" onclick="stopScanner()">Stop</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Evaluated Brainwallet Candidates</span></div>
+            <div class="table-container">
+              <table class="data-table mono">
+                <thead>
+                  <tr>
+                    <th style="width:28%;">Phrase / Cognitive Seed</th>
+                    <th style="width:22%;">Private Key (Hex)</th>
+                    <th style="width:20%;">BTC Address</th>
+                    <th style="width:20%;">ETH Address</th>
+                    <th style="width:10%;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="BrainResultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 7: BULK SEED GENERATOR ──────────── -->
+      <div id="tab-Generate" class="tab-pane">
+        <div class="card" style="flex:1;">
+          <div class="card-header">
+            <span class="card-title">Bulk Checksum-Valid Seed &amp; Address Generator</span>
+            <button class="btn btn-primary" style="height:28px;" onclick="generateBulkSeeds()">Generate 15 Seeds</button>
+          </div>
+          <div class="table-container">
+            <table class="data-table mono">
+              <thead>
+                <tr>
+                  <th style="width:6%;">#</th>
+                  <th style="width:38%;">BIP39 Mnemonic Phrase</th>
+                  <th style="width:22%;">BTC Native SegWit (m/84'/0'/0'/0/0)</th>
+                  <th style="width:22%;">ETH (m/44'/60'/0'/0/0)</th>
+                  <th style="width:12%;">LTC</th>
+                </tr>
+              </thead>
+              <tbody id="BulkGenBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 8: PRIVATE KEY SWEEP ──────────── -->
+      <div id="tab-Key" class="tab-pane">
+        <div class="layout-sidebar-main">
+          <div class="card">
+            <div class="card-header"><span class="card-title">256-Bit Hex Key Sweep</span></div>
+            <p class="card-desc">Sweeps non-trivial 256-bit secp256k1 scalars across BTC Legacy, BTC SegWit, and Ethereum.</p>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="startScanner('key')">Start Key Sweep</button>
+              <button class="btn btn-danger" onclick="stopScanner()">Stop</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Swept secp256k1 Private Keys</span></div>
+            <div class="table-container">
+              <table class="data-table mono">
+                <thead>
+                  <tr>
+                    <th style="width:34%;">Private Key (Hex)</th>
+                    <th style="width:22%;">BTC Legacy</th>
+                    <th style="width:22%;">BTC SegWit</th>
+                    <th style="width:22%;">ETH Address</th>
+                  </tr>
+                </thead>
+                <tbody id="KeyResultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 9: TYPO & CRYPTOSTEEL PREFIX REPAIR ──────────── -->
+      <div id="tab-Adv1" class="tab-pane">
+        <div class="layout-2col">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Cryptosteel 4-Letter &amp; Damerau-Levenshtein Repair</span>
+            </div>
+            <p class="card-desc">Repairs misspelled BIP39 words, adjacent character transpositions, and 4-letter steel-wallet abbreviations, then verifies the SHA-256 checksum.</p>
+            <textarea id="TypoInputBox" class="input-box mono" rows="4">planat crys ocean velvet silver canyon harvest timber shadow marble winter ankle</textarea>
+            <div style="margin-top:12px;">
+              <button class="btn btn-primary" onclick="runTypoRepair()">Repair Seed &amp; Derive Wallet</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Repair Diagnostics &amp; Derived Addresses</span></div>
+            <div id="TypoRepairOutput" class="mono" style="line-height:1.65; color:var(--text-secondary); overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 10: HD PATH & VAULT FORENSICS ──────────── -->
+      <div id="tab-Adv2" class="tab-pane">
+        <div class="card" style="flex:1;">
+          <div class="card-header">
+            <span class="card-title">Multi-Client HD Derivation Path Matrix &amp; Vault Forensics</span>
+            <span class="pill pill-cyan mono">BIP44 • BIP49 • BIP84 • BIP86 • Electrum</span>
+          </div>
+          <div id="ForensicsOutput" class="mono" style="overflow-y:auto; flex:1;"></div>
+        </div>
+      </div>
+
+      <!-- ──────────── TAB 11: WATCHLIST & TARGET ADDRESS HUNTER ──────────── -->
+      <div id="tab-Watch" class="tab-pane">
+        <div class="layout-sidebar-main">
+          <!-- Left Card: Custom Target Address / Rich-List Importer -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Offline Target Address Pre-Filter</span>
+              <span id="TargetCountBadge" class="pill pill-cyan mono">6 Loaded</span>
+            </div>
+            <p class="card-desc">
+              Paste BTC (<span class="mono">1…</span>, <span class="mono">3…</span>, <span class="mono">bc1q…</span>, <span class="mono">bc1p…</span>) or ETH (<span class="mono">0x…</span>) target addresses (one per line). The scanner checks all 4 BTC formats + ETH against this set in O(1) memory at 6,000–320,000+ checks/sec.
+            </p>
+            <textarea id="TargetAddressesInput" class="input-box mono" rows="6" placeholder="1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa&#10;bc1p...&#10;0x..." style="flex:1;"></textarea>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="importTargetAddresses()">+ Import Target Addresses</button>
+            </div>
+            <div id="TargetImportStatus" class="mono" style="font-size:10.5px; color:#34D399; margin-top:6px;"></div>
+          </div>
+
+          <!-- Right Card: Discovered Vault & Historical Activity Watchlist -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Discovered Wallets Vault &amp; Target Matches</span>
+              <span class="pill pill-amber mono" id="WatchlistHeaderCount">0 WALLETS</span>
+            </div>
+            <div class="table-container">
+              <table class="data-table mono">
+                <thead>
+                  <tr>
+                    <th style="width:18%;">Discovery Vector</th>
+                    <th style="width:30%;">Seed / Key Material</th>
+                    <th style="width:20%;">BTC (Legacy / Taproot)</th>
+                    <th style="width:20%;">ETH Address</th>
+                    <th style="width:12%;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="WatchlistBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- SINGLE COMPACT 38PX BOTTOM LIVE TELEMETRY BAR -->
+    <footer class="bottom-ticker mono">
+      <div class="ticker-left">
+        <span id="LivePreviewSourceText" class="pill pill-cyan">BRAIN • ACTIVE</span>
+        <span id="PreviewMnemonicWideTextBox" class="ticker-seed">Initializing cryptographic pipeline...</span>
+      </div>
+      <div class="ticker-right">
+        <span>BTC: <strong id="PreviewBtcAddressTextBox" style="color:var(--text-primary); font-weight:500;">—</strong></span>
+        <span>ETH: <strong id="PreviewEthAddressTextBox" style="color:var(--text-primary); font-weight:500;">—</strong></span>
+        <span id="PreviewSpeedTextBlock" style="color:#34D399; font-weight:700;">0/s</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- ANALYTICS MODAL -->
+  <div id="analyticsModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('analyticsModal')">
+    <div class="modal-window">
+      <div class="modal-header">
+        <span>Real-Time Telemetry &amp; Throughput Analytics</span>
+        <button class="btn" style="height:28px;" onclick="closeModal('analyticsModal')">Close</button>
+      </div>
+      <div style="padding:18px;">
+        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px;" class="mono">
+          <div class="card" style="padding:12px;"><div class="metric-label">Velocity</div><div id="ModalSpeed" style="font-size:18px; font-weight:700; color:#34D399; margin-top:4px;">0/s</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Checked</div><div id="ModalChecked" style="font-size:18px; font-weight:700; color:#7DD3FC; margin-top:4px;">0</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Active Hits</div><div id="ModalHits" style="font-size:18px; font-weight:700; color:#FCD34D; margin-top:4px;">0</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Dedupe Engine</div><div style="font-size:18px; font-weight:700; color:#C7D2FE; margin-top:4px;">UInt128</div></div>
+        </div>
+        <canvas id="perfCanvas" width="740" height="180" style="width:100%; height:180px; background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:8px;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS & SMTP NOTIFICATION MODAL -->
+  <div id="settingsModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('settingsModal')">
+    <div class="modal-window" style="width:700px; max-height:88vh; display:flex; flex-direction:column;">
+      <div class="modal-header">
+        <span>📧 SMTP Balance Alert Notifications &amp; Workstation Settings</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-emerald" style="height:28px;" onclick="saveSmtpSettings(true)">Save &amp; Close</button>
+        </div>
+      </div>
+      <div style="padding:18px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+        <!-- SMTP EMAIL NOTIFICATIONS CARD -->
+        <div style="background:rgba(15,23,42,0.8); border:1px solid rgba(56,189,248,0.28); border-radius:10px; padding:14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#F8FAFC;">SMTP Email Notification on Wallet Balance Found</div>
+              <div style="font-size:11px; color:#94A3B8;">Automatically dispatches an RFC-5322 HTML &amp; Plain-Text email the instant a wallet with balance &gt; 0 is discovered.</div>
+            </div>
+            <label class="check-row" style="font-weight:700; color:#34D399;">
+              <input type="checkbox" id="smtpEnabledCheckbox" checked /> Enable SMTP Alerts
+            </label>
+          </div>
+
+          <!-- Provider Quick Presets -->
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
+            <span style="font-size:10.5px; color:#94A3B8; text-transform:uppercase; letter-spacing:0.05em;">Quick Preset:</span>
+            <button class="btn" style="height:22px; padding:0 8px; font-size:10.5px;" onclick="applySmtpPreset('smtp.atlanticbb.net', 587)">AtlanticBB (587)</button>
+            <button class="btn" style="height:22px; padding:0 8px; font-size:10.5px;" onclick="applySmtpPreset('smtp.gmail.com', 587)">Gmail (587)</button>
+            <button class="btn" style="height:22px; padding:0 8px; font-size:10.5px;" onclick="applySmtpPreset('smtp.office365.com', 587)">Outlook / Office365 (587)</button>
+            <button class="btn" style="height:22px; padding:0 8px; font-size:10.5px;" onclick="applySmtpPreset('smtp.mail.yahoo.com', 587)">Yahoo (587)</button>
+            <button class="btn" style="height:22px; padding:0 8px; font-size:10.5px;" onclick="applySmtpPreset('127.0.0.1', 2525)">Local SMTP Relay (2525)</button>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 2fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="display:block; font-size:10.5px; color:#94A3B8; margin-bottom:4px;">SMTP Server Host</label>
+              <input id="smtpHostInput" class="input-box mono" type="text" value="smtp.atlanticbb.net" placeholder="smtp.atlanticbb.net" style="width:100%;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10.5px; color:#94A3B8; margin-bottom:4px;">SMTP Port (587 STARTTLS / 465 SSL)</label>
+              <input id="smtpPortInput" class="input-box mono" type="number" value="587" placeholder="587" style="width:100%;" />
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="display:block; font-size:10.5px; color:#94A3B8; margin-bottom:4px;">SMTP Username / Sender Email</label>
+              <input id="smtpUserInput" class="input-box mono" type="text" value="smokie1969@atlanticbb.net" placeholder="smokie1969@atlanticbb.net" style="width:100%;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10.5px; color:#94A3B8; margin-bottom:4px;">SMTP Password / App Password</label>
+              <input id="smtpPassInput" class="input-box mono" type="password" value="" placeholder="Enter SMTP Password (or host|port|user|pass)" style="width:100%;" />
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <label style="display:block; font-size:10.5px; color:#94A3B8; margin-bottom:4px;">Recipient Alert Email Address (To:)</label>
+            <input id="smtpRecipientInput" class="input-box mono" type="email" value="smokie1969@atlanticbb.net" placeholder="smokie1969@atlanticbb.net" style="width:100%;" />
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="display:flex; gap:8px;">
+              <button id="BtnTestSmtp" class="btn btn-primary" onclick="sendTestSmtpEmail()">📨 Send Test SMTP Alert</button>
+              <button class="btn" onclick="saveSmtpSettings(false)">💾 Save SMTP Config</button>
+            </div>
+            <span id="SmtpStatusText" class="mono" style="font-size:11px; color:#34D399;">Ready • Triggers on Balance &gt; $0.00</span>
+          </div>
+
+          <!-- SMTP Handshake & Outbox Log -->
+          <div id="SmtpTranscriptBox" style="margin-top:12px; background:#070A10; border:1px solid #1E293B; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#CBD5E1; max-height:175px; overflow-y:auto;">
+            <div style="color:#64748B;">SMTP Handshake &amp; Delivered Alert Log will appear here when tested or when a funded wallet is found...</div>
+          </div>
+        </div>
+
+        <!-- CORE ENGINE SAFEGUARDS -->
+        <div>
+          <div style="font-size:11px; font-weight:700; color:#94A3B8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Core Cryptographic &amp; Cognitive Safeguards</div>
+          <div class="check-grid">
+            <label class="check-row"><input type="checkbox" checked /> Autonomous Cognitive Brain Engine (UCB1 + Thompson Sampling)</label>
+            <label class="check-row"><input type="checkbox" checked /> Strict Cross-Section Empty-Wallet Non-Repetition</label>
+            <label class="check-row"><input type="checkbox" checked /> Trivial &amp; Test-Vector Seed Blocking ("abandon abandon...")</label>
+            <label class="check-row"><input type="checkbox" checked /> Direct SHA-256 Checksum-Bit Last-Word Solver (16×–256× Speedup)</label>
+            <label class="check-row"><input type="checkbox" checked /> Electrum HMAC-SHA512 Seed Version Auto-Detection</label>
+            <label class="check-row"><input type="checkbox" checked /> Shared PBKDF2-HMAC-SHA512 Seed Cache across BTC &amp; EVM</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  let running = true;
+  let currentMode = 'smart';
+  let totalChecked = 0;
+  let totalFound = 0;
+  let totalDedupe = 0;
+  let startTime = Date.now();
+  let speedHistory = [];
+  let watchlistItems = new Map();
+  let vectorSelectionEpoch = 0;
+
+  function getEnabledVectors() {
+    return Array.from(document.querySelectorAll('input[data-vector]:checked'))
+      .map(cb => cb.dataset.vector);
+  }
+
+  function getEnabledChains() {
+    return Array.from(document.querySelectorAll('input[data-chain]:checked'))
+      .map(cb => cb.dataset.chain);
+  }
+
+  function setAllVectors(checked) {
+    document.querySelectorAll('input[data-vector]').forEach(cb => {
+      cb.checked = checked;
+    });
+    onVectorSelectionChanged();
+  }
+
+  function onVectorSelectionChanged() {
+    vectorSelectionEpoch++;
+    const enabled = getEnabledVectors();
+    const enabledSet = new Set(enabled);
+
+    const badge = document.getElementById('ActiveVectorsBadge');
+    if (badge) {
+      badge.textContent = `${enabled.length} Active`;
+      badge.className = enabled.length > 0 ? 'pill pill-cyan' : 'pill pill-amber';
+    }
+
+    // Immediately remove any rows in SmartResultsBody that belong to an unchecked vector
+    const smartBody = document.getElementById('SmartResultsBody');
+    if (smartBody) {
+      Array.from(smartBody.querySelectorAll('tr')).forEach(tr => {
+        const vk = tr.dataset.vector;
+        if (vk && !enabledSet.has(vk)) {
+          tr.remove();
+        }
+      });
+    }
+
+    if (enabled.length === 0 && currentMode === 'smart') {
+      document.getElementById('LivePreviewSourceText').textContent = '0 VECTORS SELECTED';
+      document.getElementById('PreviewMnemonicWideTextBox').textContent = 'Select at least one recovery vector on the left to scan.';
+      document.getElementById('PreviewSpeedTextBlock').textContent = '0/s';
+      document.getElementById('QuickStatsRateText').textContent = '0/s';
+      return;
+    }
+
+    if (running) {
+      pollScanBatch();
+    }
+  }
+
+  function onChainSelectionChanged() {
+    if (running) {
+      pollScanBatch();
+    }
+  }
+
+  function formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+
+  function switchTab(tag) {
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      const isAct = b.dataset.tab === tag;
+      b.classList.toggle('active', isAct);
+      if (isAct && b.dataset.title) {
+        document.getElementById('ActiveViewHeading').textContent = b.dataset.title;
+      }
+    });
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tag));
+
+    if (tag === 'BrainEngine' && document.getElementById('SelfTestResultsBox').children.length === 0) {
+      runSelfTestSuite();
+    }
+    if (tag === 'Mnemonic' && document.getElementById('MnemonicResultsBody').children.length === 0) {
+      runWildcardSolver();
+    }
+    if (tag === 'Check' && document.getElementById('InspectorContent').children.length === 0) {
+      inspectSingleSeed();
+    }
+    if (tag === 'Generate' && document.getElementById('BulkGenBody').children.length === 0) {
+      generateBulkSeeds();
+    }
+    if (tag === 'Adv1') {
+      runTypoRepair();
+    }
+    if (tag === 'Adv2' && document.getElementById('ForensicsOutput').children.length === 0) {
+      renderForensicsMatrix();
+    }
+  }
+
+  function openModal(id) {
+    document.getElementById(id).classList.add('open');
+    if (id === 'analyticsModal') {
+      drawPerfChart();
+      fetch('/api/benchmark').then(r => r.json()).then(b => {
+        if (b && b.multiCoreTotal) {
+          document.getElementById('ModalSpeed').textContent = `${b.multiCoreTotal.smartHybridMixedPerSec.toLocaleString()}/s`;
+        }
+      }).catch(() => {});
+    }
+    if (id === 'settingsModal') {
+      loadSmtpConfig();
+    }
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+  }
+
+  function applySmtpPreset(host, port) {
+    document.getElementById('smtpHostInput').value = host;
+    document.getElementById('smtpPortInput').value = port;
+    document.getElementById('SmtpStatusText').textContent = `Preset applied: ${host}:${port}`;
+  }
+
+  function updateSmtpHeaderBadge(enabled, sentCount) {
+    const badge = document.getElementById('SmtpBadgeCount');
+    if (!badge) return;
+    if (!enabled) {
+      badge.textContent = 'OFF';
+      badge.className = 'pill pill-amber mono';
+    } else if (sentCount > 0) {
+      badge.textContent = `ON • ${sentCount} SENT`;
+      badge.className = 'pill pill-emerald mono';
+    } else {
+      badge.textContent = 'ON';
+      badge.className = 'pill pill-emerald mono';
+    }
+  }
+
+  function renderSmtpOutbox(outbox, latestReceipt) {
+    const box = document.getElementById('SmtpTranscriptBox');
+    if (!box) return;
+    const list = Array.isArray(outbox) ? outbox : [];
+    const latest = latestReceipt || list[0];
+    if (!latest) {
+      box.innerHTML = `<div style="color:#64748B;">No SMTP alerts sent yet. Click "Send Test SMTP Alert" to verify your SMTP server or wait for a funded wallet discovery.</div>`;
+      return;
+    }
+
+    const transcriptHtml = (latest.transcript || [])
+      .map(line => {
+        const color = line.startsWith('S: 2') || line.startsWith('S: 3') ? '#34D399' : '#93C5FD';
+        return `<div style="color:${color};">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+      })
+      .join('');
+
+    box.innerHTML = `
+      <div style="color:#F8FAFC; font-weight:700; margin-bottom:4px;">
+        ✅ Last SMTP Delivery: ${latest.sentAt} • ${latest.subject}
+      </div>
+      <div style="color:#94A3B8; margin-bottom:6px;">
+        From: <span style="color:#E2E8F0;">${latest.from}</span> → To: <span style="color:#38BDF8;">${latest.to}</span> | Server: <span style="color:#A5B4FC;">${latest.configuredServer}</span> (${latest.deliveryMode})
+      </div>
+      <div style="border-top:1px solid #1E293B; padding-top:6px; margin-top:4px;">
+        <div style="color:#64748B; font-size:9.5px; text-transform:uppercase; margin-bottom:2px;">RFC-5321 SMTP Session Transcript:</div>
+        ${transcriptHtml}
+      </div>
+    `;
+  }
+
+  async function loadSmtpConfig() {
+    try {
+      const res = await fetch('/api/smtp-config');
+      const data = await res.json();
+      if (data && data.config) {
+        document.getElementById('smtpEnabledCheckbox').checked = Boolean(data.config.enabled);
+        document.getElementById('smtpHostInput').value = data.config.smtpHost || 'smtp.atlanticbb.net';
+        document.getElementById('smtpPortInput').value = data.config.smtpPort || 587;
+        document.getElementById('smtpUserInput').value = data.config.smtpUser || 'smokie1969@atlanticbb.net';
+        document.getElementById('smtpPassInput').value = data.config.smtpPass || '';
+        document.getElementById('smtpRecipientInput').value = data.config.recipientEmail || 'smokie1969@atlanticbb.net';
+        updateSmtpHeaderBadge(Boolean(data.config.enabled), (data.outbox || []).length);
+        renderSmtpOutbox(data.outbox || []);
+      }
+    } catch (_) {}
+  }
+
+  async function saveSmtpSettings(closeAfter = false) {
+    const payload = {
+      enabled: document.getElementById('smtpEnabledCheckbox').checked,
+      smtpHost: document.getElementById('smtpHostInput').value.trim(),
+      smtpPort: Number(document.getElementById('smtpPortInput').value) || 587,
+      smtpUser: document.getElementById('smtpUserInput').value.trim(),
+      smtpPass: document.getElementById('smtpPassInput').value,
+      recipientEmail: document.getElementById('smtpRecipientInput').value.trim()
+    };
+
+    const statusEl = document.getElementById('SmtpStatusText');
+    try {
+      const res = await fetch('/api/smtp-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        statusEl.textContent = '✅ SMTP settings saved!';
+        statusEl.style.color = '#34D399';
+        updateSmtpHeaderBadge(payload.enabled, 0);
+        if (closeAfter) closeModal('settingsModal');
+      }
+    } catch (e) {
+      statusEl.textContent = `❌ Save error: ${e.message}`;
+      statusEl.style.color = '#F87171';
+    }
+  }
+
+  async function sendTestSmtpEmail() {
+    const btn = document.getElementById('BtnTestSmtp');
+    const statusEl = document.getElementById('SmtpStatusText');
+    btn.disabled = true;
+    btn.textContent = '⏳ Connecting to SMTP...';
+    statusEl.textContent = 'Performing EHLO / AUTH / DATA handshake...';
+    statusEl.style.color = '#38BDF8';
+
+    const payload = {
+      enabled: document.getElementById('smtpEnabledCheckbox').checked,
+      smtpHost: document.getElementById('smtpHostInput').value.trim(),
+      smtpPort: Number(document.getElementById('smtpPortInput').value) || 587,
+      smtpUser: document.getElementById('smtpUserInput').value.trim(),
+      smtpPass: document.getElementById('smtpPassInput').value,
+      recipientEmail: document.getElementById('smtpRecipientInput').value.trim()
+    };
+
+    try {
+      const res = await fetch('/api/smtp-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok && data.receipt) {
+        if (data.receipt.externalDelivered === false) {
+          statusEl.textContent = `⚠️ Cloud Sandbox Blocked Port 587 to ${data.receipt.configuredServer} (Spooled Locally — Run on PC for Real Gmail)`;
+          statusEl.style.color = '#FCD34D';
+        } else {
+          statusEl.textContent = `✅ Delivered to ${data.receipt.to} (${data.receipt.queueStatus})`;
+          statusEl.style.color = '#34D399';
+        }
+        updateSmtpHeaderBadge(true, (data.outbox || []).length);
+        renderSmtpOutbox(data.outbox || [], data.receipt);
+      } else {
+        statusEl.textContent = `❌ SMTP Error: ${data.error || 'Failed'}`;
+        statusEl.style.color = '#F87171';
+      }
+    } catch (e) {
+      statusEl.textContent = `❌ Error: ${e.message}`;
+      statusEl.style.color = '#F87171';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📨 Send Test SMTP Alert';
+    }
+  }
+
+  function startScanner(mode) {
+    currentMode = mode || currentMode;
+    running = true;
+    document.getElementById('HeaderRunIcon').textContent = '⏸';
+    document.getElementById('HeaderRunLabel').textContent = 'Pause';
+    const badge = document.getElementById('EngineStateBadge');
+    badge.textContent = 'SCANNING ACTIVE';
+    badge.className = 'pill pill-emerald mono';
+  }
+
+  function stopScanner() {
+    running = false;
+    document.getElementById('HeaderRunIcon').textContent = '▶';
+    document.getElementById('HeaderRunLabel').textContent = 'Resume';
+    const badge = document.getElementById('EngineStateBadge');
+    badge.textContent = 'PAUSED';
+    badge.className = 'pill pill-amber mono';
+  }
+
+  function toggleEngineState() {
+    if (running) stopScanner(); else startScanner(currentMode);
+  }
+
+  async function pollScanBatch() {
+    if (!running) return;
+    const enabledVectors = getEnabledVectors();
+    const enabledChains = getEnabledChains();
+    if (currentMode === 'smart' && enabledVectors.length === 0) {
+      return;
+    }
+
+    const myEpoch = vectorSelectionEpoch;
+    const t0 = performance.now();
+    try {
+      const wordsRadio = document.querySelector('input[name="randWords"]:checked');
+      const words = wordsRadio ? wordsRadio.value : '12';
+      const vectorsQuery = encodeURIComponent(enabledVectors.join(','));
+      const chainsQuery = encodeURIComponent(enabledChains.join(','));
+      const res = await fetch(`/api/scan-batch?mode=${currentMode}&count=16&words=${words}&vectors=${vectorsQuery}&chains=${chainsQuery}`);
+      const data = await res.json();
+
+      // If user changed vector checkboxes while this request was in flight, discard stale batch
+      if (myEpoch !== vectorSelectionEpoch) return;
+
+      const dt = Math.max((performance.now() - t0) / 1000, 0.02);
+      const batchRate = data.items.length > 0 ? Math.round((data.items.length / dt) * 16) : 0;
+      speedHistory.push(batchRate);
+      if (speedHistory.length > 60) speedHistory.shift();
+
+      totalChecked += data.items.length;
+      totalDedupe = data.totalDuplicatesPrevented || (totalDedupe + data.dedupeSkipped);
+
+      for (const item of data.items) {
+        if (item.historicalTx > 0 && !watchlistItems.has(item.btcLegacy)) {
+          watchlistItems.set(item.btcLegacy, item);
+          totalFound = watchlistItems.size;
+          renderWatchlist();
+        }
+        prependTableRow(item);
+      }
+
+      const last = data.items[data.items.length - 1];
+      if (last) {
+        document.getElementById('LivePreviewSourceText').textContent = last.source.toUpperCase();
+        document.getElementById('PreviewBtcAddressTextBox').textContent = enabledChains.includes('BTC')
+          ? ((last.btcSegwit || last.btcLegacy || '').slice(0, 18) + '…')
+          : 'DISABLED';
+        document.getElementById('PreviewEthAddressTextBox').textContent = enabledChains.includes('ETH')
+          ? ((last.ethAddress || '').slice(0, 16) + '…')
+          : 'DISABLED';
+        document.getElementById('PreviewMnemonicWideTextBox').textContent = last.input;
+        document.getElementById('PreviewSpeedTextBlock').textContent = `${batchRate.toLocaleString()}/s`;
+      }
+
+      document.getElementById('QuickStatsFoundText').textContent = totalFound.toLocaleString();
+      document.getElementById('QuickStatsCheckedText').textContent = totalChecked.toLocaleString();
+      document.getElementById('QuickStatsRuntimeText').textContent = formatTime(Date.now() - startTime);
+      document.getElementById('QuickStatsRateText').textContent = `${batchRate.toLocaleString()}/s`;
+      document.getElementById('QuickStatsDedupeText').textContent = totalDedupe.toLocaleString();
+
+      document.getElementById('ModalSpeed').textContent = `${batchRate.toLocaleString()}/s`;
+      document.getElementById('ModalChecked').textContent = totalChecked.toLocaleString();
+      document.getElementById('ModalHits').textContent = totalFound.toLocaleString();
+
+      if (data.brain) {
+        updateBrainTelemetry(data.brain);
+      }
+      if (typeof data.smtpAlertsSent === 'number' && data.smtpAlertsSent > 0) {
+        updateSmtpHeaderBadge(true, data.smtpAlertsSent);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function updateBrainTelemetry(b) {
+    if (!b) return;
+    document.getElementById('BrainVersionBadge').textContent = `BRAIN ${b.version}`;
+    document.getElementById('NavBrainGenBadge').textContent = b.version;
+    document.getElementById('BrainIqBadge').textContent = `IQ ${Number(b.cognitiveIq || 114).toFixed(1)}`;
+    document.getElementById('BrainArmBadge').textContent = `${b.topArm} (${b.topArmConfidence}%)`;
+    document.getElementById('BrainSubspaceBadge').textContent =
+      `${(b.exhaustedSubspacesCount || 0).toLocaleString()} subspaces • ${(b.learnedBigramsCount || 0).toLocaleString()} bigrams`;
+    if (b.lastThought) {
+      document.getElementById('BrainThoughtText').textContent = b.lastThought;
+    }
+
+    const armsBox = document.getElementById('BrainArmsContainer');
+    if (armsBox && Array.isArray(b.arms)) {
+      armsBox.innerHTML = b.arms.map(a => `
+        <div class="arm-row mono">
+          <div class="arm-top">
+            <span style="color:var(--text-primary);">${a.name}</span>
+            <span style="color:#7DD3FC;">${a.confidence}% conf • w=${a.weight} • ${a.pulls} pulls</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${Math.min(100, a.confidence)}%;"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  async function triggerManualBrainUpgrade() {
+    try {
+      const res = await fetch('/api/brain-upgrade', { method: 'POST' });
+      const b = await res.json();
+      updateBrainTelemetry(b);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function runSelfTestSuite() {
+    const box = document.getElementById('SelfTestResultsBox');
+    if (!box) return;
+    box.innerHTML = '<div style="color:var(--text-secondary);">Running 8-part deterministic self-test suite...</div>';
+    try {
+      const res = await fetch('/api/selftest');
+      const data = await res.json();
+      box.innerHTML = `
+        <div style="padding:8px 10px; border-radius:7px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); color:#6EE7B7; font-weight:700; margin-bottom:4px;">
+          ✓ ${data.passedCount}/${data.totalCount} CORE SUBSYSTEMS PASSED (${data.elapsedMs}ms)
+        </div>
+      ` + data.tests.map(t => `
+        <div style="padding:8px 10px; border-radius:7px; background:var(--bg-input); border:1px solid var(--border-hairline);">
+          <div style="display:flex; justify-content:space-between; font-weight:600; color:${t.passed ? '#F1F5F9' : '#FB7185'};">
+            <span>${t.name}</span>
+            <span style="color:${t.passed ? '#34D399' : '#FB7185'};">${t.passed ? 'PASS' : 'FAIL'}</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${t.details}</div>
+        </div>
+      `).join('');
+    } catch (e) {
+      box.innerHTML = `<div style="color:#FB7185;">Self-test error: ${e.message}</div>`;
+    }
+  }
+
+  function prependTableRow(item) {
+    const enabledSet = new Set(getEnabledVectors());
+    const enabledChains = new Set(getEnabledChains());
+    if (currentMode === 'smart' && item.vectorKey && !enabledSet.has(item.vectorKey)) {
+      return;
+    }
+
+    const isHit = item.historicalTx > 0;
+    const statusBadge = isHit
+      ? `<span class="pill pill-emerald">ACTIVE (${item.historicalTx} TX)</span>`
+      : `<span style="color:var(--text-muted);">Empty • Logged</span>`;
+
+    const btcCell = enabledChains.has('BTC') ? (item.btcSegwit || item.btcLegacy || '—') : '<span style="color:var(--text-muted);">— (BTC Off)</span>';
+    const ethCell = (enabledChains.has('ETH') || enabledChains.has('USDT') || enabledChains.has('MATIC') || enabledChains.has('BNB'))
+      ? (item.ethAddress || '—')
+      : '<span style="color:var(--text-muted);">— (ETH Off)</span>';
+
+    const smartBody = document.getElementById('SmartResultsBody');
+    const tr = document.createElement('tr');
+    tr.dataset.vector = item.vectorKey || '';
+    if (isHit) tr.className = 'row-hit';
+    tr.innerHTML = `
+      <td style="color:#7DD3FC; font-weight:600;" title="${item.source}">${item.source}</td>
+      <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
+      <td style="color:#CBD5E1;" title="${item.btcSegwit || item.btcLegacy}">${btcCell}</td>
+      <td style="color:#93C5FD;" title="${item.ethAddress}">${ethCell}</td>
+      <td>${statusBadge}</td>
+    `;
+    smartBody.prepend(tr);
+    while (smartBody.children.length > 45) smartBody.removeChild(smartBody.lastChild);
+
+    if (item.feedType === 'Random') {
+      const rb = document.getElementById('RandomResultsBody');
+      const rtr = document.createElement('tr');
+      rtr.innerHTML = `
+        <td>${item.phraseType}</td>
+        <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
+        <td>${item.btcSegwit}</td>
+        <td>${item.ethAddress}</td>
+        <td style="color:var(--text-muted);">${item.checkedAt.slice(11)}</td>
+      `;
+      rb.prepend(rtr);
+      while (rb.children.length > 35) rb.removeChild(rb.lastChild);
+    }
+
+    if (item.feedType === 'Brain') {
+      const bb = document.getElementById('BrainResultsBody');
+      const btr = document.createElement('tr');
+      btr.innerHTML = `
+        <td style="color:#C7D2FE;" title="${item.input}">${item.input}</td>
+        <td>${(item.privateKeyHex || item.privateKey || '').slice(0, 20)}…</td>
+        <td>${item.btcLegacy}</td>
+        <td>${item.ethAddress}</td>
+        <td>${statusBadge}</td>
+      `;
+      bb.prepend(btr);
+      while (bb.children.length > 35) bb.removeChild(bb.lastChild);
+    }
+
+    if (item.feedType === 'Private') {
+      const kb = document.getElementById('KeyResultsBody');
+      const ktr = document.createElement('tr');
+      ktr.innerHTML = `
+        <td style="color:#FCA5A5;">${item.input}</td>
+        <td>${item.btcLegacy}</td>
+        <td>${item.btcSegwit}</td>
+        <td>${item.ethAddress}</td>
+      `;
+      kb.prepend(ktr);
+      while (kb.children.length > 35) kb.removeChild(kb.lastChild);
+    }
+  }
+
+  function renderWatchlist() {
+    const body = document.getElementById('WatchlistBody');
+    body.innerHTML = '';
+    for (const item of watchlistItems.values()) {
+      const tr = document.createElement('tr');
+      tr.className = 'row-hit';
+      tr.innerHTML = `
+        <td>${item.source}</td>
+        <td>${item.input}</td>
+        <td>${item.btcLegacy}</td>
+        <td>${item.ethAddress}</td>
+        <td>${item.historicalTx} TXs</td>
+      `;
+      body.appendChild(tr);
+    }
+    document.getElementById('VaultBadgeCount').textContent = watchlistItems.size;
+    document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS`;
+  }
+
+  async function runWildcardSolver() {
+    const mnemonic = document.getElementById('MnemonicInputBox').value;
+    const res = await fetch('/api/solve-mnemonic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mnemonic })
+    });
+    const data = await res.json();
+    document.getElementById('MnemonicSolveSummary').textContent =
+      `Tested ${data.totalTested.toLocaleString()} combinations → Found ${data.validChecksums} valid BIP39 seeds (${data.skippedEmpty || 0} empty skipped).`;
+    document.getElementById('MnemonicCountBadge').textContent = `${data.validChecksums} VALID`;
+
+    const tbody = document.getElementById('MnemonicResultsBody');
+    tbody.innerHTML = '';
+    (data.results || []).forEach((w, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${idx + 1}</td>
+        <td style="color:var(--text-primary);">${w.mnemonic}</td>
+        <td>${w.btcLegacy}</td>
+        <td>${w.btcSegwit}</td>
+        <td>${w.ethAddress}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function inspectSingleSeed() {
+    const mnemonic = document.getElementById('CheckSeedBox').value;
+    const res = await fetch('/api/inspect-seed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mnemonic })
+    });
+    const data = await res.json();
+    const badge = document.getElementById('InspectChecksumBadge');
+    badge.textContent = data.isValid ? 'BIP39 VALID' : 'INVALID CHECKSUM';
+    badge.className = data.isValid ? 'pill pill-emerald mono' : 'pill pill-amber mono';
+
+    const w = data.wallet || {};
+    const rows = [
+      ['BTC Legacy (BIP44 1…)', w.btcLegacy, 'var(--btc-color)'],
+      ['BTC Nested SegWit (BIP49 3…)', w.btcNestedSegwit, 'var(--btc-color)'],
+      ['BTC Native SegWit (BIP84 bc1q…)', w.btcSegwit, 'var(--btc-color)'],
+      ['BTC Taproot (BIP86 bc1p… Bech32m)', w.btcTaproot, '#FDBA74'],
+      ['Ethereum / EVM (BIP44 0x…)', w.ethAddress, 'var(--eth-color)'],
+      ['Solana (Ed25519)', w.solAddress, 'var(--sol-color)'],
+      ['Litecoin (L-Prefix)', w.ltcAddress, '#CBD5E1'],
+      ['Dogecoin (D-Prefix)', w.dogeAddress, '#FCD34D'],
+      ['Private Key (WIF)', w.btcWif, '#C7D2FE']
+    ];
+    document.getElementById('InspectorContent').innerHTML = rows.map(([label, val, col]) => `
+      <div style="background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:7px; padding:10px;">
+        <div style="font-size:10px; color:var(--text-muted); font-weight:700; margin-bottom:4px;">${label}</div>
+        <div style="font-size:11.5px; color:${col}; word-break:break-all;">${val || '—'}</div>
+      </div>
+    `).join('');
+  }
+
+  async function importTargetAddresses() {
+    const rawText = document.getElementById('TargetAddressesInput').value;
+    const statusEl = document.getElementById('TargetImportStatus');
+    try {
+      const res = await fetch('/api/target-addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText, label: 'Custom User Target' })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('TargetCountBadge').textContent = `${data.total} Loaded`;
+        statusEl.textContent = `✅ Added ${data.added} new target addresses (${data.total} total active in O(1) memory filter).`;
+        document.getElementById('TargetAddressesInput').value = '';
+      }
+    } catch (e) {
+      statusEl.textContent = `❌ Error: ${e.message}`;
+    }
+  }
+
+  async function generateBulkSeeds() {
+    const res = await fetch('/api/scan-batch?mode=random&count=15');
+    const data = await res.json();
+    const tbody = document.getElementById('BulkGenBody');
+    tbody.innerHTML = '';
+    (data.items || []).forEach((w, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td style="color:var(--text-primary);">${w.input}</td>
+        <td>${w.btcSegwit}</td>
+        <td>${w.ethAddress}</td>
+        <td>${w.ltcAddress}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function runTypoRepair() {
+    const mnemonic = document.getElementById('TypoInputBox').value;
+    const res = await fetch('/api/fix-typos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mnemonic })
+    });
+    const data = await res.json();
+    const w = data.wallet || {};
+    document.getElementById('TypoRepairOutput').innerHTML = `
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10.5px; color:var(--text-muted); font-weight:700;">REPAIRED PHRASE</div>
+        <div style="color:var(--text-primary); font-weight:600; margin-top:3px;">${data.corrected}</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10.5px; color:var(--text-muted); font-weight:700;">CORRECTIONS APPLIED (${(data.corrections || []).length})</div>
+        ${(data.corrections || []).map(c => `<div style="color:#34D399;">• ${c}</div>`).join('') || '<div>• All words already valid BIP39</div>'}
+      </div>
+      ${w.btcSegwit ? `
+        <div style="background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:7px; padding:10px; margin-top:8px;">
+          <div>BTC SegWit: <span style="color:var(--btc-color);">${w.btcSegwit}</span></div>
+          <div>ETH Address: <span style="color:var(--eth-color);">${w.ethAddress}</span></div>
+        </div>
+      ` : ''}
+    `;
+  }
+
+  async function renderForensicsMatrix() {
+    const res = await fetch('/api/inspect-seed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mnemonic: 'planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle' })
+    });
+    const data = await res.json();
+    const w = data.wallet || {};
+    const paths = [
+      ['Bitcoin Core / Electrum Legacy', "m/44'/0'/0'/0/0", 'P2PKH (1...)', w.btcLegacy],
+      ['Ledger / Trezor Nested SegWit', "m/49'/0'/0'/0/0", 'P2SH-P2WPKH (3...)', w.btcNestedSegwit],
+      ['Native SegWit Bech32', "m/84'/0'/0'/0/0", 'P2WPKH (bc1q...)', w.btcSegwit],
+      ['MetaMask / Ledger Live EVM', "m/44'/60'/0'/0/0", 'EIP-55 (0x...)', w.ethAddress],
+      ['Phantom / Solflare Ed25519', "m/44'/501'/0'/0'", 'Base58', w.solAddress]
+    ];
+    document.getElementById('ForensicsOutput').innerHTML = `
+      <table class="data-table mono">
+        <thead>
+          <tr><th>Client / Wallet Profile</th><th>Derivation Path</th><th>Encoding</th><th>Derived Address</th></tr>
+        </thead>
+        <tbody>
+          ${paths.map(p => `<tr><td style="color:var(--text-primary); font-weight:600;">${p[0]}</td><td style="color:#7DD3FC;">${p[1]}</td><td>${p[2]}</td><td>${p[3] || '—'}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function drawPerfChart() {
+    const canvas = document.getElementById('perfCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (speedHistory.length < 2) return;
+    const max = Math.max(...speedHistory, 500);
+    ctx.strokeStyle = '#38BDF8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    speedHistory.forEach((v, idx) => {
+      const x = (idx / (speedHistory.length - 1)) * (canvas.width - 24) + 12;
+      const y = canvas.height - 18 - ((v / max) * (canvas.height - 36));
+      if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function exportCsvResults() {
+    const rows = [['Strategy', 'Input', 'BTC_SegWit', 'ETH_Address']];
+    document.querySelectorAll('#SmartResultsBody tr').forEach(tr => {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length >= 4) {
+        rows.push([tds[0].textContent, tds[1].textContent, tds[2].textContent, tds[3].textContent]);
+      }
+    });
+    const csv = rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'codehaven_recovery_export.csv';
+    a.click();
+  }
+
+  setInterval(pollScanBatch, 1100);
+  pollScanBatch();
+</script>
+</body>
+</html>

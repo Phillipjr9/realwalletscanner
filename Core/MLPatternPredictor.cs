@@ -451,10 +451,10 @@ namespace WalletRecoveryTool.Core
             var predictions = new List<PredictedPhrase>();
             var seen = new HashSet<string>();
 
-            // First, yield all known compromised phrases
+            // First, yield all known compromised phrases that haven't been scanned empty
             foreach (var known in _knownCompromisedPhrases.Take(count / 4))
             {
-                if (seen.Add(known))
+                if (!GlobalMnemonicTracker.Instance.WasScanned($"BRAIN:{known}") && seen.Add(known))
                 {
                     var pred = new PredictedPhrase
                     {
@@ -480,7 +480,9 @@ namespace WalletRecoveryTool.Core
                     try
                     {
                         var phrase = model.Generator();
-                        if (!string.IsNullOrEmpty(phrase) && seen.Add(phrase.ToLower()))
+                        if (!string.IsNullOrEmpty(phrase) &&
+                            !GlobalMnemonicTracker.Instance.WasScanned($"BRAIN:{phrase}") &&
+                            seen.Add(phrase.ToLower()))
                         {
                             var confidence = CalculateConfidence(phrase, model);
                             var pred = new PredictedPhrase

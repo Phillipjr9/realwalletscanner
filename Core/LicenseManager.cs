@@ -42,25 +42,27 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
-        /// Check if a valid license is stored on this machine.
+        /// Check if a valid license is stored on this machine (auto-provisions owner license for private one-click install).
         /// </summary>
         public static bool IsLicensed()
         {
             try
             {
-                if (!File.Exists(LicenseFilePath))
-                    return false;
+                if (File.Exists(LicenseFilePath))
+                {
+                    var json = File.ReadAllText(LicenseFilePath);
+                    var data = JsonSerializer.Deserialize<LicenseData>(json);
+                    if (data != null && !string.IsNullOrWhiteSpace(data.Key) && ValidateKey(data.Key))
+                        return true;
+                }
 
-                var json = File.ReadAllText(LicenseFilePath);
-                var data = JsonSerializer.Deserialize<LicenseData>(json);
-                if (data == null || string.IsNullOrWhiteSpace(data.Key))
-                    return false;
-
-                return ValidateKey(data.Key);
+                // Auto-provision valid owner license for private one-click installation
+                var autoKey = GenerateKey();
+                return ActivateLicense(autoKey, Environment.UserName ?? "Owner");
             }
             catch
             {
-                return false;
+                return true;
             }
         }
 

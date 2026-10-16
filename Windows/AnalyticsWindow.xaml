@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-        Title="Analytics" Height="720" Width="1200"
+        Title="Real-Time Telemetry &amp; Performance Analytics" Height="740" Width="1200"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource SurfaceDark}"
         TextElement.Foreground="{DynamicResource MaterialDesignBody}"
@@ -15,45 +15,69 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceMid}" Padding="20,14" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal">
-                <materialDesign:PackIcon Kind="ChartLine" Height="22" Width="22" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
-                <TextBlock Text="Analytics Dashboard" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
-            </StackPanel>
+        <!-- Executive Header -->
+        <Border Grid.Row="0" Background="{StaticResource HeaderGradient}" Padding="22,14" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Border Width="38" Height="38" CornerRadius="10" Background="#131C2E" BorderBrush="#2A3B54" BorderThickness="1" Margin="0,0,12,0">
+                        <materialDesign:PackIcon Kind="ChartTimelineVariantShimmer" Height="20" Width="20"
+                                                 Foreground="{StaticResource AccentCyan}"
+                                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="REAL-TIME TELEMETRY &amp; ANALYTICS DASHBOARD" FontSize="15" FontWeight="Bold" Foreground="#F8FAFC"/>
+                        <TextBlock Text="Live scan throughput, cumulative portfolio discovery trajectory, and hardware diagnostics" FontSize="11" Foreground="{StaticResource TextDim}"/>
+                    </StackPanel>
+                </StackPanel>
+                <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="6" Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="LIVE TELEMETRY STREAM" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                </Border>
+            </DockPanel>
         </Border>
 
         <!-- Content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20">
             <StackPanel>
                 <!-- Stats Cards Row -->
-                <UniformGrid Columns="4" Margin="0,0,0,16">
+                <UniformGrid Columns="4" Margin="0,0,0,14">
                     <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="SPEED" Style="{StaticResource StatLabel}"/>
+                            <DockPanel>
+                                <TextBlock Text="SCAN VELOCITY" Style="{StaticResource StatLabel}"/>
+                                <materialDesign:PackIcon Kind="Speedometer" Width="15" Height="15" Foreground="{StaticResource AccentGreen}" HorizontalAlignment="Right"/>
+                            </DockPanel>
                             <TextBlock x:Name="SpeedTextBlock" Text="0/s" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}"/>
-                            <TextBlock x:Name="SpeedSubTextBlock" Text="Avg over 60s" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="SpeedSubTextBlock" Text="Avg over 60s" Foreground="{StaticResource TextDim}" FontSize="10.5" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="PROCESSED" Style="{StaticResource StatLabel}"/>
-                            <TextBlock x:Name="TotalProcessedTextBlock" Text="0" Style="{StaticResource StatValue}" Foreground="#64B5F6"/>
-                            <TextBlock x:Name="TotalSubTextBlock" Text="Since start" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                            <DockPanel>
+                                <TextBlock Text="CANDIDATES PROCESSED" Style="{StaticResource StatLabel}"/>
+                                <materialDesign:PackIcon Kind="DatabaseSearchOutline" Width="15" Height="15" Foreground="{StaticResource AccentCyan}" HorizontalAlignment="Right"/>
+                            </DockPanel>
+                            <TextBlock x:Name="TotalProcessedTextBlock" Text="0" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentCyan}"/>
+                            <TextBlock x:Name="TotalSubTextBlock" Text="Since start" Foreground="{StaticResource TextDim}" FontSize="10.5" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="SUCCESS RATE" Style="{StaticResource StatLabel}"/>
+                            <DockPanel>
+                                <TextBlock Text="DISCOVERY HIT RATE" Style="{StaticResource StatLabel}"/>
+                                <materialDesign:PackIcon Kind="TrophyOutline" Width="15" Height="15" Foreground="{StaticResource AccentOrange}" HorizontalAlignment="Right"/>
+                            </DockPanel>
                             <TextBlock x:Name="SuccessRateTextBlock" Text="0.00%" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentOrange}"/>
-                            <TextBlock x:Name="FoundCountTextBlock" Text="0 found" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="FoundCountTextBlock" Text="0 found" Foreground="{StaticResource TextDim}" FontSize="10.5" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource DashCard}">
                         <StackPanel>
-                            <TextBlock Text="RUNTIME" Style="{StaticResource StatLabel}"/>
+                            <DockPanel>
+                                <TextBlock Text="ACTIVE RUNTIME" Style="{StaticResource StatLabel}"/>
+                                <materialDesign:PackIcon Kind="TimerOutline" Width="15" Height="15" Foreground="#CE93D8" HorizontalAlignment="Right"/>
+                            </DockPanel>
                             <TextBlock x:Name="RunningTimeTextBlock" Text="00:00:00" Style="{StaticResource StatValue}" Foreground="#CE93D8"/>
-                            <TextBlock x:Name="ETATextBlock" Text="ETA: --" Foreground="{StaticResource TextDim}" FontSize="10" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="ETATextBlock" Text="ETA: --" Foreground="{StaticResource TextDim}" FontSize="10.5" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
                 </UniformGrid>
@@ -61,46 +85,60 @@
                 <!-- Charts -->
                 <Border Style="{StaticResource DashCard}" Margin="0,0,0,12">
                     <StackPanel>
-                        <TextBlock Text="PERFORMANCE OVER TIME" Style="{StaticResource SectionHeader}"/>
-                        <Canvas x:Name="PerformanceChart" Height="200" Background="{StaticResource SurfaceLight}"/>
+                        <TextBlock Text="SCAN THROUGHPUT OVER TIME (LAST 60 SECONDS)" Style="{StaticResource SectionHeader}"/>
+                        <Border Background="#070A10" CornerRadius="8" BorderBrush="#1E293B" BorderThickness="1" Padding="4">
+                            <Canvas x:Name="PerformanceChart" Height="200" Background="{StaticResource SurfaceLight}" ClipToBounds="True"/>
+                        </Border>
                     </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource DashCard}" Margin="0,0,0,12">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <TextBlock Text="USD VALUE HISTORY" Style="{StaticResource SectionHeader}"/>
+                            <TextBlock Text="CUMULATIVE RECOVERED USD VALUE HISTORY" Style="{StaticResource SectionHeader}" Margin="0"/>
                             <TextBlock x:Name="TotalUsdTextBlock" Text="" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center" Margin="16,0,0,0"/>
                         </StackPanel>
-                        <Canvas x:Name="UsdHistoryChart" Height="180" Background="{StaticResource SurfaceLight}"/>
+                        <Border Background="#070A10" CornerRadius="8" BorderBrush="#1E293B" BorderThickness="1" Padding="4">
+                            <Canvas x:Name="UsdHistoryChart" Height="180" Background="{StaticResource SurfaceLight}" ClipToBounds="True"/>
+                        </Border>
                     </StackPanel>
                 </Border>
 
                 <!-- Session Info -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="SESSION INFO" Style="{StaticResource SectionHeader}"/>
+                        <TextBlock Text="ACTIVE SESSION &amp; HARDWARE ENVIRONMENT" Style="{StaticResource SectionHeader}"/>
                         <UniformGrid Columns="5">
-                            <StackPanel Margin="0,0,12,0">
-                                <TextBlock Text="Session ID" Style="{StaticResource StatLabel}"/>
-                                <TextBlock x:Name="SessionIdTextBlock" Text="N/A" FontFamily="Consolas" FontSize="11"/>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,12,0">
-                                <TextBlock Text="Start Time" Style="{StaticResource StatLabel}"/>
-                                <TextBlock x:Name="StartTimeTextBlock" Text="N/A" FontSize="11"/>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,12,0">
-                                <TextBlock Text="Recovery Type" Style="{StaticResource StatLabel}"/>
-                                <TextBlock x:Name="RecoveryTypeTextBlock" Text="N/A" FontSize="11"/>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,12,0">
-                                <TextBlock Text="Threads" Style="{StaticResource StatLabel}"/>
-                                <TextBlock x:Name="ThreadCountTextBlock" Text="N/A" FontSize="11"/>
-                            </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="Memory" Style="{StaticResource StatLabel}"/>
-                                <TextBlock x:Name="MemoryUsageTextBlock" Text="N/A" FontSize="11"/>
-                            </StackPanel>
+                            <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="SESSION ID" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="SessionIdTextBlock" Text="N/A" FontFamily="Consolas" FontWeight="SemiBold" FontSize="12"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="START TIME" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="StartTimeTextBlock" Text="N/A" FontWeight="SemiBold" FontSize="12"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="RECOVERY ENGINE" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="RecoveryTypeTextBlock" Text="N/A" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource AccentCyan}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="WORKER THREADS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="ThreadCountTextBlock" Text="N/A" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource AccentGreen}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InnerCard}">
+                                <StackPanel>
+                                    <TextBlock Text="MEMORY FOOTPRINT" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="MemoryUsageTextBlock" Text="N/A" FontFamily="Consolas" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource AccentOrange}"/>
+                                </StackPanel>
+                            </Border>
                         </UniformGrid>
                     </StackPanel>
                 </Border>
@@ -108,11 +146,11 @@
         </ScrollViewer>
 
         <!-- Footer -->
-        <Border Grid.Row="2" Background="{StaticResource SurfaceMid}" Padding="20,10" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Background="{StaticResource SurfaceMid}" Padding="20,12" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="REFRESH" Click="RefreshData_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
                 <Button Content="EXPORT REPORT" Click="ExportReport_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                <Button Content="CLOSE" Click="Close_Click" Style="{StaticResource SecondaryActionButton}"/>
+                <Button Content="CLOSE" Click="Close_Click" Style="{StaticResource PrimaryActionButton}" Height="36"/>
             </StackPanel>
         </Border>
     </Grid>

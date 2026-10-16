@@ -39,7 +39,9 @@ namespace WalletRecoveryTool.Core
                         newWords[i] = similarWord;
                         var newMnemonic = string.Join(" ", newWords);
                         
-                        if (IsValidMnemonic(newMnemonic))
+                        if (IsValidMnemonic(newMnemonic) &&
+                            !MnemonicTracker.IsRestrictedTrivialMnemonic(newMnemonic) &&
+                            !GlobalMnemonicTracker.Instance.WasScanned(newMnemonic))
                         {
                             variations.Add(newMnemonic);
                         }
@@ -68,7 +70,9 @@ namespace WalletRecoveryTool.Core
             foreach (var perm in permutations)
             {
                 var permMnemonic = string.Join(" ", perm);
-                if (IsValidMnemonic(permMnemonic))
+                if (IsValidMnemonic(permMnemonic) &&
+                    !MnemonicTracker.IsRestrictedTrivialMnemonic(permMnemonic) &&
+                    !GlobalMnemonicTracker.Instance.WasScanned(permMnemonic))
                 {
                     variations.Add(permMnemonic);
                 }
@@ -159,7 +163,9 @@ namespace WalletRecoveryTool.Core
             if (currentIndex >= missingIndices.Count)
             {
                 var mnemonic = string.Join(" ", words);
-                if (IsValidMnemonic(mnemonic))
+                if (IsValidMnemonic(mnemonic) &&
+                    !MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) &&
+                    !GlobalMnemonicTracker.Instance.WasScanned(mnemonic))
                 {
                     results.Add(mnemonic);
                 }
@@ -167,10 +173,17 @@ namespace WalletRecoveryTool.Core
             }
 
             var index = missingIndices[currentIndex];
-            foreach (var word in wordlist.Take(100)) // Limit search space
+            var candidateWords = missingIndices.Count == 1 ? wordlist : wordlist.Skip(1).Take(256);
+            foreach (var word in candidateWords)
             {
                 if (results.Count >= maxResults)
                     return;
+
+                // Avoid placing duplicate adjacent words
+                if (index > 0 && string.Equals(words[index - 1], word, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (index < words.Count - 1 && string.Equals(words[index + 1], word, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 words[index] = word;
                 GenerateMissingWordCombinations(words, missingIndices, currentIndex + 1, wordlist, results, maxResults);
@@ -204,8 +217,8 @@ namespace WalletRecoveryTool.Core
         {
             try
             {
-                new Mnemonic(mnemonic);
-                return true;
+                var m = new Mnemonic(mnemonic);
+                return m.IsValidChecksum;
             }
             catch
             {

@@ -71,6 +71,22 @@ namespace WalletRecoveryTool.Core
             }
 
             bool isValid = invalidWords.Count == 0 && (words.Length == 12 || words.Length == 15 || words.Length == 18 || words.Length == 21 || words.Length == 24);
+            if (isValid)
+            {
+                try
+                {
+                    var m = new Mnemonic(string.Join(" ", words.Select(w => w.ToLowerInvariant())), EnglishWordlist);
+                    if (!m.IsValidChecksum)
+                    {
+                        isValid = false;
+                        suggestions.Add("Checksum is invalid (verify word order or the final word).");
+                    }
+                }
+                catch
+                {
+                    isValid = false;
+                }
+            }
 
             return (isValid, invalidWords, suggestions);
         }

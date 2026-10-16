@@ -18,6 +18,9 @@ namespace WalletRecoveryTool.Core
             if (string.IsNullOrEmpty(plainText))
                 return plainText;
 
+            if (plainText.StartsWith(ENCRYPTION_PREFIX, StringComparison.Ordinal))
+                return plainText;
+
             try
             {
                 byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);

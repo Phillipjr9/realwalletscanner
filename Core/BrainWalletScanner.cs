@@ -246,7 +246,7 @@ namespace WalletRecoveryTool.Core
 
         /// <summary>
         /// Scan all common brain wallet phrases for balances
-        /// THIS IS THE GOLDMINE - finds thousands of abandoned wallets!
+        /// Enforces strict cross-section non-repetition and derives Legacy, Nested SegWit, Native SegWit, and ETH addresses
         /// </summary>
         public static async Task<List<BrainWalletResult>> ScanBrainWallets(
             BalanceChecker balanceChecker,
@@ -262,76 +262,33 @@ namespace WalletRecoveryTool.Core
 
             foreach (var phrase in phrases)
             {
+                if (string.IsNullOrWhiteSpace(phrase))
+                    continue;
+
+                // Enforce strict cross-section non-repetition
+                if (!GlobalMnemonicTracker.Instance.TryMarkAsScanned($"BRAIN:{phrase}"))
+                    continue;
+
                 try
                 {
-                    // Try single hash
-                    if (checkBitcoin)
-                    {
-                        var btcAddress = GenerateBitcoinAddress(phrase, false);
-                        if (!string.IsNullOrEmpty(btcAddress))
-                        {
-                            var balance = await balanceChecker.GetBitcoinBalance(btcAddress);
-                            if (balance > 0)
-                            {
-                                results.Add(new BrainWalletResult
-                                {
-                                    Phrase = phrase,
-                                    CryptoType = "BTC",
-                                    Address = btcAddress,
-                                    Balance = balance,
-                                    PrivateKeyHex = PhraseToPrivateKeySHA256(phrase),
-                                    HashMethod = "SHA256"
-                                });
-                                DebugLogger.Log($"💰💰💰 BRAIN WALLET FOUND! {phrase} -> {btcAddress} = {balance} BTC");
-                            }
-                        }
-                    }
+                    await ScanBrainWalletHashModeAsync(
+                        phrase,
+                        doubleHash: false,
+                        balanceChecker,
+                        checkBitcoin,
+                        checkEthereum,
+                        results);
 
-                    if (checkEthereum)
-                    {
-                        var ethAddress = GenerateEthereumAddress(phrase, false);
-                        if (!string.IsNullOrEmpty(ethAddress))
-                        {
-                            var balance = await balanceChecker.GetEthereumBalance(ethAddress);
-                            if (balance > 0)
-                            {
-                                results.Add(new BrainWalletResult
-                                {
-                                    Phrase = phrase,
-                                    CryptoType = "ETH",
-                                    Address = ethAddress,
-                                    Balance = balance,
-                                    PrivateKeyHex = PhraseToPrivateKeySHA256(phrase),
-                                    HashMethod = "SHA256"
-                                });
-                                DebugLogger.Log($"💰💰💰 BRAIN WALLET FOUND! {phrase} -> {ethAddress} = {balance} ETH");
-                            }
-                        }
-                    }
-
-                    // Try double hash (less common but still used)
+                    // Try double hash (less common but still used for both BTC and ETH)
                     if (checkDoubleHash)
                     {
-                        if (checkBitcoin)
-                        {
-                            var btcAddress = GenerateBitcoinAddress(phrase, true);
-                            if (!string.IsNullOrEmpty(btcAddress))
-                            {
-                                var balance = await balanceChecker.GetBitcoinBalance(btcAddress);
-                                if (balance > 0)
-                                {
-                                    results.Add(new BrainWalletResult
-                                    {
-                                        Phrase = phrase,
-                                        CryptoType = "BTC",
-                                        Address = btcAddress,
-                                        Balance = balance,
-                                        PrivateKeyHex = PhraseToPrivateKeySHA256Double(phrase),
-                                        HashMethod = "SHA256x2"
-                                    });
-                                }
-                            }
-                        }
+                        await ScanBrainWalletHashModeAsync(
+                            phrase,
+                            doubleHash: true,
+                            balanceChecker,
+                            checkBitcoin,
+                            checkEthereum,
+                            results);
                     }
                 }
                 catch (Exception ex)
@@ -341,6 +298,95 @@ namespace WalletRecoveryTool.Core
             }
 
             return results;
+        }
+
+        private static async Task ScanBrainWalletHashModeAsync(
+            string phrase,
+            bool doubleHash,
+            BalanceChecker balanceChecker,
+            bool checkBitcoin,
+            bool checkEthereum,
+            List<BrainWalletResult> results)
+        {
+            var privHex = (doubleHash
+                ? PhraseToPrivateKeySHA256Double(phrase)
+                : PhraseToPrivateKeySHA256(phrase))?.ToLowerInvariant();
+
+            if (string.IsNullOrEmpty(privHex) ||
+                MnemonicTracker.IsRestrictedTrivialPrivateKey(privHex) ||
+                !GlobalMnemonicTracker.Instance.TryMarkAsScanned($"pk:{privHex}"))
+            {
+                return;
+            }
+
+            string hashMethod = doubleHash ? "SHA256x2" : "SHA256";
+
+            if (checkBitcoin)
+            {
+                var keyBytes = Convert.FromHexString(privHex);
+                var btcKey = new Key(keyBytes);
+                var btcAddresses = new[]
+                {
+                    btcKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString(),
+                    btcKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString(),
+                    btcKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString()
+                };
+
+                foreach (var btcAddress in btcAddresses)
+                {
+                    if (string.IsNullOrEmpty(btcAddress) ||
+                        FundedAddressFilter.Instance.IsAddressOrKeyScannedEmpty(btcAddress))
+                        continue;
+
+                    var balance = await balanceChecker.GetBitcoinBalance(btcAddress);
+                    if (balance > 0)
+                    {
+                        FundedAddressFilter.Instance.MarkWalletConfirmedFunded(null, privHex, btcAddress);
+                        results.Add(new BrainWalletResult
+                        {
+                            Phrase = phrase,
+                            CryptoType = "BTC",
+                            Address = btcAddress,
+                            Balance = balance,
+                            PrivateKeyHex = privHex,
+                            HashMethod = hashMethod
+                        });
+                        DebugLogger.Log($"💰💰💰 BRAIN WALLET FOUND! {phrase} ({hashMethod}) -> {btcAddress} = {balance} BTC");
+                    }
+                    else
+                    {
+                        FundedAddressFilter.Instance.MarkWalletConfirmedEmpty(null, null, btcAddress);
+                    }
+                }
+            }
+
+            if (checkEthereum)
+            {
+                var ethAddress = GenerateEthereumAddress(phrase, doubleHash);
+                if (!string.IsNullOrEmpty(ethAddress) &&
+                    !FundedAddressFilter.Instance.IsAddressOrKeyScannedEmpty(ethAddress))
+                {
+                    var balance = await balanceChecker.GetEthereumBalance(ethAddress);
+                    if (balance > 0)
+                    {
+                        FundedAddressFilter.Instance.MarkWalletConfirmedFunded(null, privHex, null, ethAddress);
+                        results.Add(new BrainWalletResult
+                        {
+                            Phrase = phrase,
+                            CryptoType = "ETH",
+                            Address = ethAddress,
+                            Balance = balance,
+                            PrivateKeyHex = privHex,
+                            HashMethod = hashMethod
+                        });
+                        DebugLogger.Log($"💰💰💰 BRAIN WALLET FOUND! {phrase} ({hashMethod}) -> {ethAddress} = {balance} ETH");
+                    }
+                    else
+                    {
+                        FundedAddressFilter.Instance.MarkWalletConfirmedEmpty(null, null, null, ethAddress);
+                    }
+                }
+            }
         }
 
         /// <summary>

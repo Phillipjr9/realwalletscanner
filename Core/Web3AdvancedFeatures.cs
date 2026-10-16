@@ -175,6 +175,12 @@ namespace WalletRecoveryTool.Core
             try
             {
                 var mnemonicObj = new Mnemonic(mnemonic, Wordlist.English);
+                if (!mnemonicObj.IsValidChecksum)
+                {
+                    result.IsValid = false;
+                    result.ErrorMessage = "Checksum validation failed: invalid BIP39 checksum";
+                    return result;
+                }
                 result.IsValid = true;
                 result.ErrorMessage = "Mnemonic is valid";
                 return result;

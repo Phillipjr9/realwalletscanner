@@ -219,12 +219,8 @@ namespace WalletRecoveryTool.Core
         /// </summary>
         private static readonly HashSet<string> _knownEmptyPatterns = new HashSet<string>
         {
-            // Genesis-related (never funded)
-            "1111111111111111111114oLvT2", // Zero privkey
-            "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH", // First ever address after genesis
-            
-            // Common test addresses
-            "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", // Satoshi's genesis address (has balance but locked)
+            // Burn / unspendable addresses (never funded with spendable keys)
+            "1111111111111111111114oLvT2", // Zero hash160 burn address
         };
         
         /// <summary>

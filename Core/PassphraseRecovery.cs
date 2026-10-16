@@ -50,6 +50,11 @@ namespace WalletRecoveryTool.Core
                 {
                     if (ct.IsCancellationRequested || foundResult != null) return;
 
+                    // STRICT NON-REPETITION RULE: Never repeat a mnemonic+passphrase combination already tested without a match
+                    var ppKey = $"passphrase:{mnemonic.Trim().ToLowerInvariant()}:{passphrase}:{knownAddress ?? ""}";
+                    if (!GlobalMnemonicTracker.Instance.TryMarkAsScanned(ppKey))
+                        return;
+
                     var current = Interlocked.Increment(ref checkedCount);
 
                     // Report progress every 100 candidates
@@ -67,6 +72,7 @@ namespace WalletRecoveryTool.Core
                     // Test passphrase (pure local crypto, no API calls)
                     if (await TestPassphrase(mnemonic, passphrase, knownAddress))
                     {
+                        GlobalMnemonicTracker.Instance.MarkWalletConfirmedFunded(null, ppKey);
                         var result = new PassphraseResult
                         {
                             Success = true,

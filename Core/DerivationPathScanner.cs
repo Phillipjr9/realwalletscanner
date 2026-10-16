@@ -102,6 +102,20 @@ namespace WalletRecoveryTool.Core
             };
         }
 
+        private static string NormalizeCryptoType(string type)
+        {
+            if (string.IsNullOrWhiteSpace(type)) return "";
+            return type.Trim().ToUpperInvariant() switch
+            {
+                "BITCOIN" => "BTC",
+                "ETHEREUM" => "ETH",
+                "SOLANA" => "SOL",
+                "LITECOIN" => "LTC",
+                "DOGECOIN" => "DOGE",
+                var t => t
+            };
+        }
+
         /// <summary>
         /// Generate all possible addresses for a mnemonic
         /// Checks multiple paths and address indices
@@ -114,9 +128,10 @@ namespace WalletRecoveryTool.Core
             var result = new Dictionary<string, List<string>>();
             var allPaths = GetAllDerivationPaths();
 
-            if (cryptoTypesFilter != null)
+            if (cryptoTypesFilter != null && cryptoTypesFilter.Count > 0)
             {
-                allPaths = allPaths.Where(p => cryptoTypesFilter.Contains(p.CryptoType)).ToList();
+                var normalizedSet = cryptoTypesFilter.Select(NormalizeCryptoType).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                allPaths = allPaths.Where(p => normalizedSet.Contains(p.CryptoType)).ToList();
             }
 
             var mnemonicObj = new NBitcoin.Mnemonic(mnemonic);
@@ -191,13 +206,15 @@ namespace WalletRecoveryTool.Core
             var results = new List<(string path, string address, decimal balance)>();
             var allPaths = GetAllDerivationPaths();
 
-            if (cryptoTypesFilter != null)
+            if (cryptoTypesFilter != null && cryptoTypesFilter.Count > 0)
             {
-                allPaths = allPaths.Where(p => cryptoTypesFilter.Contains(p.CryptoType)).ToList();
+                var normalizedSet = cryptoTypesFilter.Select(NormalizeCryptoType).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                allPaths = allPaths.Where(p => normalizedSet.Contains(p.CryptoType)).ToList();
             }
 
             var mnemonicObj = new NBitcoin.Mnemonic(mnemonic);
             var masterKey = mnemonicObj.DeriveExtKey();
+            Solnet.Wallet.Wallet solWallet = null;
 
             // Stream-check: generate each address and check balance immediately
             // instead of collecting all 600+ addresses into memory first
@@ -234,8 +251,29 @@ namespace WalletRecoveryTool.Core
                             var ecKey = new Nethereum.Signer.EthECKey(key.PrivateKey.ToBytes(), true);
                             address = ecKey.GetPublicAddress();
                         }
+                        else if (pathTemplate.CryptoType == "SOL")
+                        {
+                            solWallet ??= new Solnet.Wallet.Wallet(mnemonic);
+                            address = solWallet.GetAccount(i)?.PublicKey?.Key;
+                        }
+                        else if (pathTemplate.CryptoType == "LTC")
+                        {
+                            var key = masterKey.Derive(new KeyPath(path));
+                            address = CryptoWalletGenerator.EncodeAltcoinAddress(key.PrivateKey.PubKey, 0x30);
+                        }
+                        else if (pathTemplate.CryptoType == "DOGE")
+                        {
+                            var key = masterKey.Derive(new KeyPath(path));
+                            address = CryptoWalletGenerator.EncodeAltcoinAddress(key.PrivateKey.PubKey, 0x1E);
+                        }
 
                         if (address == null) continue;
+
+                        // STRICT NON-REPETITION RULE: Skip if this address or derivation path was already scanned empty
+                        var tracker = GlobalMnemonicTracker.Instance;
+                        var derivKey = $"deriv:{mnemonic.Trim().ToLowerInvariant()}:{path}";
+                        if (!tracker.TryMarkAsScanned(derivKey) || tracker.IsAddressOrKeyScannedEmpty(address))
+                            continue;
 
                         // Check balance immediately — no intermediate collection
                         decimal balance = 0;
@@ -243,11 +281,22 @@ namespace WalletRecoveryTool.Core
                             balance = await balanceChecker.GetBitcoinBalance(address);
                         else if (pathTemplate.CryptoType == "ETH" || pathTemplate.CryptoType == "ETC")
                             balance = await balanceChecker.GetEthereumBalance(address);
+                        else if (pathTemplate.CryptoType == "SOL")
+                            balance = await balanceChecker.GetSolanaBalance(address);
+                        else if (pathTemplate.CryptoType == "LTC")
+                            balance = await balanceChecker.GetLitecoinBalance(address);
+                        else if (pathTemplate.CryptoType == "DOGE")
+                            balance = await balanceChecker.GetDogecoinBalance(address);
 
                         if (balance > 0)
                         {
+                            tracker.MarkWalletConfirmedFunded(null, derivKey);
                             results.Add((pathLabel, address, balance));
                             DebugLogger.Log($"FOUND: {pathLabel} - {address} = {balance}");
+                        }
+                        else
+                        {
+                            tracker.TryMarkAsScanned("addr:" + address.ToLowerInvariant());
                         }
                     }
                     catch (Exception ex) { DebugLogger.Log($"Balance check failed for {pathLabel}: {ex.Message}"); continue; }

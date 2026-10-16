@@ -1663,11 +1663,7 @@ public class BalanceChecker
 			var (contract, symbol, decimals) = array2[i];
 			try
 			{
-				decimal num = await GetERC20Balance(address, contract);
-				if (decimals != 6 && num > 0m)
-				{
-					num = await GetERC20BalanceWithDecimals(address, contract, decimals);
-				}
+				decimal num = await GetERC20BalanceWithDecimals(address, contract, decimals);
 				if (num > 0m)
 				{
 					result[symbol] = num;
@@ -1824,7 +1820,7 @@ public class BalanceChecker
 	public async Task<Dictionary<string, decimal>> CheckAllBalances(CryptoWalletGenerator.WalletInfo wallet, bool scanBitcoin = true, bool scanEthereum = true, bool scanSolana = true, bool scanUSDT = true, bool scanLitecoin = false, bool scanDogecoin = false, bool scanPolygon = false, bool scanBnb = false)
 	{
 		Dictionary<string, decimal> balances = new Dictionary<string, decimal>();
-		AppSettings current = AppSettings.Current;
+		AppSettings current = _settings ?? AppSettings.Current;
 		bool strictScan = current.StrictScanMode;
 		bool quickScan = current.QuickScanMode && !strictScan;
 		bool skipEmptyTypes = current.SkipEmptyAddressTypes && !strictScan;
@@ -2683,7 +2679,7 @@ public class BalanceChecker
 
 	public async Task<Dictionary<string, decimal>> GetEthereumBalancesBatch(List<string> addresses)
 	{
-		Dictionary<string, decimal> results = new Dictionary<string, decimal>();
+		Dictionary<string, decimal> results = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 		if (addresses == null || addresses.Count == 0)
 		{
 			return results;
@@ -2695,6 +2691,10 @@ public class BalanceChecker
 			if (cacheExpiry > TimeSpan.Zero && _balanceCache.TryGetValue("ETH:" + address, out (decimal, DateTime) value) && DateTime.Now - value.Item2 < cacheExpiry)
 			{
 				(results[address], _) = value;
+			}
+			else if (cacheExpiry > TimeSpan.Zero && _balanceCache.TryGetValue("ETH:" + address.ToLowerInvariant(), out (decimal, DateTime) valueLower) && DateTime.Now - valueLower.Item2 < cacheExpiry)
+			{
+				(results[address], _) = valueLower;
 			}
 			else
 			{
@@ -2710,7 +2710,10 @@ public class BalanceChecker
 			foreach (string addr in uncachedAddresses)
 			{
 				var localBalance = await TryGetEthereumBalanceFromLocalNode(addr, DateTime.Now);
-				results[addr] = localBalance ?? 0m;
+				if (localBalance.HasValue)
+				{
+					results[addr] = localBalance.Value;
+				}
 			}
 			return results;
 		}
@@ -2720,52 +2723,363 @@ public class BalanceChecker
 		for (int offset = 0; offset < uncachedAddresses.Count; offset += ethBatchSize)
 		{
 			var page = uncachedAddresses.Skip(offset).Take(ethBatchSize).ToList();
-			try
+			bool batchSucceeded = false;
+
+			if (!string.IsNullOrEmpty(_settings.EtherscanApiKey) && DateTime.Now >= _etherscanCooldownUntil)
 			{
-				await _apiThrottle.WaitAsync();
 				try
 				{
-					await EnforceRateLimit();
-					string value2 = string.Join(",", page);
-					RestRequest request = new RestRequest("");
-					request.AddParameter("chainid", "1");
-					request.AddParameter("module", "account");
-					request.AddParameter("action", "balancemulti");
-					request.AddParameter("address", value2);
-					request.AddParameter("tag", "latest");
-					if (!string.IsNullOrEmpty(_settings.EtherscanApiKey))
+					await _apiThrottle.WaitAsync();
+					try
 					{
+						await EnforceRateLimit();
+						string value2 = string.Join(",", page);
+						RestRequest request = new RestRequest("");
+						request.AddParameter("chainid", "1");
+						request.AddParameter("module", "account");
+						request.AddParameter("action", "balancemulti");
+						request.AddParameter("address", value2);
+						request.AddParameter("tag", "latest");
 						request.AddParameter("apikey", _settings.EtherscanApiKey);
-					}
-					RestResponse restResponse = await _etherscanClient.ExecuteAsync(request, _globalCancellationToken);
-					if (restResponse.IsSuccessful && restResponse.Content != null)
-					{
-						dynamic val = JsonConvert.DeserializeObject(restResponse.Content);
-						if (val.status == "1" && val.result != null)
+						RestResponse restResponse = await _etherscanClient.ExecuteAsync(request, _globalCancellationToken);
+						if (restResponse.IsSuccessful && restResponse.Content != null)
 						{
-							foreach (dynamic item in val.result)
+							dynamic val = JsonConvert.DeserializeObject(restResponse.Content);
+							if (val.status == "1" && val.result != null)
 							{
-								dynamic val2 = item.account.ToString();
-								dynamic val3 = decimal.Parse(item.balance.ToString());
-								dynamic val4 = val3 / 1000000000000000000m;
-								results[val2] = val4;
-								_balanceCache[$"ETH:{(object)val2}"] = (val4, DateTime.Now);
+								foreach (dynamic item in val.result)
+								{
+									string accountAddr = item.account.ToString();
+									decimal wei = decimal.Parse(item.balance.ToString(), CultureInfo.InvariantCulture);
+									decimal ethBal = wei / 1000000000000000000m;
+									results[accountAddr] = ethBal;
+									_balanceCache[$"ETH:{accountAddr}"] = (ethBal, DateTime.Now);
+								}
+								batchSucceeded = true;
 							}
 						}
 					}
+					finally
+					{
+						_apiThrottle.Release();
+					}
 				}
-				finally
+				catch (Exception ex)
 				{
-					_apiThrottle.Release();
+					DebugLogger.Log("Error in batch Ethereum balance check: " + ex.Message);
 				}
 			}
-			catch (Exception ex)
+
+			// Fallback 1: True JSON-RPC batch request (1 HTTP POST for up to 20 addresses) via free public Ethereum RPCs
+			if (!batchSucceeded)
 			{
-				DebugLogger.Log("Error in batch Ethereum balance check: " + ex.Message);
+				string[] batchRpcEndpoints = new[]
+				{
+					"https://ethereum-rpc.publicnode.com",
+					"https://1rpc.io/eth",
+					"https://rpc.ankr.com/eth"
+				};
+
+				foreach (var rpcUrl in batchRpcEndpoints)
+				{
+					if (_globalCancellationToken.IsCancellationRequested) break;
+					try
+					{
+						var batchPayload = page.Select((addr, idx) => new
+						{
+							jsonrpc = "2.0",
+							method = "eth_getBalance",
+							@params = new object[] { addr, "latest" },
+							id = idx + 1
+						}).ToArray();
+
+						var client = HttpClientPool.GetRestClient(rpcUrl);
+						var rpcReq = new RestRequest("", Method.Post);
+						rpcReq.AddStringBody(JsonConvert.SerializeObject(batchPayload), DataFormat.Json);
+						var rpcResp = await client.ExecuteAsync(rpcReq, _globalCancellationToken);
+						if (rpcResp.IsSuccessful && !string.IsNullOrWhiteSpace(rpcResp.Content))
+						{
+							var arr = JArray.Parse(rpcResp.Content);
+							int parsedCount = 0;
+							foreach (var item in arr)
+							{
+								int id = item["id"]?.Value<int>() ?? 0;
+								string hex = item["result"]?.ToString();
+								if (id >= 1 && id <= page.Count && !string.IsNullOrEmpty(hex) && hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+								{
+									string hexDigits = hex.Substring(2);
+									decimal ethBal = 0m;
+									if (hexDigits.Length > 0 && hexDigits != "0")
+									{
+										BigInteger wei = BigInteger.Parse("0" + hexDigits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+										ethBal = (decimal)wei / 1000000000000000000m;
+									}
+									string addr = page[id - 1];
+									results[addr] = ethBal;
+									_balanceCache[$"ETH:{addr}"] = (ethBal, DateTime.Now);
+									parsedCount++;
+								}
+							}
+							if (parsedCount == page.Count)
+							{
+								batchSucceeded = true;
+								break;
+							}
+						}
+					}
+					catch (Exception ex)
+					{
+						DebugLogger.Log($"ETH JSON-RPC batch failed on {rpcUrl}: {ex.Message}");
+					}
+				}
+			}
+
+			// Fallback 2: individual ETH balance lookup if both Etherscan and JSON-RPC batch failed
+			if (!batchSucceeded)
+			{
+				foreach (var addr in page)
+				{
+					if (_globalCancellationToken.IsCancellationRequested) break;
+					if (results.ContainsKey(addr)) continue;
+					try
+					{
+						decimal bal = await GetEthereumBalance(addr);
+						results[addr] = bal;
+					}
+					catch (Exception ex)
+					{
+						DebugLogger.Log($"ETH batch fallback failed for {TruncateAddress(addr)}: {ex.Message}");
+					}
+				}
 			}
 		}
 		return results;
 	}
+
+	/// <summary>
+	/// Batch check Solana balances (up to 100 addresses per RPC call) using getMultipleAccounts.
+	/// </summary>
+	public async Task<Dictionary<string, decimal>> GetSolanaBalancesBatch(List<string> addresses)
+	{
+		var results = new Dictionary<string, decimal>(StringComparer.Ordinal);
+		if (addresses == null || addresses.Count == 0)
+			return results;
+
+		var uncached = new List<string>();
+		var cacheExpiry = GetCacheExpiry();
+		foreach (var addr in addresses)
+		{
+			if (string.IsNullOrWhiteSpace(addr)) continue;
+			if (cacheExpiry > TimeSpan.Zero && _balanceCache.TryGetValue("SOL:" + addr, out var cached) && DateTime.Now - cached.Item2 < cacheExpiry)
+				results[addr] = cached.Item1;
+			else
+				uncached.Add(addr);
+		}
+		if (uncached.Count == 0)
+			return results;
+
+		string[] solRpcEndpoints = new[]
+		{
+			!string.IsNullOrWhiteSpace(_settings.LocalSolanaRpcUrl) ? _settings.LocalSolanaRpcUrl : null,
+			"https://api.mainnet-beta.solana.com",
+			"https://solana-rpc.publicnode.com",
+			"https://rpc.ankr.com/solana"
+		}.Where(u => !string.IsNullOrWhiteSpace(u)).ToArray()!;
+
+		const int solBatchSize = 100;
+		for (int offset = 0; offset < uncached.Count; offset += solBatchSize)
+		{
+			var page = uncached.Skip(offset).Take(solBatchSize).ToList();
+			bool batchSucceeded = false;
+
+			foreach (var rpcUrl in solRpcEndpoints)
+			{
+				if (_globalCancellationToken.IsCancellationRequested) break;
+				try
+				{
+					var payload = new
+					{
+						jsonrpc = "2.0",
+						id = 1,
+						method = "getMultipleAccounts",
+						@params = new object[]
+						{
+							page,
+							new { encoding = "base64" }
+						}
+					};
+
+					var client = HttpClientPool.GetRestClient(rpcUrl);
+					var req = new RestRequest("", Method.Post);
+					req.AddStringBody(JsonConvert.SerializeObject(payload), DataFormat.Json);
+					var resp = await client.ExecuteAsync(req, _globalCancellationToken);
+					if (resp.IsSuccessful && !string.IsNullOrWhiteSpace(resp.Content))
+					{
+						var root = JObject.Parse(resp.Content);
+						var values = root["result"]?["value"] as JArray;
+						if (values != null && values.Count == page.Count)
+						{
+							for (int i = 0; i < page.Count; i++)
+							{
+								decimal solBal = 0m;
+								var item = values[i];
+								if (item != null && item.Type == JTokenType.Object)
+								{
+									long lamports = item["lamports"]?.Value<long>() ?? 0L;
+									solBal = lamports / 1_000_000_000m;
+								}
+								results[page[i]] = solBal;
+								_balanceCache["SOL:" + page[i]] = (solBal, DateTime.Now);
+							}
+							batchSucceeded = true;
+							break;
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					DebugLogger.Log($"SOL getMultipleAccounts batch failed on {rpcUrl}: {ex.Message}");
+				}
+			}
+
+			if (!batchSucceeded)
+			{
+				foreach (var addr in page)
+				{
+					if (_globalCancellationToken.IsCancellationRequested) break;
+					try
+					{
+						results[addr] = await GetSolanaBalance(addr);
+					}
+					catch (Exception ex)
+					{
+						DebugLogger.Log($"SOL batch fallback failed for {TruncateAddress(addr)}: {ex.Message}");
+					}
+				}
+			}
+		}
+
+		return results;
+	}
+
+	/// <summary>
+	/// Batch check EVM balances (Polygon MATIC or BSC BNB) via JSON-RPC batch array with per-address fallback.
+	/// </summary>
+	private async Task<Dictionary<string, decimal>> GetEvmBalancesBatchAsync(
+		List<string> addresses,
+		string cachePrefix,
+		string[] rpcEndpoints,
+		Func<string, Task<decimal>> singleFallback)
+	{
+		var results = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+		if (addresses == null || addresses.Count == 0)
+			return results;
+
+		var uncached = new List<string>();
+		var cacheExpiry = GetCacheExpiry();
+		foreach (var addr in addresses)
+		{
+			if (string.IsNullOrWhiteSpace(addr)) continue;
+			if (cacheExpiry > TimeSpan.Zero && _balanceCache.TryGetValue($"{cachePrefix}:{addr}", out var cached) && DateTime.Now - cached.Item2 < cacheExpiry)
+				results[addr] = cached.Item1;
+			else
+				uncached.Add(addr);
+		}
+		if (uncached.Count == 0)
+			return results;
+
+		const int batchSize = 20;
+		for (int offset = 0; offset < uncached.Count; offset += batchSize)
+		{
+			var page = uncached.Skip(offset).Take(batchSize).ToList();
+			bool batchSucceeded = false;
+
+			foreach (var rpcUrl in rpcEndpoints)
+			{
+				if (_globalCancellationToken.IsCancellationRequested) break;
+				try
+				{
+					var batchPayload = page.Select((addr, idx) => new
+					{
+						jsonrpc = "2.0",
+						method = "eth_getBalance",
+						@params = new object[] { addr, "latest" },
+						id = idx + 1
+					}).ToArray();
+
+					var client = HttpClientPool.GetRestClient(rpcUrl);
+					var req = new RestRequest("", Method.Post);
+					req.AddStringBody(JsonConvert.SerializeObject(batchPayload), DataFormat.Json);
+					var resp = await client.ExecuteAsync(req, _globalCancellationToken);
+					if (resp.IsSuccessful && !string.IsNullOrWhiteSpace(resp.Content))
+					{
+						var arr = JArray.Parse(resp.Content);
+						int parsedCount = 0;
+						foreach (var item in arr)
+						{
+							int id = item["id"]?.Value<int>() ?? 0;
+							string hex = item["result"]?.ToString();
+							if (id >= 1 && id <= page.Count && !string.IsNullOrEmpty(hex) && hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+							{
+								string hexDigits = hex.Substring(2);
+								decimal bal = 0m;
+								if (hexDigits.Length > 0 && hexDigits != "0")
+								{
+									BigInteger wei = BigInteger.Parse("0" + hexDigits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+									bal = (decimal)wei / 1000000000000000000m;
+								}
+								string addr = page[id - 1];
+								results[addr] = bal;
+								_balanceCache[$"{cachePrefix}:{addr}"] = (bal, DateTime.Now);
+								parsedCount++;
+							}
+						}
+						if (parsedCount == page.Count)
+						{
+							batchSucceeded = true;
+							break;
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					DebugLogger.Log($"{cachePrefix} JSON-RPC batch failed on {rpcUrl}: {ex.Message}");
+				}
+			}
+
+			if (!batchSucceeded)
+			{
+				foreach (var addr in page)
+				{
+					if (_globalCancellationToken.IsCancellationRequested) break;
+					try
+					{
+						results[addr] = await singleFallback(addr);
+					}
+					catch (Exception ex)
+					{
+						DebugLogger.Log($"{cachePrefix} batch fallback failed for {TruncateAddress(addr)}: {ex.Message}");
+					}
+				}
+			}
+		}
+
+		return results;
+	}
+
+	public Task<Dictionary<string, decimal>> GetPolygonBalancesBatch(List<string> addresses) =>
+		GetEvmBalancesBatchAsync(
+			addresses,
+			"MATIC",
+			new[] { "https://polygon-bor-rpc.publicnode.com", "https://polygon-rpc.com", "https://1rpc.io/matic" },
+			GetPolygonBalance);
+
+	public Task<Dictionary<string, decimal>> GetBnbBalancesBatch(List<string> addresses) =>
+		GetEvmBalancesBatchAsync(
+			addresses,
+			"BNB",
+			new[] { "https://bsc-rpc.publicnode.com", "https://bsc-dataseed.binance.org", "https://1rpc.io/bnb" },
+			GetBnbBalance);
 
 	public void Dispose()
 	{

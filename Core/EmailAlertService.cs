@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Net.Mail;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -9,8 +12,8 @@ using Newtonsoft.Json;
 namespace WalletRecoveryTool.Core
 {
     /// <summary>
-    /// SendGrid email service for wallet found alerts
-    /// Simple, reliable, no SMTP configuration needed
+    /// Unified SMTP, SendGrid & Webhook Notification Service for wallet-found alerts.
+    /// Supports RFC-5321/5322 SMTP (TLS/STARTTLS on ports 587/465/25), SendGrid v3 REST API, and JSON Webhooks.
     /// </summary>
     public class EmailAlertService
     {
@@ -20,21 +23,129 @@ namespace WalletRecoveryTool.Core
         
         // Static HttpClient for better performance (connection pooling)
         private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        private static readonly ConcurrentDictionary<string, DateTime> _sentAlertDedupe =
+            new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentQueue<CryptoWalletGenerator.WalletInfo> _pendingRetryQueue =
+            new ConcurrentQueue<CryptoWalletGenerator.WalletInfo>();
+        private static int _retryWorkerRunning = 0;
+
+        private static string GetRetryQueueFilePath()
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "WalletRecoveryTool",
+                "Logs");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, "smtp_pending_retry_queue.jsonl");
+        }
 
         /// <summary>
-        /// Send wallet found alert via SendGrid
+        /// Fire-and-forget helper called whenever a wallet with balance is discovered in any scanner mode.
+        /// Deduplicates by address/mnemonic/key so the same wallet never triggers duplicate emails,
+        /// and automatically queues failed alerts to disk for background retry until delivered.
+        /// </summary>
+        public static void TrySendAlertInBackground(CryptoWalletGenerator.WalletInfo wallet, AppSettings settings = null)
+        {
+            if (wallet == null) return;
+
+            try
+            {
+                settings ??= AppSettings.Load();
+                if (settings == null || !settings.EnableEmailAlerts)
+                    return;
+
+                string dedupeKey = wallet.BitcoinAddress
+                    ?? wallet.EthereumAddress
+                    ?? wallet.BitcoinAddressNativeSegWit
+                    ?? wallet.BitcoinAddressTaproot
+                    ?? wallet.SolanaAddress
+                    ?? wallet.Mnemonic
+                    ?? wallet.PrivateKey
+                    ?? Guid.NewGuid().ToString();
+
+                if (!_sentAlertDedupe.TryAdd(dedupeKey, DateTime.UtcNow))
+                    return;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await SendWalletFoundAlertAsync(wallet, settings).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogError("EmailAlertService.TrySendAlertInBackground", ex);
+                        EnqueueForPersistentRetry(wallet);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogError("EmailAlertService.TrySendAlertInBackground_Init", ex);
+            }
+        }
+
+        private static void EnqueueForPersistentRetry(CryptoWalletGenerator.WalletInfo wallet)
+        {
+            try
+            {
+                _pendingRetryQueue.Enqueue(wallet);
+                string line = JsonConvert.SerializeObject(wallet) + Environment.NewLine;
+                File.AppendAllText(GetRetryQueueFilePath(), line, Encoding.UTF8);
+
+                if (System.Threading.Interlocked.CompareExchange(ref _retryWorkerRunning, 1, 0) == 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            while (_pendingRetryQueue.TryDequeue(out var pending))
+                            {
+                                await Task.Delay(30000).ConfigureAwait(false);
+                                try
+                                {
+                                    var latestSettings = AppSettings.Load();
+                                    await SendWalletFoundAlertAsync(pending, latestSettings).ConfigureAwait(false);
+                                }
+                                catch
+                                {
+                                    _pendingRetryQueue.Enqueue(pending);
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            System.Threading.Interlocked.Exchange(ref _retryWorkerRunning, 0);
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogError("EmailAlertService.EnqueueForPersistentRetry", ex);
+            }
+        }
+
+        /// <summary>
+        /// Send wallet found alert via SMTP (primary), SendGrid REST API, or Webhook.
         /// </summary>
         public static async Task SendWalletFoundAlertAsync(CryptoWalletGenerator.WalletInfo wallet, AppSettings settings)
         {
-            // Validate settings
-            if (!settings.EnableEmailAlerts)
+            if (settings == null || !settings.EnableEmailAlerts)
                 throw new InvalidOperationException("Email alerts are disabled. Enable in Settings.");
 
-            if (string.IsNullOrEmpty(settings.AlertEmailAddress))
-                throw new InvalidOperationException("No email address configured. Set it in Settings.");
+            string method = (settings.EmailMethod ?? "SMTP").Trim();
 
-            if (string.IsNullOrEmpty(settings.SendGridApiKey))
-                throw new InvalidOperationException("SendGrid API key is required. Get it from https://sendgrid.com");
+            // Webhook mode support
+            if (method.StartsWith("Webhook", StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(settings.WebhookUrl) && string.IsNullOrWhiteSpace(settings.AlertEmailAddress)))
+            {
+                await SendViaWebhookAsync(wallet, settings).ConfigureAwait(false);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.AlertEmailAddress))
+                throw new InvalidOperationException("No recipient email address configured. Set it in Settings.");
 
             var recipients = settings.AlertEmailAddress.Split(';', ',')
                 .Select(e => e.Trim())
@@ -44,7 +155,255 @@ namespace WalletRecoveryTool.Core
             if (!recipients.Any())
                 throw new InvalidOperationException("No valid email addresses found.");
 
-            await SendViaSendGrid(wallet, settings, recipients);
+            // Determine whether to use SMTP or SendGrid REST API
+            bool hasSmtpConfig = !string.IsNullOrWhiteSpace(settings.SmtpServer) ||
+                                 !string.IsNullOrWhiteSpace(settings.SmtpUsername) ||
+                                 !string.IsNullOrWhiteSpace(settings.SmtpPassword);
+
+            if (method.StartsWith("SMTP", StringComparison.OrdinalIgnoreCase) ||
+                method.StartsWith("Gmail", StringComparison.OrdinalIgnoreCase) ||
+                hasSmtpConfig)
+            {
+                await SendViaSmtpAsync(wallet, settings, recipients).ConfigureAwait(false);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(settings.SendGridApiKey))
+            {
+                await SendViaSendGrid(wallet, settings, recipients).ConfigureAwait(false);
+                return;
+            }
+
+            // Default to SMTP so provider auto-inference can provide clear guidance
+            await SendViaSmtpAsync(wallet, settings, recipients).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Send email via RFC-5321/5322 SMTP using System.Net.Mail.SmtpClient with TLS/STARTTLS and retry support.
+        /// </summary>
+        private static async Task SendViaSmtpAsync(
+            CryptoWalletGenerator.WalletInfo wallet,
+            AppSettings settings,
+            List<string> recipients)
+        {
+            var emailBody = BuildEmailBody(wallet);
+            var plainTextBody = BuildPlainTextSummary(wallet);
+            var totalUsd = GetTotalBalance(wallet);
+            string subject = $"🎉 Wallet Found with Balance! (${totalUsd:F2})";
+
+            string primaryRecipient = recipients[0];
+            string smtpUser = !string.IsNullOrWhiteSpace(settings.SmtpUsername)
+                ? settings.SmtpUsername.Trim()
+                : primaryRecipient;
+
+            string smtpPass = !string.IsNullOrWhiteSpace(settings.SmtpPassword)
+                ? settings.SmtpPassword.Trim()
+                : settings.SendGridApiKey?.Trim();
+
+            string smtpHost = settings.SmtpServer?.Trim();
+            int smtpPort = settings.SmtpPort > 0 ? settings.SmtpPort : 587;
+
+            // Support pipe-delimited "host|port|user|pass" string in SmtpServer, SmtpPassword, or SendGridApiKey
+            string pipeCandidate = (smtpHost != null && smtpHost.Contains('|')) ? smtpHost
+                                 : (smtpPass != null && smtpPass.Contains('|')) ? smtpPass
+                                 : null;
+            if (!string.IsNullOrWhiteSpace(pipeCandidate))
+            {
+                var pipeParts = pipeCandidate.Split('|');
+                if (pipeParts.Length >= 4)
+                {
+                    smtpHost = pipeParts[0].Trim();
+                    if (int.TryParse(pipeParts[1].Trim(), out int pipePort) && pipePort > 0)
+                        smtpPort = pipePort;
+                    smtpUser = pipeParts[2].Trim();
+                    smtpPass = string.Join("|", pipeParts.Skip(3)).Trim();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(smtpPass))
+            {
+                smtpPass = Environment.GetEnvironmentVariable("SMTP_PASSWORD")?.Trim();
+            }
+
+            // Support compact "smtp.host.com:587" syntax in SmtpServer
+            if (!string.IsNullOrWhiteSpace(smtpHost) && smtpHost.Contains(':'))
+            {
+                var parts = smtpHost.Split(':');
+                smtpHost = parts[0].Trim();
+                if (parts.Length > 1 && int.TryParse(parts[1].Trim(), out int parsedPort) && parsedPort > 0)
+                    smtpPort = parsedPort;
+            }
+
+            // Auto-infer SMTP host from sender or recipient domain when SmtpServer is omitted
+            if (string.IsNullOrWhiteSpace(smtpHost))
+            {
+                smtpHost = InferSmtpServerFromEmail(smtpUser) ?? InferSmtpServerFromEmail(primaryRecipient);
+            }
+
+            // Support SendGrid SMTP relay automatically if a SendGrid API key ("SG....") is supplied
+            if (!string.IsNullOrWhiteSpace(smtpPass) && smtpPass.StartsWith("SG.", StringComparison.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(smtpHost))
+                    smtpHost = "smtp.sendgrid.net";
+                if (string.IsNullOrWhiteSpace(settings.SmtpUsername))
+                    smtpUser = "apikey";
+            }
+
+            if (string.IsNullOrWhiteSpace(smtpHost))
+            {
+                throw new InvalidOperationException(
+                    "SMTP Server host is required (e.g., smtp.gmail.com, smtp.office365.com, smtp.mail.yahoo.com). Set it in Settings → Email Alerts.");
+            }
+
+            bool enableSsl = smtpPort != 25;
+            string fromEmail = (smtpUser != null && smtpUser.Contains('@')) ? smtpUser : primaryRecipient;
+
+            Exception lastException = null;
+
+            for (int attempt = 1; attempt <= MAX_RETRIES; attempt++)
+            {
+                try
+                {
+                    using (var mail = new MailMessage())
+                    {
+                        mail.From = new MailAddress(fromEmail, "Wallet Recovery Tool");
+                        foreach (var recipient in recipients)
+                        {
+                            mail.To.Add(new MailAddress(recipient));
+                        }
+
+                        mail.Subject = subject;
+                        mail.Body = emailBody;
+                        mail.IsBodyHtml = true;
+                        mail.BodyEncoding = Encoding.UTF8;
+                        mail.SubjectEncoding = Encoding.UTF8;
+                        mail.Priority = MailPriority.High;
+
+                        mail.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(plainTextBody, Encoding.UTF8, "text/plain"));
+                        mail.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(emailBody, Encoding.UTF8, "text/html"));
+
+                        using (var smtpClient = new SmtpClient(smtpHost, smtpPort))
+                        {
+                            smtpClient.EnableSsl = enableSsl;
+                            smtpClient.DeliveryMethod = SmtpDeliveryMethod.Network;
+                            smtpClient.UseDefaultCredentials = false;
+                            smtpClient.Timeout = 20000;
+
+                            if (!string.IsNullOrWhiteSpace(smtpPass))
+                            {
+                                smtpClient.Credentials = new NetworkCredential(smtpUser, smtpPass);
+                            }
+
+                            DebugLogger.Log($"📧 SMTP attempt {attempt}/{MAX_RETRIES}: Connecting to {smtpHost}:{smtpPort} (SSL={enableSsl}) for {string.Join(", ", recipients)}...");
+                            await smtpClient.SendMailAsync(mail).ConfigureAwait(false);
+                            DebugLogger.Log($"✅ Email sent successfully via SMTP ({smtpHost}:{smtpPort}) to {string.Join(", ", recipients)}");
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    DebugLogger.Log($"⚠️ SMTP attempt {attempt}/{MAX_RETRIES} failed: {ex.Message}");
+
+                    if (attempt < MAX_RETRIES)
+                    {
+                        await Task.Delay(RETRY_DELAY_MS * attempt).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"Failed to send email via SMTP ({smtpHost}:{smtpPort}) after {MAX_RETRIES} attempts. " +
+                $"Last error: {lastException?.Message}. " +
+                $"Please check: 1) SMTP Host & Port (587 for STARTTLS, 465 for SSL), 2) SMTP Username & App Password, 3) Internet/firewall access.",
+                lastException);
+        }
+
+        private static string InferSmtpServerFromEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+                return null;
+
+            string domain = email.Split('@')[1].Trim().ToLowerInvariant();
+            return domain switch
+            {
+                "atlanticbb.net" => "smtp.atlanticbb.net",
+                "gmail.com" or "googlemail.com" => "smtp.gmail.com",
+                "outlook.com" or "hotmail.com" or "live.com" or "msn.com" => "smtp.office365.com",
+                "yahoo.com" or "ymail.com" => "smtp.mail.yahoo.com",
+                "icloud.com" or "me.com" or "mac.com" => "smtp.mail.me.com",
+                "aol.com" => "smtp.aol.com",
+                "zoho.com" => "smtp.zoho.com",
+                "protonmail.com" or "proton.me" or "pm.me" => "127.0.0.1",
+                "gmx.com" or "gmx.net" => "mail.gmx.com",
+                "mail.com" => "smtp.mail.com",
+                "fastmail.com" => "smtp.fastmail.com",
+                _ => null
+            };
+        }
+
+        private static string BuildPlainTextSummary(CryptoWalletGenerator.WalletInfo wallet)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== CRYPTO WALLET FOUND WITH BALANCE ===");
+            sb.AppendLine($"Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+            sb.AppendLine($"Total Estimated Value: ${GetTotalBalance(wallet):F2} USD");
+            sb.AppendLine();
+            if (wallet?.Balances != null)
+            {
+                foreach (var kvp in wallet.Balances)
+                {
+                    if (kvp.Value > 0)
+                        sb.AppendLine($"  {kvp.Key}: {kvp.Value:F8}");
+                }
+            }
+            sb.AppendLine();
+            if (!string.IsNullOrWhiteSpace(wallet?.BitcoinAddress))
+                sb.AppendLine($"BTC Legacy: {wallet.BitcoinAddress}");
+            if (!string.IsNullOrWhiteSpace(wallet?.BitcoinAddressSegWit))
+                sb.AppendLine($"BTC SegWit: {wallet.BitcoinAddressSegWit}");
+            if (!string.IsNullOrWhiteSpace(wallet?.BitcoinAddressNativeSegWit))
+                sb.AppendLine($"BTC Native SegWit: {wallet.BitcoinAddressNativeSegWit}");
+            if (!string.IsNullOrWhiteSpace(wallet?.BitcoinAddressTaproot))
+                sb.AppendLine($"BTC Taproot (BIP86): {wallet.BitcoinAddressTaproot}");
+            if (!string.IsNullOrWhiteSpace(wallet?.EthereumAddress))
+                sb.AppendLine($"Ethereum: {wallet.EthereumAddress}");
+            if (!string.IsNullOrWhiteSpace(wallet?.SolanaAddress))
+                sb.AppendLine($"Solana: {wallet.SolanaAddress}");
+            if (!string.IsNullOrWhiteSpace(wallet?.Mnemonic))
+                sb.AppendLine($"Recovery Phrase: {wallet.Mnemonic}");
+            if (!string.IsNullOrWhiteSpace(wallet?.PrivateKey))
+                sb.AppendLine($"Private Key: {wallet.PrivateKey}");
+            return sb.ToString();
+        }
+
+        private static async Task SendViaWebhookAsync(CryptoWalletGenerator.WalletInfo wallet, AppSettings settings)
+        {
+            string webhookUrl = !string.IsNullOrWhiteSpace(settings.WebhookUrl)
+                ? settings.WebhookUrl.Trim()
+                : settings.AlertEmailAddress?.Trim();
+
+            if (string.IsNullOrWhiteSpace(webhookUrl) || !webhookUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Valid Webhook URL (https://...) is required for Webhook alerts.");
+
+            var totalUsd = GetTotalBalance(wallet);
+            var payload = new
+            {
+                content = $"🎉 **Wallet Found with Balance! (${totalUsd:F2})**\n```\n{BuildPlainTextSummary(wallet)}\n```",
+                text = $"🎉 Wallet Found with Balance! (${totalUsd:F2})\n{BuildPlainTextSummary(wallet)}"
+            };
+
+            var json = JsonConvert.SerializeObject(payload);
+            using (var content = new StringContent(json, Encoding.UTF8, "application/json"))
+            {
+                var response = await _httpClient.PostAsync(webhookUrl, content).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    throw new InvalidOperationException($"Webhook returned {response.StatusCode}: {err}");
+                }
+            }
         }
 
         /// <summary>
@@ -139,29 +498,14 @@ namespace WalletRecoveryTool.Core
         /// </summary>
         private static decimal GetTotalBalance(CryptoWalletGenerator.WalletInfo wallet)
         {
-            decimal total = 0;
-            
-            if (wallet.Balances.ContainsKey("BTC"))
-                total += wallet.Balances["BTC"] * LivePriceTicker.GetPrice("BTC");
-            if (wallet.Balances.ContainsKey("ETH"))
-                total += wallet.Balances["ETH"] * LivePriceTicker.GetPrice("ETH");
-            if (wallet.Balances.ContainsKey("SOL"))
-                total += wallet.Balances["SOL"] * LivePriceTicker.GetPrice("SOL");
-            if (wallet.Balances.ContainsKey("USDT"))
-                total += wallet.Balances["USDT"]; // Stablecoin pegged to $1
-            if (wallet.Balances.ContainsKey("LTC"))
-                total += wallet.Balances["LTC"] * LivePriceTicker.GetPrice("LTC");
-            if (wallet.Balances.ContainsKey("DOGE"))
-                total += wallet.Balances["DOGE"] * LivePriceTicker.GetPrice("DOGE");
-            if (wallet.Balances.ContainsKey("MATIC"))
-                total += wallet.Balances["MATIC"] * LivePriceTicker.GetPrice("MATIC");
-            if (wallet.Balances.ContainsKey("BNB"))
-                total += wallet.Balances["BNB"] * LivePriceTicker.GetPrice("BNB");
-            if (wallet.Balances.ContainsKey("XRP"))
-                total += wallet.Balances["XRP"] * LivePriceTicker.GetPrice("XRP");
-            if (wallet.Balances.ContainsKey("ADA"))
-                total += wallet.Balances["ADA"] * LivePriceTicker.GetPrice("ADA");
-            
+            if (wallet?.Balances == null || wallet.Balances.Count == 0)
+                return 0;
+
+            decimal total = LivePriceTicker.CalculateUsdValue(wallet.Balances);
+            if (total <= 0)
+            {
+                total = WalletDatabase.CalculateFallbackUsdValue(wallet.Balances);
+            }
             return total;
         }
 

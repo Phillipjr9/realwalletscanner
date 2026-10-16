@@ -22,7 +22,7 @@ namespace WalletRecoveryTool
             Console.OutputEncoding = System.Text.Encoding.UTF8;
             PrintBanner();
 
-            if (HasFlag(args, "--self-test"))
+            if (HasFlag(args, "--self-test") || HasFlag(args, "--selftest"))
             {
                 return await RunSelfTestAsync();
             }
@@ -64,20 +64,14 @@ namespace WalletRecoveryTool
             Console.ResetColor();
             Console.WriteLine();
 
-            var cts = new CancellationTokenSource();
+            var engine = new WalletRecoveryEngine();
             Console.CancelKeyPress += (s, e) =>
             {
                 e.Cancel = true;
                 Console.WriteLine("\n\n[!] Stopping scan (Ctrl+C)...");
                 cts.Cancel();
+                engine.StopRecovery();
             };
-
-            var settings = AppSettings.Load();
-            settings.ThreadCount = threads;
-            settings.Save();
-            AppSettings.InvalidateCache();
-
-            var engine = new WalletRecoveryEngine();
 
             long totalChecked = 0;
             long totalFound   = 0;
@@ -161,6 +155,21 @@ namespace WalletRecoveryTool
 
         private static async Task<int> RunSelfTestAsync()
         {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  Running Core Cryptographic & Cognitive Brain Self-Test Suite...");
+            Console.ResetColor();
+
+            var coreSuite = SelfTestRunner.RunAllCoreTests();
+            foreach (var r in coreSuite.Results)
+            {
+                Console.ForegroundColor = r.Passed ? ConsoleColor.Green : ConsoleColor.Red;
+                Console.WriteLine($"  {(r.Passed ? "✓" : "✗")} {r.Name} ({r.ElapsedMs:F1}ms)");
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine($"      {r.Details}");
+            }
+            Console.ResetColor();
+            Console.WriteLine($"  Core Suite: {coreSuite.PassedCount}/{coreSuite.Results.Count} passed in {coreSuite.TotalElapsedMs:F1}ms\n");
+
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("  Running funded-address detection self-test...");
             Console.ResetColor();

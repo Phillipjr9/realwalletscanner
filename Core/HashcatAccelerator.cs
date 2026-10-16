@@ -34,6 +34,15 @@ namespace WalletRecoveryTool.Core
         private static readonly byte[][] Bip39WordBytes; // Pre-encoded UTF8 words
         private static readonly byte[] Bip39PasswordPrefix; // "mnemonic" in UTF8
 
+        // Pre-parsed BIP32 key paths to eliminate string parsing and allocations per wallet
+        private static readonly KeyPath BtcLegacyPath = new KeyPath("m/44'/0'/0'/0/0");
+        private static readonly KeyPath BtcNativeSegWitPath = new KeyPath("m/84'/0'/0'/0/0");
+        private static readonly KeyPath BtcSegWitPath = new KeyPath("m/49'/0'/0'/0/0");
+        private static readonly KeyPath BtcTaprootPath = new KeyPath("m/86'/0'/0'/0/0");
+        private static readonly KeyPath EthBip44Path = new KeyPath("m/44'/60'/0'/0/0");
+        private static readonly KeyPath LtcBip44Path = new KeyPath("m/44'/2'/0'/0/0");
+        private static readonly KeyPath DogeBip44Path = new KeyPath("m/44'/3'/0'/0/0");
+
         private readonly int _batchSize;
         private readonly int _threadCount;
         private readonly bool _bloomEnabled;
@@ -81,7 +90,9 @@ namespace WalletRecoveryTool.Core
             bool scanEthereum,
             Action<CryptoWalletGenerator.WalletInfo> onWalletPassedBloom,
             Action<long, double> onProgress, // (totalProcessed, walletsPerSec)
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            bool scanLitecoin = false,
+            bool scanDogecoin = false)
         {
             _startTime = DateTime.UtcNow;
             _totalGenerated = 0;
@@ -105,7 +116,7 @@ namespace WalletRecoveryTool.Core
                     int startIdx = batchIndex * _batchSize;
                     int count = Math.Min(_batchSize, totalToProcess - startIdx);
 
-                    ProcessBatch(count, scanBitcoin, scanEthereum, onWalletPassedBloom, cancellationToken);
+                    ProcessBatch(count, scanBitcoin, scanEthereum, scanLitecoin, scanDogecoin, onWalletPassedBloom, cancellationToken);
 
                     // Report progress periodically
                     var total = Interlocked.Read(ref _totalGenerated);
@@ -128,7 +139,9 @@ namespace WalletRecoveryTool.Core
             bool scanEthereum,
             Action<CryptoWalletGenerator.WalletInfo> onWalletPassedBloom,
             Action<long, double> onProgress,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            bool scanLitecoin = false,
+            bool scanDogecoin = false)
         {
             _startTime = DateTime.UtcNow;
 
@@ -141,7 +154,7 @@ namespace WalletRecoveryTool.Core
                     // Thread-local RNG — no lock contention
                     while (!cancellationToken.IsCancellationRequested)
                     {
-                        ProcessBatch(_batchSize, scanBitcoin, scanEthereum, onWalletPassedBloom, cancellationToken);
+                        ProcessBatch(_batchSize, scanBitcoin, scanEthereum, scanLitecoin, scanDogecoin, onWalletPassedBloom, cancellationToken);
 
                         var total = Interlocked.Read(ref _totalGenerated);
                         if (total % (_batchSize * _threadCount) < _batchSize)
@@ -166,6 +179,8 @@ namespace WalletRecoveryTool.Core
             int count,
             bool scanBitcoin,
             bool scanEthereum,
+            bool scanLitecoin,
+            bool scanDogecoin,
             Action<CryptoWalletGenerator.WalletInfo> onWalletPassedBloom,
             CancellationToken ct)
         {
@@ -211,13 +226,13 @@ namespace WalletRecoveryTool.Core
                 }
 
                 // ===== STAGE 4: Derive keys and addresses =====
-                var wallet = DeriveWalletFromSeed(seed, mnemonic, scanBitcoin, scanEthereum);
+                var wallet = DeriveWalletFromSeed(seed, mnemonic, scanBitcoin, scanEthereum, scanLitecoin, scanDogecoin);
                 if (wallet == null) continue;
 
                 Interlocked.Increment(ref _totalDerived);
 
                 // ===== STAGE 5: Bloom filter pre-check =====
-                if (_bloomEnabled && !CheckBloomFilter(wallet, scanBitcoin, scanEthereum))
+                if (_bloomEnabled && !CheckBloomFilter(wallet, scanBitcoin, scanEthereum, scanLitecoin, scanDogecoin))
                 {
                     Interlocked.Increment(ref _bloomSkipped);
                     continue; // Definitely not funded — skip API
@@ -326,7 +341,9 @@ namespace WalletRecoveryTool.Core
             ReadOnlySpan<byte> seed,
             string mnemonic,
             bool scanBitcoin,
-            bool scanEthereum)
+            bool scanEthereum,
+            bool scanLitecoin = false,
+            bool scanDogecoin = false)
         {
             try
             {
@@ -348,44 +365,58 @@ namespace WalletRecoveryTool.Core
                 if (scanBitcoin)
                 {
                     // BIP44 Legacy: m/44'/0'/0'/0/0
-                    var btcKey = masterKey.Derive(new KeyPath("m/44'/0'/0'/0/0"));
+                    var btcKey = masterKey.Derive(BtcLegacyPath);
                     wallet.BitcoinAddress = btcKey.PrivateKey.PubKey
                         .GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
 
                     // BIP84 Native SegWit: m/84'/0'/0'/0/0 (most common modern path)
-                    var nativeKey = masterKey.Derive(new KeyPath("m/84'/0'/0'/0/0"));
+                    var nativeKey = masterKey.Derive(BtcNativeSegWitPath);
                     wallet.BitcoinAddressNativeSegWit = nativeKey.PrivateKey.PubKey
                         .GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
 
                     // BIP49 SegWit: m/49'/0'/0'/0/0
-                    var segwitKey = masterKey.Derive(new KeyPath("m/49'/0'/0'/0/0"));
+                    var segwitKey = masterKey.Derive(BtcSegWitPath);
                     wallet.BitcoinAddressSegWit = segwitKey.PrivateKey.PubKey
                         .GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
+
+                    // BIP86 Taproot: m/86'/0'/0'/0/0
+                    var taprootKey = masterKey.Derive(BtcTaprootPath);
+                    wallet.BitcoinAddressTaproot = taprootKey.PrivateKey.PubKey
+                        .GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
 
                     wallet.PrivateKey = btcKey.PrivateKey.GetWif(Network.Main).ToString();
 
                     wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
+                    wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+                    wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressSegWit);
+                    wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressTaproot);
                 }
 
                 if (scanEthereum)
                 {
-                    // Ethereum: m/44'/60'/0'/0/0 — derive directly from master key (no Nethereum overhead)
-                    var ethKey = masterKey.Derive(new KeyPath("m/44'/60'/0'/0/0"));
-                    var ethPubKeyBytes = ethKey.PrivateKey.PubKey.ToBytes();
-                    
-                    // Ethereum address = last 20 bytes of Keccak-256 of uncompressed public key (sans prefix)
-                    // Decompress the public key first
+                    // Ethereum: m/44'/60'/0'/0/0 — derive directly from master key (zero Nethereum overhead)
+                    var ethKey = masterKey.Derive(EthBip44Path);
                     var uncompressed = ethKey.PrivateKey.PubKey.Decompress().ToBytes();
-                    // Skip the 0x04 prefix byte, hash the 64-byte X,Y coordinates
-                    var pubKeyForHash = uncompressed.AsSpan(1); // 64 bytes
-                    var keccak = new Nethereum.Util.Sha3Keccack();
-                    var hash = keccak.CalculateHash(pubKeyForHash.ToArray());
-                    // Take last 20 bytes as address
-                    var addressBytes = hash.AsSpan(12, 20);
-                    wallet.EthereumAddress = "0x" + Convert.ToHexString(addressBytes).ToLowerInvariant();
+                    Span<byte> hash = stackalloc byte[32];
+                    SimdHasher.Keccak256(uncompressed.AsSpan(1), hash);
+                    wallet.EthereumAddress = "0x" + Convert.ToHexString(hash.Slice(12, 20)).ToLowerInvariant();
                     wallet.PolygonAddress = wallet.EthereumAddress;
                     wallet.BnbAddress = wallet.EthereumAddress;
                     wallet.AllEthereumAddresses.Add(wallet.EthereumAddress);
+                }
+
+                if (scanLitecoin)
+                {
+                    var ltcKey = masterKey.Derive(LtcBip44Path);
+                    wallet.LitecoinAddress = CryptoWalletGenerator.EncodeLitecoinAddress(ltcKey.PrivateKey.PubKey);
+                    wallet.AllLitecoinAddresses.Add(wallet.LitecoinAddress);
+                }
+
+                if (scanDogecoin)
+                {
+                    var dogeKey = masterKey.Derive(DogeBip44Path);
+                    wallet.DogecoinAddress = CryptoWalletGenerator.EncodeDogecoinAddress(dogeKey.PrivateKey.PubKey);
+                    wallet.AllDogecoinAddresses.Add(wallet.DogecoinAddress);
                 }
 
                 return wallet;
@@ -401,8 +432,16 @@ namespace WalletRecoveryTool.Core
         /// Check bloom filter — returns true if wallet MIGHT be funded.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool CheckBloomFilter(CryptoWalletGenerator.WalletInfo wallet, bool scanBtc, bool scanEth)
+        private static bool CheckBloomFilter(
+            CryptoWalletGenerator.WalletInfo wallet,
+            bool scanBtc,
+            bool scanEth,
+            bool scanLtc = false,
+            bool scanDoge = false)
         {
+            if (scanLtc || scanDoge)
+                return true;
+
             if (scanBtc && FundedAddressFilter.BTC.IsLoaded)
             {
                 if (FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddress))
@@ -412,6 +451,9 @@ namespace WalletRecoveryTool.Core
                     return true;
                 if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit) &&
                     FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressSegWit))
+                    return true;
+                if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot) &&
+                    FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressTaproot))
                     return true;
             }
 

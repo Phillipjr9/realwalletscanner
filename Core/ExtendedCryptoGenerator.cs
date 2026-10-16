@@ -529,9 +529,9 @@ namespace WalletRecoveryTool.Core
                 var masterKey = mnemonicObj.DeriveExtKey();
                 
                 var tronKey = masterKey.Derive(new KeyPath("m/44'/195'/0'/0/0"));
-                var publicKey = tronKey.PrivateKey.PubKey.ToBytes();
+                var publicKey = tronKey.PrivateKey.PubKey.Decompress().ToBytes();
                 
-                // Keccak-256 hash of public key (without 04 prefix)
+                // Keccak-256 hash of uncompressed public key (without 04 prefix)
                 var pubKeyNoPrefix = publicKey.Skip(1).ToArray();
                 var keccakHash = SimdHasher.Keccak256(pubKeyNoPrefix);
                 

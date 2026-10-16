@@ -21,7 +21,15 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <!-- Strip unused code to reduce size and attack surface -->
     <PublishTrimmed>false</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="WebWorkstation\crypto_engine.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\server.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\index.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\package.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
