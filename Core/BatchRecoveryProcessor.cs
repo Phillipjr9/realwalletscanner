@@ -61,6 +61,7 @@ namespace WalletRecoveryTool.Core
             public bool Success { get; set; }
             public string FoundMnemonic { get; set; }
             public string FoundPassphrase { get; set; }
+            public string FoundPrivateKey { get; set; }
             public List<string> FoundAddresses { get; set; } = new List<string>();
             public Dictionary<string, decimal> Balances { get; set; } = new Dictionary<string, decimal>();
             public TimeSpan ElapsedTime { get; set; }

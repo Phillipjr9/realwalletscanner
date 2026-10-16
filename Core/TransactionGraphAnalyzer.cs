@@ -316,7 +316,7 @@ namespace WalletRecoveryTool.Core
                         foreach (var vout in vouts)
                         {
                             string outAddr = vout["scriptpubkey_address"]?.ToString();
-                            long sats = vout["value"]?.Value<long>() ?? 0L;
+                            long sats = long.TryParse(vout["value"]?.ToString(), out var parsedSats) ? parsedSats : 0L;
                             // Standard Bitcoin dust-attack window: 294 to 10,000 satoshis sent to target address
                             if (string.Equals(outAddr, address, StringComparison.OrdinalIgnoreCase) && sats > 0 && sats <= 10_000)
                             {

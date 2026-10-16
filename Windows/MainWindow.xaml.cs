@@ -2134,7 +2134,7 @@ namespace WalletRecoveryTool
                 
                 // Check balances - FORCE COMPLETE SCAN (clone settings so we don't mutate cached singleton)
                 var baseSettings = AppSettings.Load();
-                var settings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(baseSettings)) ?? new AppSettings();
+                var settings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(baseSettings)) ?? new AppSettings();
                 settings.StrictScanMode = true; // Coverage-first: disable skip shortcuts that can hide funded wallets
                 settings.QuickScanMode = false; // Check ALL addresses
                 settings.SkipEmptyAddressTypes = false; // Check ALL coin types

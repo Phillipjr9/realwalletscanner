@@ -325,6 +325,24 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
+        /// Keccak-256 accepting ReadOnlySpan&lt;byte&gt;
+        /// </summary>
+        public static byte[] Keccak256(ReadOnlySpan<byte> input)
+        {
+            var result = new byte[32];
+            ManagedKeccak.ComputeHash(input, result);
+            return result;
+        }
+
+        /// <summary>
+        /// Zero-allocation Keccak-256 writing into a caller-provided 32-byte destination span
+        /// </summary>
+        public static void Keccak256(ReadOnlySpan<byte> input, Span<byte> destination)
+        {
+            ManagedKeccak.ComputeHash(input, destination);
+        }
+
+        /// <summary>
         /// Batch Keccak-256 for Ethereum addresses
         /// </summary>
         public static byte[][] BatchKeccak256(byte[][] inputs)
@@ -462,7 +480,14 @@ namespace WalletRecoveryTool.Core
 
         public static byte[] ComputeHash(byte[] input)
         {
-            var state = new ulong[25];
+            var result = new byte[HashSize / 8];
+            ComputeHash(input.AsSpan(), result);
+            return result;
+        }
+
+        public static void ComputeHash(ReadOnlySpan<byte> input, Span<byte> destination)
+        {
+            Span<ulong> state = stackalloc ulong[25];
             int rateBytes = Rate / 8;
             int blockSize = rateBytes;
             
@@ -479,7 +504,7 @@ namespace WalletRecoveryTool.Core
                 }
                 
                 if (bytesToAbsorb == blockSize)
-                    KeccakF(state);
+                    KeccakFSpan(state);
                 
                 offset += bytesToAbsorb;
             }
@@ -490,16 +515,54 @@ namespace WalletRecoveryTool.Core
             int padByte = lastBlockSize % 8;
             state[padIndex] ^= 0x01UL << (padByte * 8);
             state[(blockSize - 1) / 8] ^= 0x80UL << (((blockSize - 1) % 8) * 8);
-            KeccakF(state);
+            KeccakFSpan(state);
 
             // Squeeze phase
-            var result = new byte[HashSize / 8];
-            for (int i = 0; i < result.Length; i++)
+            int outLen = Math.Min(destination.Length, HashSize / 8);
+            for (int i = 0; i < outLen; i++)
             {
-                result[i] = (byte)(state[i / 8] >> ((i % 8) * 8));
+                destination[i] = (byte)(state[i / 8] >> ((i % 8) * 8));
             }
+        }
 
-            return result;
+        private static void KeccakFSpan(Span<ulong> state)
+        {
+            Span<ulong> C = stackalloc ulong[5];
+            Span<ulong> D = stackalloc ulong[5];
+            Span<ulong> B = stackalloc ulong[25];
+            for (int round = 0; round < 24; round++)
+            {
+                for (int x = 0; x < 5; x++)
+                    C[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
+
+                for (int x = 0; x < 5; x++)
+                    D[x] = C[(x + 4) % 5] ^ RotateLeft64(C[(x + 1) % 5], 1);
+
+                for (int i = 0; i < 25; i++)
+                    state[i] ^= D[i % 5];
+
+                for (int x = 0; x < 5; x++)
+                {
+                    for (int y = 0; y < 5; y++)
+                    {
+                        int i = x + 5 * y;
+                        int newX = y;
+                        int newY = (2 * x + 3 * y) % 5;
+                        B[newX + 5 * newY] = RotateLeft64(state[i], GetRotation(x, y));
+                    }
+                }
+
+                for (int y = 0; y < 5; y++)
+                {
+                    for (int x = 0; x < 5; x++)
+                    {
+                        int i = x + 5 * y;
+                        state[i] = B[i] ^ ((~B[(x + 1) % 5 + 5 * y]) & B[(x + 2) % 5 + 5 * y]);
+                    }
+                }
+
+                state[0] ^= RoundConstants[round];
+            }
         }
 
         private static void KeccakF(ulong[] state)

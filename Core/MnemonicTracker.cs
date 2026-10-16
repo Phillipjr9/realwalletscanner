@@ -54,6 +54,7 @@ namespace WalletRecoveryTool.Core
         private bool _isDirty;
 
         public long TotalTracked => _totalTracked;
+        public int Count => (int)Math.Min(int.MaxValue, _totalTracked);
         public long DuplicatesAvoided => _duplicatesAvoided;
         public DateTime FirstTrackedDate => _firstTrackedDate;
 
@@ -1057,13 +1058,14 @@ namespace WalletRecoveryTool.Core
                     continue;
                 
                 var hash = line.Trim();
-                if (hash.Length == 64) // SHA-256 hex length
+                if ((hash.Length == 32 || hash.Length == 64) && TryParseHexToUInt128(hash, out var parsedHash))
                 {
                     lock (_lock)
                     {
-                        if (_memoryCache.Add(hash))
+                        if (_memoryCache.Add(parsedHash))
                         {
-                            BloomAdd(hash);
+                            _memoryCacheOrder.Enqueue(parsedHash);
+                            BloomAdd(parsedHash);
                             _totalTracked++;
                             imported++;
                         }

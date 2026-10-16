@@ -1685,9 +1685,8 @@ public SmartWalletHunter()
                     if (ScanEthereum)
                     {
                         var uncompressed = key.PubKey.Decompress().ToBytes();
-                        Span<byte> keccak = stackalloc byte[32];
-                        SimdHasher.Keccak256(uncompressed.AsSpan(1), keccak);
-                        var ethAddr = "0x" + Convert.ToHexString(keccak.Slice(12, 20)).ToLowerInvariant();
+                        var keccak = SimdHasher.Keccak256(uncompressed.AsSpan(1));
+                        var ethAddr = "0x" + Convert.ToHexString(keccak, 12, 20).ToLowerInvariant();
                         if (FundedAddressFilter.ETH.MightBeFunded(ethAddr) && !FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddr))
                         {
                             ethAddresses.Add(ethAddr);
@@ -2458,8 +2457,8 @@ public SmartWalletHunter()
                         {
                             try
                             {
-                                var solBal = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
-                                if (solBal > 0.00000001m) { wallet.Balances["SOL"] = solBal; altFound = true; }
+                                var solBalSingle = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
+                                if (solBalSingle > 0.00000001m) { wallet.Balances["SOL"] = solBalSingle; altFound = true; }
                             }
                             catch (Exception ex) { DebugLogger.Log($"Batch SOL error: {ex.Message}"); }
                         }
@@ -2510,8 +2509,8 @@ public SmartWalletHunter()
                         {
                             try
                             {
-                                var maticBal = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
-                                if (maticBal > 0.00000001m) { wallet.Balances["MATIC"] = maticBal; altFound = true; }
+                                var maticBalSingle = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
+                                if (maticBalSingle > 0.00000001m) { wallet.Balances["MATIC"] = maticBalSingle; altFound = true; }
                             }
                             catch (Exception ex) { DebugLogger.Log($"Batch MATIC error: {ex.Message}"); }
                         }
@@ -2527,8 +2526,8 @@ public SmartWalletHunter()
                         {
                             try
                             {
-                                var bnbBal = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
-                                if (bnbBal > 0.00000001m) { wallet.Balances["BNB"] = bnbBal; altFound = true; }
+                                var bnbBalSingle = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
+                                if (bnbBalSingle > 0.00000001m) { wallet.Balances["BNB"] = bnbBalSingle; altFound = true; }
                             }
                             catch (Exception ex) { DebugLogger.Log($"Batch BNB error: {ex.Message}"); }
                         }
