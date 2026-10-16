@@ -123,9 +123,15 @@ namespace WalletRecoveryTool.Core
                         var address = item["account"]?.ToString()?.ToLower();
                         var balanceWei = item["balance"]?.ToString() ?? "0";
 
-                        if (!string.IsNullOrEmpty(address) && decimal.TryParse(balanceWei, out var wei))
+                        if (!string.IsNullOrEmpty(address) && System.Numerics.BigInteger.TryParse(balanceWei, out var wei))
                         {
-                            results[address] = wei / 1_000_000_000_000_000_000m; // Wei to ETH
+                            var ethVal = (decimal)(wei / 1_000_000_000_000_000_000) + (decimal)(wei % 1_000_000_000_000_000_000) / 1_000_000_000_000_000_000m;
+                            results[address] = ethVal;
+                            if (ethVal == 0)
+                            {
+                                FundedAddressFilter.ETHEmpty.MarkAsEmpty(address);
+                                GlobalMnemonicTracker.Instance.TryMarkAsScanned("addr:" + address);
+                            }
                         }
                     }
                 }
@@ -147,8 +153,8 @@ namespace WalletRecoveryTool.Core
         {
             return await GetEvmBalancesBatch(
                 addresses,
-                "https://api.polygonscan.com/api",
-                _settings.PolygonscanApiKey,
+                "https://api.etherscan.io/v2/api?chainid=137",
+                !string.IsNullOrEmpty(_settings.PolygonscanApiKey) ? _settings.PolygonscanApiKey : _settings.EtherscanApiKey,
                 cancellationToken);
         }
 
@@ -161,8 +167,8 @@ namespace WalletRecoveryTool.Core
         {
             return await GetEvmBalancesBatch(
                 addresses,
-                "https://api.bscscan.com/api",
-                _settings.BscscanApiKey,
+                "https://api.etherscan.io/v2/api?chainid=56",
+                !string.IsNullOrEmpty(_settings.BscscanApiKey) ? _settings.BscscanApiKey : _settings.EtherscanApiKey,
                 cancellationToken);
         }
 
@@ -192,7 +198,8 @@ namespace WalletRecoveryTool.Core
                 try
                 {
                     var addressParam = string.Join(",", batch);
-                    var url = $"{baseUrl}?module=account&action=balancemulti&address={addressParam}&tag=latest";
+                    var separator = baseUrl.Contains("?") ? "&" : "?";
+                    var url = $"{baseUrl}{separator}module=account&action=balancemulti&address={addressParam}&tag=latest";
                     
                     if (!string.IsNullOrEmpty(apiKey))
                         url += $"&apikey={apiKey}";
@@ -212,9 +219,9 @@ namespace WalletRecoveryTool.Core
                                 var address = item["account"]?.ToString()?.ToLower();
                                 var balanceWei = item["balance"]?.ToString() ?? "0";
 
-                                if (!string.IsNullOrEmpty(address) && decimal.TryParse(balanceWei, out var wei))
+                                if (!string.IsNullOrEmpty(address) && System.Numerics.BigInteger.TryParse(balanceWei, out var wei))
                                 {
-                                    results[address] = wei / 1_000_000_000_000_000_000m;
+                                    results[address] = (decimal)(wei / 1_000_000_000_000_000_000) + (decimal)(wei % 1_000_000_000_000_000_000) / 1_000_000_000_000_000_000m;
                                 }
                             }
                         }
@@ -283,7 +290,13 @@ namespace WalletRecoveryTool.Core
 
                                 if (!string.IsNullOrEmpty(address))
                                 {
-                                    results[address] = balanceSatoshi / 100_000_000m; // Satoshi to BTC
+                                    var btcVal = balanceSatoshi / 100_000_000m;
+                                    results[address] = btcVal;
+                                    if (btcVal == 0)
+                                    {
+                                        FundedAddressFilter.BTCEmpty.MarkAsEmpty(address);
+                                        GlobalMnemonicTracker.Instance.TryMarkAsScanned("addr:" + address.ToLowerInvariant());
+                                    }
                                 }
                             }
                         }

@@ -113,7 +113,52 @@ namespace WalletRecoveryTool
                 // Subscribe to API usage warnings
                 Core.ApiUsageTracker.UsageWarning += OnApiUsageWarning;
                 Core.ApiUsageTracker.LimitReached += OnApiLimitReached;
+
+                // Subscribe to Cognitive Self-Learning Brain Engine real-time thoughts & upgrades
+                Core.CognitiveBrainEngine.Instance.ThoughtEmitted += (s, thought) =>
+                {
+                    Dispatcher.BeginInvoke((Action)(() =>
+                    {
+                        try
+                        {
+                            if (BrainVersionText != null)
+                                BrainVersionText.Text = $"BRAIN {thought.VersionTag}";
+                            if (BrainIqText != null)
+                                BrainIqText.Text = $"IQ {thought.CognitiveIq:F1}";
+                            if (BrainThoughtText != null)
+                                BrainThoughtText.Text = $"[{thought.Category}] {thought.Message}";
+                        }
+                        catch { }
+                    }));
+                };
+
+                Core.CognitiveBrainEngine.Instance.BrainUpgraded += (s, upgradeArgs) =>
+                {
+                    Dispatcher.BeginInvoke((Action)(() =>
+                    {
+                        try
+                        {
+                            var summary = upgradeArgs.Summary;
+                            if (BrainVersionText != null)
+                                BrainVersionText.Text = $"BRAIN {summary.VersionTag}";
+                            if (BrainIqText != null)
+                                BrainIqText.Text = $"IQ {summary.CognitiveIqScore:F1}";
+                            if (BrainStrategyArmText != null)
+                                BrainStrategyArmText.Text = $"ARM: {summary.TopStrategyArm} ({summary.TopArmConfidence:F0}%)";
+                        }
+                        catch { }
+                    }));
+                };
                 
+                // Start background live price ticker if enabled
+                if (AppSettings.Current.EnableLivePriceTicker)
+                {
+                    Core.LivePriceTicker.Start(Math.Max(15, AppSettings.Current.PriceUpdateIntervalSeconds));
+                }
+
+                // Auto-start combined Local Web Workstation (http://localhost:3000) in background
+                TryStartEmbeddedWebWorkstation();
+
                 // Initialize Quick Stats timer
                 _statsTimer = new DispatcherTimer
                 {
@@ -1223,6 +1268,7 @@ namespace WalletRecoveryTool
             settings.ScanDerivationPaths = derivationPaths;
             settings.ScanDictionaryBrainWallets = dictBrain;
             settings.ScanKnownLeakedKeys = leakedKeys;
+            settings.ScanExchangeHackKeys = leakedKeys;
             settings.ScanRepeatedWordMnemonics = repeatedWords;
             settings.ScanIncrementalMnemonics = incremental;
             settings.Save();
@@ -1949,15 +1995,25 @@ namespace WalletRecoveryTool
                 
                 await Task.Run(() =>
                 {
-                    for (int i = 0; i < count; i++)
+                    var tracker = GlobalMnemonicTracker.Instance;
+                    var batchSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    int generated = 0;
+                    while (generated < count)
                     {
-                        var mnemonic = new NBitcoin.Mnemonic(NBitcoin.Wordlist.English, wordCount == 12 ? NBitcoin.WordCount.Twelve : NBitcoin.WordCount.TwentyFour);
-                        mnemonics.AppendLine($"{i + 1}. {mnemonic}");
+                        var mnemonicObj = new NBitcoin.Mnemonic(NBitcoin.Wordlist.English, wordCount == 12 ? NBitcoin.WordCount.Twelve : NBitcoin.WordCount.TwentyFour);
+                        var mnemonicStr = mnemonicObj.ToString();
+
+                        // STRICT NON-REPETITION RULE: Never emit a mnemonic already scanned as empty across any section
+                        if (tracker.WasScanned(mnemonicStr) || !batchSeen.Add(mnemonicStr))
+                            continue;
+
+                        generated++;
+                        mnemonics.AppendLine($"{generated}. {mnemonicStr}");
                         
                         // Update UI every 100 mnemonics for performance
-                        if ((i + 1) % 100 == 0 || i == count - 1)
+                        if (generated % 100 == 0 || generated == count)
                         {
-                            var currentCount = i + 1;
+                            var currentCount = generated;
                             Dispatcher.BeginInvoke((Action)(() =>
                             {
                                 GeneratedCountText.Text = $"Generated: {currentCount:N0} / {count:N0}";
@@ -2057,6 +2113,13 @@ namespace WalletRecoveryTool
 
                 // Generate wallet from mnemonic
                 var wallet = await Task.Run(() => CryptoWalletGenerator.GenerateWallet(mnemonicPhrase));
+                if (wallet == null)
+                {
+                    MessageBox.Show("Invalid BIP39 mnemonic phrase (invalid word or checksum).\nPlease verify your seed words.",
+                                   "Invalid Mnemonic", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    StatusTextBlock.Text = "⚠️ Invalid BIP39 mnemonic phrase.";
+                    return;
+                }
                 
                 StatusTextBlock.Text = "Checking balances across all blockchains...";
                 
@@ -2069,9 +2132,9 @@ namespace WalletRecoveryTool
                 
                 BalanceResultPanel.Visibility = Visibility.Visible;
                 
-                // Check balances - FORCE COMPLETE SCAN (disable quick scan mode for manual checks)
-                // Load settings and disable quick scan for complete balance check
-                var settings = AppSettings.Load();
+                // Check balances - FORCE COMPLETE SCAN (clone settings so we don't mutate cached singleton)
+                var baseSettings = AppSettings.Load();
+                var settings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(baseSettings)) ?? new AppSettings();
                 settings.StrictScanMode = true; // Coverage-first: disable skip shortcuts that can hide funded wallets
                 settings.QuickScanMode = false; // Check ALL addresses
                 settings.SkipEmptyAddressTypes = false; // Check ALL coin types
@@ -2148,6 +2211,7 @@ namespace WalletRecoveryTool
                 
                 if (totalBalance > 0)
                 {
+                    GlobalMnemonicTracker.Instance.MarkWalletConfirmedFunded(wallet);
                     TotalStatus.Text = "✅ FUNDS FOUND!";
                     TotalStatus.Foreground = System.Windows.Media.Brushes.Green;
                     TotalStatus.FontWeight = FontWeights.Bold;
@@ -2187,12 +2251,16 @@ namespace WalletRecoveryTool
                     }
                     else
                     {
+                        // STRICT NON-REPETITION RULE: Permanently record confirmed-empty wallet across all sections
+                        GlobalMnemonicTracker.Instance.MarkWalletConfirmedEmpty(wallet);
+                        GlobalMnemonicTracker.Instance.Flush();
+
                         TotalStatus.Text = "❌ No funds found";
                         TotalStatus.Foreground = System.Windows.Media.Brushes.Gray;
                         TotalStatus.FontWeight = FontWeights.Normal;
                         HistoricalActivityStatusText.Text = $"History: {wallet.HistoricalActivityStatus} — {wallet.HistoricalActivityDetails}";
                         HistoricalActivityStatusText.Foreground = System.Windows.Media.Brushes.Gray;
-                        StatusTextBlock.Text = "Balance check complete - No funds detected.";
+                        StatusTextBlock.Text = "Balance check complete - No funds detected (marked empty across all sections).";
                     }
                 }
 
@@ -2517,18 +2585,18 @@ namespace WalletRecoveryTool
                     switch (latestIncomplete.RecoveryType)
                     {
                         case RecoveryType.PartialMnemonic:
-                            ((TabControl)((Grid)Content).Children[1]).SelectedIndex = 0;
+                            MainTabControl.SelectedIndex = 2;
                             if (!string.IsNullOrEmpty(latestIncomplete.PartialMnemonic))
                                 MnemonicTextBox.Text = latestIncomplete.PartialMnemonic;
                             break;
 
                         case RecoveryType.RandomGeneration:
-                            ((TabControl)((Grid)Content).Children[1]).SelectedIndex = 1;
+                            MainTabControl.SelectedIndex = 1;
                             MaxAttemptsTextBox.Text = latestIncomplete.TotalAttempts.ToString();
                             break;
 
                         case RecoveryType.PrivateKeyBruteForce:
-                            ((TabControl)((Grid)Content).Children[1]).SelectedIndex = 2;
+                            MainTabControl.SelectedIndex = 6;
                             PrivateKeyAttemptsTextBox.Text = latestIncomplete.TotalAttempts.ToString();
                             break;
                     }
@@ -2704,23 +2772,24 @@ namespace WalletRecoveryTool
                 _walletsFound++;
                 UpdateWalletsFoundCount();
 
-                // Update balance totals for Random Generation tab
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("BTC"))
-                    _totalBTC += wallet.Balances["BTC"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("ETH"))
-                    _totalETH += wallet.Balances["ETH"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("SOL"))
-                    _totalSOL += wallet.Balances["SOL"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("USDT"))
-                    _totalUSDT += wallet.Balances["USDT"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("LTC"))
-                    _totalLTC += wallet.Balances["LTC"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("DOGE"))
-                    _totalDOGE += wallet.Balances["DOGE"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("MATIC"))
-                    _totalMATIC += wallet.Balances["MATIC"];
-                if (wallet.Balances != null && wallet.Balances.ContainsKey("BNB"))
-                    _totalBNB += wallet.Balances["BNB"];
+                // Update balance totals for Random Generation tab (sum all BTC-*, ETH-*, USDT-* keys)
+                if (wallet.Balances != null)
+                {
+                    _totalBTC += wallet.Balances
+                        .Where(kv => kv.Key != null && (kv.Key.Equals("BTC", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("BTC-", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("BTC_", StringComparison.OrdinalIgnoreCase)))
+                        .Sum(kv => kv.Value);
+                    _totalETH += wallet.Balances
+                        .Where(kv => kv.Key != null && (kv.Key.Equals("ETH", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("ETH-", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("ETH_", StringComparison.OrdinalIgnoreCase)))
+                        .Sum(kv => kv.Value);
+                    if (wallet.Balances.TryGetValue("SOL", out var solVal)) _totalSOL += solVal;
+                    _totalUSDT += wallet.Balances
+                        .Where(kv => kv.Key != null && (kv.Key.Equals("USDT", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("USDT-", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("USDT_", StringComparison.OrdinalIgnoreCase)))
+                        .Sum(kv => kv.Value);
+                    if (wallet.Balances.TryGetValue("LTC", out var ltcVal)) _totalLTC += ltcVal;
+                    if (wallet.Balances.TryGetValue("DOGE", out var dogeVal)) _totalDOGE += dogeVal;
+                    if (wallet.Balances.TryGetValue("MATIC", out var maticVal)) _totalMATIC += maticVal;
+                    if (wallet.Balances.TryGetValue("BNB", out var bnbVal)) _totalBNB += bnbVal;
+                }
                 
                 // Update display
                 UpdateTotalBalances();
@@ -2728,22 +2797,26 @@ namespace WalletRecoveryTool
                 // Add to appropriate collection based on current tab
                 try
                 {
-                    var selectedTab = ((TabItem)((TabControl)((Grid)Content).Children[1]).SelectedItem).Header.ToString();
+                    var selectedTabItem = MainTabControl.SelectedItem as TabItem;
+                    var selectedTab = selectedTabItem?.Tag?.ToString() ?? selectedTabItem?.Header?.ToString();
                     
                     switch (selectedTab)
                     {
+                        case "Mnemonic":
                         case "Mnemonic Recovery":
                         case "🔑 Mnemonic":
                             _mnemonicResults.Add(wallet);
                             if (_mnemonicResults.Count > 0)
                                 ResultsDataGrid.ScrollIntoView(_mnemonicResults[_mnemonicResults.Count - 1]);
                             break;
+                        case "Random":
                         case "🚀 Random Generation":
                         case "🚀 Random":
                             _randomResults.Add(wallet);
                             if (_randomResults.Count > 0)
                                 RandomResultsDataGrid.ScrollIntoView(_randomResults[_randomResults.Count - 1]);
                             break;
+                        case "Key":
                         case "Private Key Recovery":
                         case "🔐 Key":
                             _privateKeyResults.Add(wallet);
@@ -2800,16 +2873,13 @@ namespace WalletRecoveryTool
                         DebugLogger.Log($"Failed to save wallet to database: {ex.Message}");
                     }
                     
-                    // Send email alert if enabled
+                    // Send SMTP / Email / Webhook alert if enabled (deduplicated per found wallet)
                     try
                     {
                         var settings = AppSettings.Load();
-                        if (settings.EnableEmailAlerts && !string.IsNullOrEmpty(settings.AlertEmailAddress))
+                        if (settings.EnableEmailAlerts)
                         {
-                            Task.Run(async () =>
-                            {
-                                await EmailAlertService.SendWalletFoundAlertAsync(wallet, settings);
-                            });
+                            EmailAlertService.TrySendAlertInBackground(wallet, settings);
                         }
                     }
                     catch (Exception ex)
@@ -3191,6 +3261,74 @@ namespace WalletRecoveryTool
             }));
         }
 
+        private static Process _embeddedWebProcess;
+
+        private void TryStartEmbeddedWebWorkstation()
+        {
+            try
+            {
+                if (_embeddedWebProcess != null && !_embeddedWebProcess.HasExited)
+                    return;
+
+                string[] candidateDirs =
+                {
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebWorkstation"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "WebWorkstation")
+                };
+
+                foreach (var dir in candidateDirs)
+                {
+                    var serverJs = Path.Combine(dir, "server.js");
+                    if (!File.Exists(serverJs)) continue;
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "node",
+                        Arguments = "\"server.js\"",
+                        WorkingDirectory = dir,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    _embeddedWebProcess = Process.Start(psi);
+                    this.Closed += (_, _) =>
+                    {
+                        try
+                        {
+                            if (_embeddedWebProcess != null && !_embeddedWebProcess.HasExited)
+                                _embeddedWebProcess.Kill(entireProcessTree: true);
+                        }
+                        catch { }
+                    };
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[WebWorkstation] Background launch skipped: {ex.Message}");
+            }
+        }
+
+        private void OpenWebWorkstation_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                TryStartEmbeddedWebWorkstation();
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "http://localhost:3000",
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Could not open http://localhost:3000 automatically:\n{ex.Message}",
+                    "Web Workstation",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+        }
+
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
             var settingsWindow = new SettingsWindow
@@ -3285,6 +3423,19 @@ namespace WalletRecoveryTool
                 // Update found count
                 if (QuickStatsFoundText != null)
                     QuickStatsFoundText.Text = _walletsFound.ToString("N0");
+
+                // Update Cognitive Self-Learning Brain Engine telemetry
+                var brain = Core.CognitiveBrainEngine.Instance;
+                if (BrainVersionText != null)
+                    BrainVersionText.Text = $"BRAIN {brain.VersionTag}";
+                if (BrainIqText != null)
+                    BrainIqText.Text = $"IQ {brain.CognitiveIqScore:F1}";
+                var topArm = brain.GetStrategyArmRankings().FirstOrDefault();
+                if (BrainStrategyArmText != null && topArm != null)
+                {
+                    double conf = topArm.Alpha / Math.Max(1.0, topArm.Alpha + topArm.Beta) * 100.0;
+                    BrainStrategyArmText.Text = $"ARM: {topArm.Name} ({conf:F0}%)";
+                }
                 
                 // Update checked count - use best available source
                 if (_isRecoveryRunning)
@@ -3749,13 +3900,17 @@ namespace WalletRecoveryTool
             {
                 try
                 {
-                    var corrections = AdvancedRecoveryMethods.GenerateTypoCorrections(mnemonic);
+                    var allCorrections = AdvancedRecoveryMethods.GenerateTypoCorrections(mnemonic);
+                    // STRICT NON-REPETITION RULE: Exclude any variation already scanned and confirmed empty
+                    var corrections = allCorrections.Where(c => !GlobalMnemonicTracker.Instance.WasScanned(c)).ToList();
+                    var skippedEmpty = allCorrections.Count - corrections.Count;
                     
                     Dispatcher.Invoke(() =>
                     {
                         if (corrections.Count > 0)
                         {
-                            AdvancedResultsTextBlock.Text = $"Found {corrections.Count} possible corrections:\n\n" +
+                            AdvancedResultsTextBlock.Text = $"Found {corrections.Count} unscanned corrections" +
+                                (skippedEmpty > 0 ? $" ({skippedEmpty} previously empty skipped)" : "") + ":\n\n" +
                                 string.Join("\n", corrections.Take(20));
                             
                             if (corrections.Count > 20)
@@ -3765,7 +3920,9 @@ namespace WalletRecoveryTool
                         }
                         else
                         {
-                            AdvancedResultsTextBlock.Text = "No typo corrections found. The mnemonic might be correct or too different from valid words.";
+                            AdvancedResultsTextBlock.Text = skippedEmpty > 0
+                                ? $"All {skippedEmpty} typo corrections were already scanned and confirmed empty."
+                                : "No typo corrections found. The mnemonic might be correct or too different from valid words.";
                         }
                         AdvancedProgressBar.Visibility = Visibility.Collapsed;
                     });
@@ -3800,13 +3957,17 @@ namespace WalletRecoveryTool
             {
                 try
                 {
-                    var permutations = AdvancedRecoveryMethods.GenerateWordOrderPermutations(mnemonic);
+                    var allPermutations = AdvancedRecoveryMethods.GenerateWordOrderPermutations(mnemonic);
+                    // STRICT NON-REPETITION RULE: Exclude any permutation already scanned and confirmed empty
+                    var permutations = allPermutations.Where(p => !GlobalMnemonicTracker.Instance.WasScanned(p)).ToList();
+                    var skippedEmpty = allPermutations.Count - permutations.Count;
                     
                     Dispatcher.Invoke(() =>
                     {
                         if (permutations.Count > 0)
                         {
-                            AdvancedResultsTextBlock.Text = $"Found {permutations.Count} valid permutations:\n\n" +
+                            AdvancedResultsTextBlock.Text = $"Found {permutations.Count} unscanned valid permutations" +
+                                (skippedEmpty > 0 ? $" ({skippedEmpty} previously empty skipped)" : "") + ":\n\n" +
                                 string.Join("\n", permutations.Take(10));
                             
                             if (permutations.Count > 10)
@@ -3818,7 +3979,9 @@ namespace WalletRecoveryTool
                         }
                         else
                         {
-                            AdvancedResultsTextBlock.Text = "No valid permutations found. Check that all words are from the BIP39 wordlist.";
+                            AdvancedResultsTextBlock.Text = skippedEmpty > 0
+                                ? $"All {skippedEmpty} valid permutations were already scanned and confirmed empty."
+                                : "No valid permutations found. Check that all words are from the BIP39 wordlist.";
                         }
                         AdvancedProgressBar.Visibility = Visibility.Collapsed;
                     });
@@ -3853,11 +4016,15 @@ namespace WalletRecoveryTool
             {
                 try
                 {
-                    var variations = AdvancedRecoveryMethods.GeneratePassphraseVariations(mnemonic);
+                    var allVariations = AdvancedRecoveryMethods.GeneratePassphraseVariations(mnemonic);
+                    // STRICT NON-REPETITION RULE: Exclude any passphrase variation already scanned and confirmed empty
+                    var variations = allVariations
+                        .Where(v => !GlobalMnemonicTracker.Instance.WasScanned($"passphrase:{v.mnemonic.Trim().ToLowerInvariant()}:{v.passphrase}"))
+                        .ToList();
                     
                     Dispatcher.Invoke(() =>
                     {
-                        AdvancedResultsTextBlock.Text = $"Testing {variations.Count} common passphrases:\n\n";
+                        AdvancedResultsTextBlock.Text = $"Testing {variations.Count} unscanned common passphrases:\n\n";
                         foreach (var (mnemo, pass) in variations.Take(10))
                         {
                             var displayPass = string.IsNullOrEmpty(pass) ? "(no passphrase)" : pass;
@@ -3905,13 +4072,17 @@ namespace WalletRecoveryTool
             {
                 try
                 {
-                    var filled = AdvancedRecoveryMethods.GenerateMissingWordVariations(partialMnemonic, maxVariations);
+                    var allFilled = AdvancedRecoveryMethods.GenerateMissingWordVariations(partialMnemonic, maxVariations);
+                    // STRICT NON-REPETITION RULE: Exclude any filled mnemonic already scanned and confirmed empty
+                    var filled = allFilled.Where(f => !GlobalMnemonicTracker.Instance.WasScanned(f)).ToList();
+                    var skippedEmpty = allFilled.Count - filled.Count;
                     
                     Dispatcher.Invoke(() =>
                     {
                         if (filled.Count > 0)
                         {
-                            AdvancedResultsTextBlock.Text = $"Generated {filled.Count} complete mnemonics:\n\n" +
+                            AdvancedResultsTextBlock.Text = $"Generated {filled.Count} unscanned complete mnemonics" +
+                                (skippedEmpty > 0 ? $" ({skippedEmpty} previously empty skipped)" : "") + ":\n\n" +
                                 string.Join("\n", filled.Take(15));
                             
                             if (filled.Count > 15)
@@ -3923,7 +4094,9 @@ namespace WalletRecoveryTool
                         }
                         else
                         {
-                            AdvancedResultsTextBlock.Text = "No valid combinations found. Try increasing max variations or check your input.";
+                            AdvancedResultsTextBlock.Text = skippedEmpty > 0
+                                ? $"All {skippedEmpty} generated combinations were already scanned and confirmed empty."
+                                : "No valid combinations found. Try increasing max variations or check your input.";
                         }
                         AdvancedProgressBar.Visibility = Visibility.Collapsed;
                     });
@@ -4420,36 +4593,66 @@ namespace WalletRecoveryTool
                             ? BrainWalletScanner.PhraseToPrivateKeySHA256Double(phrase)
                             : BrainWalletScanner.PhraseToPrivateKeySHA256(phrase);
 
+                        var tracker = GlobalMnemonicTracker.Instance;
+                        var brainKey = doubleHash ? $"BRAIN_DSHA256:{phrase}" : $"BRAIN:{phrase}";
+                        var pkKey = $"pk:{privateKey.ToLowerInvariant()}";
+
+                        // STRICT NON-REPETITION RULE: Never repeat a brainwallet phrase or private key already scanned empty in any section
+                        if (!tracker.TryMarkAsScanned(brainKey) || !tracker.TryMarkAsScanned(pkKey))
+                        {
+                            continue;
+                        }
+
+                        bool variantFunded = false;
+
                         // --- Check Ethereum ---
                         var ethAddress = BrainWalletScanner.GenerateEthereumAddress(phrase, doubleHash);
-                        if (ethAddress != null)
+                        if (ethAddress != null && !tracker.IsAddressOrKeyScannedEmpty(ethAddress) && !FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddress))
                         {
                             var ethBalance = await balanceChecker.GetEthereumBalance(ethAddress);
                             if (ethBalance > 0)
                             {
+                                variantFunded = true;
                                 totalBalance += ethBalance;
                                 DebugLogger.Log($"   ✅ FOUND {ethBalance:F8} ETH ({hashLabel})!");
                                 SaveBrainWalletToFile(phrase, privateKey, ethAddress, $"{ethBalance:F8} ETH", hashLabel);
                                 AddBrainWalletResult(phrase, privateKey, $"ETH ({hashLabel})", ethAddress, $"{ethBalance:F8} ETH", totalBalance);
                             }
+                            else
+                            {
+                                FundedAddressFilter.ETHEmpty.MarkAsEmpty(ethAddress);
+                                tracker.TryMarkAsScanned("addr:" + ethAddress.ToLowerInvariant());
+                            }
                         }
 
                         // --- Check Bitcoin (Legacy) ---
                         var btcAddress = BrainWalletScanner.GenerateBitcoinAddress(phrase, doubleHash);
-                        if (btcAddress != null)
+                        if (btcAddress != null && !tracker.IsAddressOrKeyScannedEmpty(btcAddress) && !FundedAddressFilter.BTCEmpty.IsKnownEmpty(btcAddress))
                         {
                             try
                             {
                                 var btcBalance = await balanceChecker.GetBitcoinBalance(btcAddress);
                                 if (btcBalance > 0)
                                 {
+                                    variantFunded = true;
                                     totalBalance += btcBalance;
                                     DebugLogger.Log($"   ✅ FOUND {btcBalance:F8} BTC ({hashLabel})!");
                                     SaveBrainWalletToFile(phrase, privateKey, btcAddress, $"{btcBalance:F8} BTC", hashLabel);
                                     AddBrainWalletResult(phrase, privateKey, $"BTC ({hashLabel})", btcAddress, $"{btcBalance:F8} BTC", totalBalance);
                                 }
+                                else
+                                {
+                                    FundedAddressFilter.BTCEmpty.MarkAsEmpty(btcAddress);
+                                    tracker.TryMarkAsScanned("addr:" + btcAddress.ToLowerInvariant());
+                                }
                             }
                             catch { /* BTC API may be unavailable - continue with ETH */ }
+                        }
+
+                        if (variantFunded)
+                        {
+                            tracker.MarkWalletConfirmedFunded(null, brainKey);
+                            tracker.MarkWalletConfirmedFunded(null, pkKey);
                         }
 
                         await Task.Delay(300); // Rate limit between API calls
@@ -4598,19 +4801,37 @@ namespace WalletRecoveryTool
         private async Task TestPassphrases(string mnemonic, List<string> passphrases)
         {
             var balanceChecker = new BalanceChecker();
+            var tracker = GlobalMnemonicTracker.Instance;
             int checkedCount = 0;
             
             foreach (var passphrase in passphrases)
             {
                 try
                 {
+                    var ppKey = $"passphrase:{mnemonic.Trim().ToLowerInvariant()}:{passphrase}";
+                    // STRICT NON-REPETITION RULE: Never repeat a mnemonic+passphrase already scanned empty in any section
+                    if (!tracker.TryMarkAsScanned(ppKey))
+                    {
+                        checkedCount++;
+                        continue;
+                    }
+
                     var wallet = CryptoWalletGenerator.GenerateWalletWithPassphrase(mnemonic, passphrase);
                     if (wallet == null) { checkedCount++; continue; }
+
+                    if (tracker.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) &&
+                        tracker.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                    {
+                        checkedCount++;
+                        continue;
+                    }
+
                     var balances = await balanceChecker.CheckAllBalances(wallet);
                     var totalBalance = balances.Values.Sum();
                     
                     if (totalBalance > 0)
                     {
+                        tracker.MarkWalletConfirmedFunded(wallet, ppKey);
                         PassphraseProgressText.Text = $"✓ FOUND! Passphrase: \"{passphrase}\"";
                         PassphraseTotalBalanceText.Text = $"{totalBalance:F8}";
                         PassphraseUsdValueText.Text = $"≈ ${totalBalance * 45000:N2} USD";
@@ -4621,6 +4842,10 @@ namespace WalletRecoveryTool
                         MessageBox.Show($"🎉 Wallet found with passphrase: \"{passphrase}\"\n\nTotal Balance: {totalBalance:F8}",
                                        "Passphrase Found!", MessageBoxButton.OK, MessageBoxImage.Information);
                         return;
+                    }
+                    else
+                    {
+                        tracker.MarkWalletConfirmedEmpty(wallet, ppKey);
                     }
                     
                     checkedCount++;
@@ -4633,6 +4858,7 @@ namespace WalletRecoveryTool
                 }
             }
             
+            try { tracker.Flush(); } catch { }
             PassphraseProgressText.Text = $"✗ No matching passphrase found. Tested {checkedCount} passphrases.";
             PassphraseTotalBalanceText.Text = "Not Found";
             MessageBox.Show($"No wallet found with any of the {checkedCount} tested passphrases.", "Not Found", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -4696,9 +4922,9 @@ namespace WalletRecoveryTool
                 DeepScanPathsCheckedText.Text = "Scanning derivation paths...";
                 
                 var cryptoTypes = new List<string>();
-                if (bitcoin) cryptoTypes.Add("Bitcoin");
-                if (ethereum) cryptoTypes.Add("Ethereum");
-                if (solana) cryptoTypes.Add("Solana");
+                if (bitcoin) cryptoTypes.Add("BTC");
+                if (ethereum) cryptoTypes.Add("ETH");
+                if (solana) cryptoTypes.Add("SOL");
                 
                 var foundAddresses = await DerivationPathScanner.FindAddressesWithBalance(
                     mnemonic, balanceChecker, 20, cryptoTypes);
@@ -4708,14 +4934,24 @@ namespace WalletRecoveryTool
                     totalWalletsFound++;
                     addressesChecked++;
                     
-                    if (found.path.Contains("Bitcoin") || found.path.Contains("BTC")) totalBtc += found.balance;
-                    else if (found.path.Contains("Ethereum") || found.path.Contains("ETH")) totalEth += found.balance;
+                    if (found.path.Contains("Bitcoin") || found.path.Contains("BTC") || found.path.Contains("BIP") || found.path.Contains("Electrum")) totalBtc += found.balance;
+                    else if (found.path.Contains("Ethereum") || found.path.Contains("ETH") || found.path.Contains("MetaMask")) totalEth += found.balance;
                     else if (found.path.Contains("Solana") || found.path.Contains("SOL")) totalSol += found.balance;
                     
                     Dispatcher.BeginInvoke((Action)(() => UpdateDeepScanBalances(totalBtc, totalEth, totalSol)));
                     
                     var wallet = CryptoWalletGenerator.GenerateWallet(mnemonic);
-                    _database.SaveWallet(wallet, null, "Deep Scan");
+                    if (wallet != null)
+                    {
+                        wallet.Balances ??= new Dictionary<string, decimal>();
+                        if (found.path.Contains("ETH") || found.path.Contains("MetaMask"))
+                            wallet.Balances["ETH"] = found.balance;
+                        else if (found.path.Contains("SOL"))
+                            wallet.Balances["SOL"] = found.balance;
+                        else
+                            wallet.Balances["BTC"] = found.balance;
+                        _database.SaveWallet(wallet, null, "Deep Scan");
+                    }
                 }
                 
                 DeepScanPathsCheckedText.Text = "Paths Checked: 40+";
@@ -4727,23 +4963,44 @@ namespace WalletRecoveryTool
                 {
                     DeepScanPassphrasesCheckedText.Text = "Testing passphrases...";
                     var passphrases = PassphraseDatabase.GetCommonPassphrases(1000);
+                    var tracker = GlobalMnemonicTracker.Instance;
                     
                     foreach (var passphrase in passphrases)
                     {
                         try
                         {
+                            var ppKey = $"passphrase:{mnemonic.Trim().ToLowerInvariant()}:{passphrase}";
+                            if (!tracker.TryMarkAsScanned(ppKey))
+                            {
+                                passphrasesChecked++;
+                                continue;
+                            }
+
                             var wallet = CryptoWalletGenerator.GenerateWalletWithPassphrase(mnemonic, passphrase);
                             if (wallet == null) { passphrasesChecked++; continue; }
+
+                            if (tracker.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) &&
+                                tracker.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                            {
+                                passphrasesChecked++;
+                                continue;
+                            }
+
                             var balances = await balanceChecker.CheckAllBalances(wallet);
                             var total = balances.Values.Sum();
                             
                             if (total > 0)
                             {
+                                tracker.MarkWalletConfirmedFunded(wallet, ppKey);
                                 totalWalletsFound++;
                                 totalBtc += balances.GetValueOrDefault("BTC", 0);
                                 totalEth += balances.GetValueOrDefault("ETH", 0);
                                 Dispatcher.BeginInvoke((Action)(() => UpdateDeepScanBalances(totalBtc, totalEth, totalSol)));
                                 _database.SaveWallet(wallet, null, "Deep Scan");
+                            }
+                            else
+                            {
+                                tracker.MarkWalletConfirmedEmpty(wallet, ppKey);
                             }
                             
                             passphrasesChecked++;
@@ -4752,6 +5009,7 @@ namespace WalletRecoveryTool
                         }
                         catch { }
                     }
+                    try { tracker.Flush(); } catch { }
                 }
                 
                 var elapsed = (DateTime.Now - startTime).TotalSeconds;

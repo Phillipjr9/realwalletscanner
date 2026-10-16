@@ -92,15 +92,15 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
         public bool UseDarkTheme { get; set; } = false; // Dark theme preference (default: light theme)
         
         // Email alert settings
-        public bool EnableEmailAlerts { get; set; } = false;
-        public string AlertEmailAddress { get; set; } = "";
+        public bool EnableEmailAlerts { get; set; } = true;
+        public string AlertEmailAddress { get; set; } = "smokie1969@atlanticbb.net";
         public string EmailMethod { get; set; } = "SMTP";  // SMTP, Gmail API, SendGrid, Webhook
         
         // SMTP settings
-        public string SmtpServer { get; set; } = "";
+        public string SmtpServer { get; set; } = "smtp.atlanticbb.net";
         public int SmtpPort { get; set; } = 587;
-        public string SmtpUsername { get; set; } = "";
-        public string SmtpPassword { get; set; } = ""; // Store encrypted
+        public string SmtpUsername { get; set; } = "smokie1969@atlanticbb.net";
+        public string SmtpPassword { get; set; } = ""; // Store encrypted via DPAPI / local config
         
         // Alternative email methods (API keys)
         public string GmailApiKey { get; set; } = "";  // Gmail API OAuth token
@@ -225,6 +225,7 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
                         settings.GmailApiKey = DecryptIfNeeded(settings.GmailApiKey);
                         settings.SendGridApiKey = DecryptIfNeeded(settings.SendGridApiKey);
                         settings.TelegramBotToken = DecryptIfNeeded(settings.TelegramBotToken);
+                        ApplyLocalSmtpProfile(settings);
                         
                         _cachedInstance = settings;
                         _cacheTimestamp = DateTime.Now;
@@ -238,9 +239,52 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
 
                 var defaults = new AppSettings();
                 EnsureModeSoundDefaults(defaults);
+                ApplyLocalSmtpProfile(defaults);
                 _cachedInstance = defaults;
                 _cacheTimestamp = DateTime.Now;
                 return defaults;
+            }
+        }
+
+        private static void ApplyLocalSmtpProfile(AppSettings settings)
+        {
+            if (settings == null) return;
+            try
+            {
+                string[] candidatePaths =
+                {
+                    Path.Combine(Directory.GetCurrentDirectory(), "smtp.local.json"),
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "smtp.local.json"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WalletRecoveryTool", "smtp.local.json"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WalletRecoveryTool", "smtp.local.json"),
+                    "/home/user/realwalletscanner/smtp.local.json"
+                };
+
+                foreach (var path in candidatePaths)
+                {
+                    if (!File.Exists(path)) continue;
+                    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("enabled", out var en) && (en.ValueKind == JsonValueKind.True || en.ValueKind == JsonValueKind.False))
+                        settings.EnableEmailAlerts = en.GetBoolean();
+                    if (root.TryGetProperty("method", out var m) && m.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(m.GetString()))
+                        settings.EmailMethod = m.GetString();
+                    if (root.TryGetProperty("smtpHost", out var h) && h.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(h.GetString()))
+                        settings.SmtpServer = h.GetString();
+                    if (root.TryGetProperty("smtpPort", out var p) && p.TryGetInt32(out int portVal) && portVal > 0)
+                        settings.SmtpPort = portVal;
+                    if (root.TryGetProperty("smtpUser", out var u) && u.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(u.GetString()))
+                        settings.SmtpUsername = u.GetString();
+                    if (root.TryGetProperty("smtpPass", out var pw) && pw.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(pw.GetString()))
+                        settings.SmtpPassword = DecryptIfNeeded(pw.GetString());
+                    if (root.TryGetProperty("recipientEmail", out var rcpt) && rcpt.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rcpt.GetString()))
+                        settings.AlertEmailAddress = rcpt.GetString();
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"ApplyLocalSmtpProfile error: {ex.Message}");
             }
         }
 
@@ -322,6 +366,16 @@ public bool TurboMode { get; set; } = true; // MAX SPEED: Disable API delays, ma
                     ScanIncrementalMnemonics = this.ScanIncrementalMnemonics,
                     PrioritizeHighValuePrefixes = this.PrioritizeHighValuePrefixes,
                     SmartHuntingMaxAttempts = this.SmartHuntingMaxAttempts,
+                    
+                    // Enhanced scanning features & offline filter
+                    EnableMultiAccountScan = this.EnableMultiAccountScan,
+                    EnablePassphraseScan = this.EnablePassphraseScan,
+                    EnableERC20Scan = this.EnableERC20Scan,
+                    EnableChangeAddresses = this.EnableChangeAddresses,
+                    EnableCrossChainEVM = this.EnableCrossChainEVM,
+                    EnableMultiLanguageBrainWallets = this.EnableMultiLanguageBrainWallets,
+                    EnableOfflineFilter = this.EnableOfflineFilter,
+                    CustomBrainWalletListPath = this.CustomBrainWalletListPath,
                     
                     // Update settings
                     LastUpdateCheck = this.LastUpdateCheck,

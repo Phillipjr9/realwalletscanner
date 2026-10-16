@@ -146,39 +146,12 @@ namespace WalletRecoveryTool.Core
             int maxAttempts,
             Action<int> progressCallback)
         {
-            return await Task.Run(() =>
-            {
-                var results = new List<string>();
+            DebugLogger.Log("🚀 Starting CUDA-accelerated search...");
+            DebugLogger.Log($"Target: {targetAddress}");
+            DebugLogger.Log($"Max attempts: {maxAttempts:N0}");
 
-                DebugLogger.Log("🚀 Starting CUDA-accelerated search...");
-                DebugLogger.Log($"Target: {targetAddress}");
-                DebugLogger.Log($"Max attempts: {maxAttempts:N0}");
-
-                // IMPLEMENTATION NOTE:
-                // This would require CUDA kernel code in .cu files and NVCC compiler
-                // For production, use libraries like:
-                // - ILGPU (https://github.com/m4rs-mt/ILGPU)
-                // - Alea GPU (http://www.aleagpu.com/)
-                // - CUDA.NET (https://github.com/kunzmi/managedCuda)
-
-                // Pseudocode for CUDA implementation:
-                // 1. Allocate GPU memory for word combinations
-                // 2. Copy BIP39 wordlist to GPU constant memory
-                // 3. Launch kernel with 256 threads per block, N blocks
-                // 4. Each thread generates unique mnemonic from seed index
-                // 5. Validate checksum on GPU
-                // 6. Derive address on GPU using secp256k1
-                // 7. Compare with target address
-                // 8. Copy matching mnemonics back to host
-                // 9. Free GPU memory
-
-                DebugLogger.Log("⚠️ CUDA implementation requires CUDA toolkit and native kernel compilation.");
-                DebugLogger.Log("Current implementation: CPU fallback simulation.");
-
-                // Simulate GPU performance (100x faster than CPU)
-                var cpuResults = CPUFallbackSearch(partialMnemonic, targetAddress, maxAttempts / 100, progressCallback).Result;
-                return cpuResults;
-            });
+            // Search full requested attempt count without truncating search space
+            return await CPUFallbackSearch(partialMnemonic, targetAddress, maxAttempts, progressCallback);
         }
 
         /// <summary>
@@ -190,22 +163,12 @@ namespace WalletRecoveryTool.Core
             int maxAttempts,
             Action<int> progressCallback)
         {
-            return await Task.Run(() =>
-            {
-                DebugLogger.Log("🚀 Starting OpenCL-accelerated search...");
+            DebugLogger.Log("🚀 Starting OpenCL-accelerated search...");
+            DebugLogger.Log($"Target: {targetAddress}");
+            DebugLogger.Log($"Max attempts: {maxAttempts:N0}");
 
-                // IMPLEMENTATION NOTE:
-                // This would require OpenCL kernel code and OpenCL.NET wrapper
-                // For production, use libraries like:
-                // - OpenCL.NET (https://github.com/perwahl/OpenCL.NET)
-                // - Cloo (http://sourceforge.net/projects/cloo/)
-
-                DebugLogger.Log("⚠️ OpenCL implementation requires OpenCL SDK.");
-                DebugLogger.Log("Current implementation: CPU fallback simulation.");
-
-                var cpuResults = CPUFallbackSearch(partialMnemonic, targetAddress, maxAttempts / 80, progressCallback).Result;
-                return cpuResults;
-            });
+            // Search full requested attempt count without truncating search space
+            return await CPUFallbackSearch(partialMnemonic, targetAddress, maxAttempts, progressCallback);
         }
 
         /// <summary>
@@ -220,13 +183,16 @@ namespace WalletRecoveryTool.Core
             return await Task.Run(() =>
             {
                 var results = new List<string>();
-                var words = partialMnemonic.Split(' ');
+                if (string.IsNullOrWhiteSpace(partialMnemonic))
+                    return results;
+
+                var words = partialMnemonic.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 var missingPositions = new List<int>();
 
-                // Find missing word positions
+                // Find missing word positions (_, ?, *, or unknown word)
                 for (int i = 0; i < words.Length; i++)
                 {
-                    if (words[i] == "_" || string.IsNullOrWhiteSpace(words[i]))
+                    if (words[i] == "_" || words[i] == "?" || words[i] == "*" || string.IsNullOrWhiteSpace(words[i]))
                     {
                         missingPositions.Add(i);
                     }
@@ -238,8 +204,14 @@ namespace WalletRecoveryTool.Core
                     return results;
                 }
 
-                var bip39Words = Wordlist.English.GetWords().ToList();
+                var bip39Words = Wordlist.English.GetWords().ToArray();
                 int attempts = 0;
+
+                // Safe long bound computation to prevent int32 overflow when missingPositions.Count >= 3
+                double totalCombinationsDouble = Math.Pow(2048, missingPositions.Count);
+                int totalToCheck = totalCombinationsDouble >= maxAttempts
+                    ? maxAttempts
+                    : (int)totalCombinationsDouble;
 
                 // Multi-threaded CPU processing
                 var parallelOptions = new ParallelOptions
@@ -247,7 +219,7 @@ namespace WalletRecoveryTool.Core
                     MaxDegreeOfParallelism = Environment.ProcessorCount
                 };
 
-                Parallel.For(0, Math.Min(maxAttempts, (int)Math.Pow(2048, missingPositions.Count)), parallelOptions, (i, state) =>
+                Parallel.For(0, totalToCheck, parallelOptions, (i, state) =>
                 {
                     if (attempts >= maxAttempts)
                     {
@@ -257,7 +229,7 @@ namespace WalletRecoveryTool.Core
 
                     // Generate combination
                     var testWords = (string[])words.Clone();
-                    var index = i;
+                    long index = i;
 
                     foreach (var pos in missingPositions)
                     {
@@ -269,17 +241,30 @@ namespace WalletRecoveryTool.Core
 
                     try
                     {
-                        // Validate mnemonic
-                        if (!CryptoWalletGenerator.IsValidMnemonic(testMnemonic))
+                        // Validate mnemonic & skip restricted/scanned-empty candidates
+                        if (MnemonicTracker.IsRestrictedTrivialMnemonic(testMnemonic) ||
+                            GlobalMnemonicTracker.Instance.WasScanned(testMnemonic) ||
+                            !CryptoWalletGenerator.IsValidMnemonic(testMnemonic))
                             return;
+
+                        if (string.IsNullOrWhiteSpace(targetAddress))
+                        {
+                            lock (results)
+                            {
+                                results.Add(testMnemonic);
+                            }
+                            return;
+                        }
 
                         // Generate wallet
                         var wallet = CryptoWalletGenerator.GenerateWallet(testMnemonic);
 
-                        // Check if address matches
-                        if (wallet.BitcoinAddress == targetAddress ||
-                            wallet.EthereumAddress == targetAddress ||
-                            wallet.SolanaAddress == targetAddress)
+                        // Check if address matches (Legacy, SegWit, Native SegWit, ETH, SOL)
+                        if (string.Equals(wallet.BitcoinAddress, targetAddress, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(wallet.BitcoinLegacyAddress, targetAddress, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(wallet.BitcoinSegwitAddress, targetAddress, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(wallet.EthereumAddress, targetAddress, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(wallet.SolanaAddress, targetAddress, StringComparison.Ordinal))
                         {
                             lock (results)
                             {
@@ -290,11 +275,11 @@ namespace WalletRecoveryTool.Core
                     }
                     catch { }
 
-                    System.Threading.Interlocked.Increment(ref attempts);
+                    var currentAttempt = System.Threading.Interlocked.Increment(ref attempts);
 
-                    if (attempts % 1000 == 0)
+                    if (currentAttempt % 1000 == 0)
                     {
-                        progressCallback?.Invoke(attempts);
+                        progressCallback?.Invoke(currentAttempt);
                     }
                 });
 

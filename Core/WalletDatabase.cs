@@ -410,10 +410,16 @@ namespace WalletRecoveryTool.Core
         public static decimal CalculateFallbackUsdValue(Dictionary<string, decimal> balances)
         {
             if (balances == null || balances.Count == 0) return 0;
-            balances.TryGetValue("BTC", out var btc);
-            balances.TryGetValue("ETH", out var eth);
+            decimal btc = balances
+                .Where(kv => kv.Key != null && (kv.Key.Equals("BTC", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("BTC-", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("BTC_", StringComparison.OrdinalIgnoreCase)))
+                .Sum(kv => kv.Value);
+            decimal eth = balances
+                .Where(kv => kv.Key != null && (kv.Key.Equals("ETH", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("ETH-", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("ETH_", StringComparison.OrdinalIgnoreCase)))
+                .Sum(kv => kv.Value);
             balances.TryGetValue("SOL", out var sol);
-            balances.TryGetValue("USDT", out var usdt);
+            decimal usdt = balances
+                .Where(kv => kv.Key != null && (kv.Key.Equals("USDT", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("USDT-", StringComparison.OrdinalIgnoreCase) || kv.Key.StartsWith("USDT_", StringComparison.OrdinalIgnoreCase)))
+                .Sum(kv => kv.Value);
             balances.TryGetValue("LTC", out var ltc);
             balances.TryGetValue("DOGE", out var doge);
             balances.TryGetValue("MATIC", out var matic);

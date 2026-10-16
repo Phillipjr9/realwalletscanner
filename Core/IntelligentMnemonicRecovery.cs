@@ -112,9 +112,16 @@ namespace WalletRecoveryTool.Core
                 }
                 else
                 {
+                    // STRICT NON-REPETITION RULE: Skip if already scanned empty in any section
+                    if (!GlobalMnemonicTracker.Instance.TryMarkAsScanned(mnemonicString))
+                        continue;
+
                     // Check for balance
                     var wallet = CryptoWalletGenerator.GenerateWallet(mnemonicString);
                     if (wallet == null) continue; // Invalid BIP39 checksum — skip
+                    if (GlobalMnemonicTracker.Instance.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) &&
+                        GlobalMnemonicTracker.Instance.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                        continue;
                     
                     try
                     {
@@ -123,6 +130,7 @@ namespace WalletRecoveryTool.Core
 
                         if (btcBalance > 0 || ethBalance > 0)
                         {
+                            GlobalMnemonicTracker.Instance.MarkWalletConfirmedFunded(wallet);
                             var result = new RecoveryResult
                             {
                                 Success = true,
@@ -133,6 +141,10 @@ namespace WalletRecoveryTool.Core
 
                             MnemonicFound?.Invoke(this, new MnemonicFoundEventArgs { Result = result });
                             return result;
+                        }
+                        else
+                        {
+                            GlobalMnemonicTracker.Instance.MarkWalletConfirmedEmpty(wallet);
                         }
                     }
                     catch
@@ -180,9 +192,9 @@ namespace WalletRecoveryTool.Core
                             .Where(w => w.Length > 0 && firstLetters.Any(f => Math.Abs(w[0] - f) <= 3))
                             .ToList();
                         
-                        if (similarWords.Count < 500) // Only if it reduces search space
+                        if (similarWords.Count < 500) // Prioritize similar words first, keep remaining as fallback
                         {
-                            wordCandidates = similarWords;
+                            wordCandidates = similarWords.Concat(wordCandidates).Distinct().ToList();
                         }
                     }
 
@@ -190,19 +202,43 @@ namespace WalletRecoveryTool.Core
                     var avgLength = knownWordsList.Average(w => w.Length);
                     var lengthVariance = knownWordsList.Select(w => Math.Abs(w.Length - avgLength)).Average();
                     
-                    if (lengthVariance < 2) // Similar word lengths
+                    if (lengthVariance < 2) // Similar word lengths prioritized first
                     {
-                        wordCandidates = wordCandidates
+                        var preferredByLength = wordCandidates
                             .Where(w => Math.Abs(w.Length - avgLength) <= 2)
                             .ToList();
+                        wordCandidates = preferredByLength.Concat(wordCandidates).Distinct().ToList();
                     }
                 }
 
-                // Position-based prioritization
-                // Last word has checksum constraints - handled by validation
-                if (position == 11) // Last word in 12-word mnemonic
+                // Position-based prioritization:
+                // If ONLY the final word (#12 or #24) is missing, use the direct SHA-256 Checksum-Bit Solver
+                // to narrow 2,048 words down to the exact 128 (12-word) or 8 (24-word) valid checksum words!
+                if (missingPositions.Count == 1 && (position == 11 || position == 23) && knownWords.Count == position)
                 {
-                    // Keep all words, checksum will filter
+                    var prefixWords = new string[position];
+                    bool allPresent = true;
+                    for (int p = 0; p < position; p++)
+                    {
+                        if (!knownWords.TryGetValue(p, out var pw) || string.IsNullOrWhiteSpace(pw))
+                        {
+                            allPresent = false;
+                            break;
+                        }
+                        prefixWords[p] = pw;
+                    }
+
+                    if (allPresent)
+                    {
+                        var exactFullMnemonics = CryptoWalletGenerator.SolveExactLastWordCandidates(prefixWords);
+                        if (exactFullMnemonics.Count > 0)
+                        {
+                            wordCandidates = exactFullMnemonics
+                                .Select(m => m.Split(' ').Last())
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+                        }
+                    }
                 }
 
                 candidates[position] = wordCandidates;
@@ -271,9 +307,28 @@ namespace WalletRecoveryTool.Core
                 var mnemonicObj = new Mnemonic(mnemonic);
                 var masterKey = mnemonicObj.DeriveExtKey();
 
+                if (knownAddress.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    var ethPaths = new[] { "m/44'/60'/0'/0/0", "m/44'/60'/0'/0/1", "m/44'/60'/0'/0", "m/44'/60'/1'/0/0" };
+                    foreach (var ethPath in ethPaths)
+                    {
+                        try
+                        {
+                            var ethKey = masterKey.Derive(new KeyPath(ethPath));
+                            var uncompressed = ethKey.PrivateKey.PubKey.Decompress().ToBytes();
+                            var hash = SimdHasher.Keccak256(uncompressed.Skip(1).ToArray());
+                            var ethAddr = "0x" + Convert.ToHexString(hash.AsSpan(12, 20));
+                            if (string.Equals(ethAddr, knownAddress, StringComparison.OrdinalIgnoreCase))
+                                return true;
+                        }
+                        catch { continue; }
+                    }
+                    return false;
+                }
+
                 // Get paths based on wallet software
                 var paths = string.IsNullOrEmpty(walletSoftware)
-                    ? new[] { "m/44'/0'/0'/0/0", "m/49'/0'/0'/0/0", "m/84'/0'/0'/0/0", "m/0/0" }
+                    ? new[] { "m/44'/0'/0'/0/0", "m/49'/0'/0'/0/0", "m/84'/0'/0'/0/0", "m/86'/0'/0'/0/0", "m/0/0" }
                     : GetWalletPaths(walletSoftware);
 
                 foreach (var path in paths)
@@ -290,6 +345,9 @@ namespace WalletRecoveryTool.Core
 
                         var native = key.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
                         if (native == knownAddress) return true;
+
+                        var taproot = key.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
+                        if (taproot == knownAddress) return true;
                     }
                     catch (Exception ex) { DebugLogger.Log($"Address check failed: {ex.Message}"); continue; }
                 }
@@ -315,8 +373,8 @@ namespace WalletRecoveryTool.Core
         {
             try
             {
-                new Mnemonic(mnemonic);
-                return true;
+                var m = new Mnemonic(mnemonic);
+                return m.IsValidChecksum;
             }
             catch
             {

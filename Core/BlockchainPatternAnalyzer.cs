@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Numerics;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace WalletRecoveryTool.Core
 {
@@ -76,27 +78,60 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
-        /// Finds active address patterns matching partial address
+        /// Finds active address patterns matching partial address across watchlist, database, and related graph
         /// </summary>
         public async Task<List<string>> FindActiveAddressPatterns(
             string partialAddress,
             ActiveAddressFilter filter = null)
         {
             filter ??= new ActiveAddressFilter();
-            var matchingAddresses = new List<string>();
+            var matchingAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(partialAddress))
+                return matchingAddresses.ToList();
 
-            // This would require blockchain explorer API with pattern matching
-            // For now, we'll focus on transaction graph analysis
+            string cleanPattern = partialAddress.Trim().Replace("*", "").Replace("?", "");
             DebugLogger.Log($"Searching for addresses matching pattern: {partialAddress}");
 
-            // Implementation would depend on specific blockchain explorer APIs
-            // BlockCypher, Blockchain.com, etc. offer pattern search
+            try
+            {
+                // 1. Check local Watchlist and Database addresses matching prefix/substring
+                var watchlist = new AddressWatchlist();
+                foreach (var entry in watchlist.GetAllAddresses())
+                {
+                    if (!string.IsNullOrEmpty(entry.Address) &&
+                        entry.Address.Contains(cleanPattern, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchingAddresses.Add(entry.Address);
+                    }
+                }
 
-            return matchingAddresses;
+                // 2. If partialAddress is a full valid address, expand its 1-hop related addresses and filter
+                if (cleanPattern.Length >= 26)
+                {
+                    var related = await FindRelatedAddresses(cleanPattern);
+                    foreach (var addr in related)
+                    {
+                        var meta = await AnalyzeWalletBehavior(addr);
+                        if (meta == null) continue;
+                        if (filter.OnlyWithBalance && meta.CurrentBalance < filter.MinBalance) continue;
+                        if (meta.TransactionCount < filter.MinTransactions) continue;
+                        if (filter.LastActivityAfter.HasValue && meta.LastActivity.HasValue &&
+                            meta.LastActivity.Value < filter.LastActivityAfter.Value) continue;
+
+                        matchingAddresses.Add(addr);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[FindActiveAddressPatterns] Error: {ex.Message}");
+            }
+
+            return matchingAddresses.ToList();
         }
 
         /// <summary>
-        /// Analyzes Bitcoin address transaction history
+        /// Analyzes Bitcoin address transaction history with automatic key-free fallback to Blockstream & Mempool.space
         /// </summary>
         private async Task<WalletMetadata> AnalyzeBitcoinAddress(string address)
         {
@@ -104,57 +139,107 @@ namespace WalletRecoveryTool.Core
 
             try
             {
-                if (string.IsNullOrEmpty(_settings.BlockCypherApiKey))
+                if (!string.IsNullOrEmpty(_settings.BlockCypherApiKey))
                 {
-                    DebugLogger.Log("BlockCypher API key required for address analysis");
-                    return metadata;
-                }
+                    var url = $"https://api.blockcypher.com/v1/btc/main/addrs/{address}/full?token={_settings.BlockCypherApiKey}";
+                    var response = await _httpClient.GetStringAsync(url);
+                    dynamic data = JsonConvert.DeserializeObject(response);
 
-                var url = $"https://api.blockcypher.com/v1/btc/main/addrs/{address}/full?token={_settings.BlockCypherApiKey}";
-                var response = await _httpClient.GetStringAsync(url);
-                dynamic data = JsonConvert.DeserializeObject(response);
-
-                if (data != null)
-                {
-                    metadata.CurrentBalance = (decimal)(data.final_balance ?? 0) / 100000000m;
-                    metadata.TotalReceived = (decimal)(data.total_received ?? 0) / 100000000m;
-                    metadata.TotalSent = (decimal)(data.total_sent ?? 0) / 100000000m;
-                    metadata.TransactionCount = (int)(data.n_tx ?? 0);
-
-                    // Parse transaction dates
-                    if (data.txs != null && data.txs.Count > 0)
+                    if (data != null)
                     {
-                        var transactions = ((IEnumerable<dynamic>)data.txs).ToList();
-                        
-                        // First transaction
-                        var firstTx = transactions.LastOrDefault();
-                        if (firstTx?.confirmed != null)
-                        {
-                            metadata.FirstSeen = DateTime.Parse(firstTx.confirmed.ToString());
-                        }
+                        metadata.CurrentBalance = (decimal)(data.final_balance ?? 0) / 100000000m;
+                        metadata.TotalReceived = (decimal)(data.total_received ?? 0) / 100000000m;
+                        metadata.TotalSent = (decimal)(data.total_sent ?? 0) / 100000000m;
+                        metadata.TransactionCount = (int)(data.n_tx ?? 0);
 
-                        // Last transaction
-                        var lastTx = transactions.FirstOrDefault();
-                        if (lastTx?.confirmed != null)
+                        if (data.txs != null && data.txs.Count > 0)
                         {
-                            metadata.LastActivity = DateTime.Parse(lastTx.confirmed.ToString());
-                        }
+                            var transactions = ((IEnumerable<dynamic>)data.txs).ToList();
+                            var firstTx = transactions.LastOrDefault();
+                            if (firstTx?.confirmed != null)
+                                metadata.FirstSeen = DateTime.Parse(firstTx.confirmed.ToString());
 
-                        // Analyze transaction patterns
-                        metadata.AddressPattern = AnalyzeBitcoinTransactionPatterns(transactions);
+                            var lastTx = transactions.FirstOrDefault();
+                            if (lastTx?.confirmed != null)
+                                metadata.LastActivity = DateTime.Parse(lastTx.confirmed.ToString());
+
+                            metadata.AddressPattern = AnalyzeBitcoinTransactionPatterns(transactions);
+                        }
+                        return metadata;
                     }
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.Log($"Error analyzing Bitcoin address: {ex.Message}");
+                DebugLogger.Log($"BlockCypher analysis failed, falling back to Esplora: {ex.Message}");
+            }
+
+            // Key-free fallback: Blockstream Esplora / Mempool.space API
+            string[] esploraBases = { "https://blockstream.info/api", "https://mempool.space/api" };
+            foreach (var baseUrl in esploraBases)
+            {
+                try
+                {
+                    var addrJson = await _httpClient.GetStringAsync($"{baseUrl}/address/{address}");
+                    var addrObj = JObject.Parse(addrJson);
+                    var chainStats = addrObj["chain_stats"];
+                    if (chainStats != null)
+                    {
+                        long funded = chainStats["funded_txo_sum"]?.Value<long>() ?? 0L;
+                        long spent = chainStats["spent_txo_sum"]?.Value<long>() ?? 0L;
+                        int txCount = chainStats["tx_count"]?.Value<int>() ?? 0;
+
+                        metadata.TotalReceived = funded / 100_000_000m;
+                        metadata.TotalSent = spent / 100_000_000m;
+                        metadata.CurrentBalance = Math.Max(0m, (funded - spent) / 100_000_000m);
+                        metadata.TransactionCount = txCount;
+                    }
+
+                    if (metadata.TransactionCount > 0)
+                    {
+                        var txsJson = await _httpClient.GetStringAsync($"{baseUrl}/address/{address}/txs");
+                        var txsArr = JArray.Parse(txsJson);
+                        if (txsArr.Count > 0)
+                        {
+                            long? lastTime = txsArr.First?["status"]?["block_time"]?.Value<long>();
+                            long? firstTime = txsArr.Last?["status"]?["block_time"]?.Value<long>();
+                            if (firstTime.HasValue && firstTime.Value > 0)
+                                metadata.FirstSeen = DateTimeOffset.FromUnixTimeSeconds(firstTime.Value).UtcDateTime;
+                            if (lastTime.HasValue && lastTime.Value > 0)
+                                metadata.LastActivity = DateTimeOffset.FromUnixTimeSeconds(lastTime.Value).UtcDateTime;
+
+                            if (txsArr.Any(tx => (tx["vout"] as JArray)?.Count > 1))
+                                metadata.AddressPattern.Add("Uses change addresses (HD wallet)");
+                            if (metadata.TransactionCount > 100)
+                                metadata.AddressPattern.Add("High activity (exchange or merchant)");
+                            else if (metadata.TransactionCount < 10)
+                                metadata.AddressPattern.Add("Low activity (personal wallet)");
+                        }
+                    }
+
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"Esplora ({baseUrl}) Bitcoin analysis fallback error: {ex.Message}");
+                }
             }
 
             return metadata;
         }
 
+        private static decimal WeiToEthSafe(string weiStr)
+        {
+            if (string.IsNullOrWhiteSpace(weiStr) || !BigInteger.TryParse(weiStr.Trim(), out var wei) || wei <= 0)
+                return 0m;
+            var whole = BigInteger.DivRem(wei, new BigInteger(1_000_000_000_000_000_000UL), out var rem);
+            if (whole > (BigInteger)decimal.MaxValue)
+                return decimal.MaxValue;
+            return (decimal)whole + ((decimal)rem / 1_000_000_000_000_000_000m);
+        }
+
         /// <summary>
-        /// Analyzes Ethereum address transaction history
+        /// Analyzes Ethereum address transaction history with BigInteger Wei safety and key-free Blockscout fallback
         /// </summary>
         private async Task<WalletMetadata> AnalyzeEthereumAddress(string address)
         {
@@ -162,14 +247,10 @@ namespace WalletRecoveryTool.Core
 
             try
             {
-                if (string.IsNullOrEmpty(_settings.EtherscanApiKey))
-                {
-                    DebugLogger.Log("Etherscan API key required for address analysis");
-                    return metadata;
-                }
+                string txCountUrl = !string.IsNullOrEmpty(_settings.EtherscanApiKey)
+                    ? $"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={_settings.EtherscanApiKey}"
+                    : $"https://eth.blockscout.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc";
 
-                // Get transaction count
-                var txCountUrl = $"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={_settings.EtherscanApiKey}";
                 var response = await _httpClient.GetStringAsync(txCountUrl);
                 dynamic data = JsonConvert.DeserializeObject(response);
 
@@ -180,38 +261,35 @@ namespace WalletRecoveryTool.Core
 
                     if (transactions.Count > 0)
                     {
-                        // First transaction
                         var firstTx = transactions.First();
                         metadata.FirstSeen = DateTimeOffset.FromUnixTimeSeconds((long)firstTx.timeStamp).DateTime;
 
-                        // Last transaction
                         var lastTx = transactions.Last();
                         metadata.LastActivity = DateTimeOffset.FromUnixTimeSeconds((long)lastTx.timeStamp).DateTime;
 
-                        // Calculate totals
                         foreach (var tx in transactions)
                         {
-                            var value = decimal.Parse(tx.value.ToString()) / 1000000000000000000m;
-                            
-                            if (tx.from.ToString().ToLower() == address.ToLower())
+                            var value = WeiToEthSafe(tx.value?.ToString());
+                            if (tx.from?.ToString().ToLowerInvariant() == address.ToLowerInvariant())
                                 metadata.TotalSent += value;
                             else
                                 metadata.TotalReceived += value;
                         }
 
-                        // Analyze patterns
                         metadata.AddressPattern = AnalyzeEthereumTransactionPatterns(transactions);
                     }
                 }
 
-                // Get current balance
-                var balanceUrl = $"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={_settings.EtherscanApiKey}";
+                string balanceUrl = !string.IsNullOrEmpty(_settings.EtherscanApiKey)
+                    ? $"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={_settings.EtherscanApiKey}"
+                    : $"https://eth.blockscout.com/api?module=account&action=balance&address={address}";
+
                 var balanceResponse = await _httpClient.GetStringAsync(balanceUrl);
                 dynamic balanceData = JsonConvert.DeserializeObject(balanceResponse);
 
-                if (balanceData?.status == "1")
+                if (balanceData?.status == "1" && balanceData.result != null)
                 {
-                    metadata.CurrentBalance = decimal.Parse(balanceData.result.ToString()) / 1000000000000000000m;
+                    metadata.CurrentBalance = WeiToEthSafe(balanceData.result.ToString());
                 }
             }
             catch (Exception ex)

@@ -39,10 +39,25 @@ namespace WalletRecoveryTool.Core
             public List<string> DerivationPaths { get; set; }
             public List<ScriptPubKeyType> AddressTypes { get; set; }
             public string Description { get; set; }
-            public int Confidence { get; set; } // 0-100
+            private int _confidence;
+            public int Confidence
+            {
+                get => _confidence;
+                set { _confidence = value; ConfidenceScore = value; }
+            }
             public int ConfidenceScore { get; set; } // Alias for Confidence
-            public string WalletType { get; set; }
-            public string SuggestedDerivationPath { get; set; }
+            private string _walletType;
+            public string WalletType
+            {
+                get => !string.IsNullOrEmpty(_walletType) ? _walletType : (!string.IsNullOrEmpty(Description) ? Description : Type.ToString());
+                set => _walletType = value;
+            }
+            private string _suggestedDerivationPath;
+            public string SuggestedDerivationPath
+            {
+                get => !string.IsNullOrEmpty(_suggestedDerivationPath) ? _suggestedDerivationPath : (DerivationPaths?.FirstOrDefault() ?? "m/84'/0'/0'/0/0");
+                set => _suggestedDerivationPath = value;
+            }
         }
 
         /// <summary>

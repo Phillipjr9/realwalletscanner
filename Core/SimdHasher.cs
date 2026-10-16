@@ -105,11 +105,23 @@ namespace WalletRecoveryTool.Core
 
             var results = new byte[4][];
             
-            // Pad all inputs to 64 bytes (single block for simplicity)
+            // Pad all inputs to 64-byte blocks
             var paddedInputs = new byte[4][];
             for (int i = 0; i < 4; i++)
             {
                 paddedInputs[i] = PadMessage(inputs[i]);
+            }
+
+            // If the 4 inputs have different padded block counts, fall back to scalar SHA-256
+            // to avoid out-of-bounds reads or truncated blocks.
+            int blockCount = paddedInputs[0].Length / 64;
+            if (paddedInputs[1].Length != paddedInputs[0].Length ||
+                paddedInputs[2].Length != paddedInputs[0].Length ||
+                paddedInputs[3].Length != paddedInputs[0].Length)
+            {
+                for (int i = 0; i < 4; i++)
+                    results[i] = ScalarSha256(inputs[i]);
+                return results;
             }
 
             // Initialize hash state vectors (4 parallel SHA-256 states)
@@ -120,7 +132,6 @@ namespace WalletRecoveryTool.Core
             }
 
             // Process each 64-byte block
-            int blockCount = paddedInputs[0].Length / 64;
             for (int block = 0; block < blockCount; block++)
             {
                 // Load message schedule (W) for all 4 inputs
@@ -138,17 +149,17 @@ namespace WalletRecoveryTool.Core
                                            words[0], words[1], words[2], words[3]);
                 }
 
-                // Extend message schedule
+                // Extend message schedule (FIPS 180-4 §6.2.2: sigma0 uses ROTR 7/18 + SHR 3; sigma1 uses ROTR 17/19 + SHR 10)
                 for (int t = 16; t < 64; t++)
                 {
                     var s0 = Avx2.Xor(Avx2.Xor(
-                        Avx2.ShiftRightLogical(W[t - 15], 7),
-                        Avx2.ShiftRightLogical(W[t - 15], 18)),
+                        RotateRight(W[t - 15], 7),
+                        RotateRight(W[t - 15], 18)),
                         Avx2.ShiftRightLogical(W[t - 15], 3));
                     
                     var s1 = Avx2.Xor(Avx2.Xor(
-                        Avx2.ShiftRightLogical(W[t - 2], 17),
-                        Avx2.ShiftRightLogical(W[t - 2], 19)),
+                        RotateRight(W[t - 2], 17),
+                        RotateRight(W[t - 2], 19)),
                         Avx2.ShiftRightLogical(W[t - 2], 10));
                     
                     W[t] = Avx2.Add(Avx2.Add(Avx2.Add(W[t - 16], s0), W[t - 7]), s1);

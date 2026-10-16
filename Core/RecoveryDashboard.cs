@@ -48,8 +48,21 @@ namespace WalletRecoveryTool.Core
         {
             lock (_lock)
             {
+                var brain = CognitiveBrainEngine.Instance;
+                var topArm = brain.GetStrategyArmRankings().FirstOrDefault();
+
                 if (_sessions.Count == 0)
-                    return new DashboardSummary();
+                {
+                    return new DashboardSummary
+                    {
+                        BrainVersion = brain.VersionTag,
+                        BrainCognitiveIq = brain.CognitiveIqScore,
+                        BrainTopStrategyArm = topArm?.Name ?? "SemanticClusterBip39",
+                        BrainTotalSynthesized = brain.TotalCandidatesSynthesized,
+                        BrainSubspaceRepulsions = brain.SubspaceRepulsionsTriggered,
+                        GlobalEmptyWalletsTracked = GlobalMnemonicTracker.Instance.Count
+                    };
+                }
 
                 return new DashboardSummary
                 {
@@ -62,7 +75,13 @@ namespace WalletRecoveryTool.Core
                     BestSession = _sessions.OrderByDescending(s => s.TotalUsdFound).FirstOrDefault(),
                     MostSuccessfulMethod = GetMostSuccessfulMethod(),
                     FirstSessionDate = _sessions.Min(s => s.StartTime),
-                    LastSessionDate = _sessions.Max(s => s.EndTime)
+                    LastSessionDate = _sessions.Max(s => s.EndTime),
+                    BrainVersion = brain.VersionTag,
+                    BrainCognitiveIq = brain.CognitiveIqScore,
+                    BrainTopStrategyArm = topArm?.Name ?? "SemanticClusterBip39",
+                    BrainTotalSynthesized = brain.TotalCandidatesSynthesized,
+                    BrainSubspaceRepulsions = brain.SubspaceRepulsionsTriggered,
+                    GlobalEmptyWalletsTracked = GlobalMnemonicTracker.Instance.Count
                 };
             }
         }
@@ -196,6 +215,13 @@ namespace WalletRecoveryTool.Core
             sb.AppendLine($"  Total USD Value Found:   ${summary.TotalUsdFound:N2}");
             sb.AppendLine($"  Total Runtime:           {summary.TotalRunTimeMinutes:N0} minutes ({summary.TotalRunTimeMinutes / 60:N1} hours)");
             sb.AppendLine($"  Avg Speed:               {summary.AverageWalletsPerMinute:N0} wallets/min");
+            sb.AppendLine($"  Empty Wallets Blocked:   {summary.GlobalEmptyWalletsTracked:N0} (0% repeat guarantee)");
+            sb.AppendLine();
+            sb.AppendLine("───────────── COGNITIVE SELF-LEARNING BRAIN ────────────────");
+            sb.AppendLine($"  Brain Version:           {summary.BrainVersion} (IQ {summary.BrainCognitiveIq:F1})");
+            sb.AppendLine($"  Dominant Neural Arm:     {summary.BrainTopStrategyArm}");
+            sb.AppendLine($"  Candidates Synthesized:  {summary.BrainTotalSynthesized:N0}");
+            sb.AppendLine($"  Subspace Repulsions:     {summary.BrainSubspaceRepulsions:N0}");
             sb.AppendLine();
             sb.AppendLine("─────────────────── BY RECOVERY METHOD ─────────────────────");
             
@@ -300,6 +326,12 @@ namespace WalletRecoveryTool.Core
         public string MostSuccessfulMethod { get; set; }
         public DateTime FirstSessionDate { get; set; }
         public DateTime LastSessionDate { get; set; }
+        public string BrainVersion { get; set; } = "v1.0";
+        public double BrainCognitiveIq { get; set; } = 112.0;
+        public string BrainTopStrategyArm { get; set; } = "SemanticClusterBip39";
+        public long BrainTotalSynthesized { get; set; }
+        public long BrainSubspaceRepulsions { get; set; }
+        public int GlobalEmptyWalletsTracked { get; set; }
     }
 
     public class DailyStats

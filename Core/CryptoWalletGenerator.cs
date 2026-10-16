@@ -19,11 +19,25 @@ namespace WalletRecoveryTool.Core
         private const byte LitecoinVersionByte = 0x30; // Produces 'L' prefix
         private const byte DogecoinVersionByte = 0x1E; // Produces 'D' prefix
 
+        // Pre-parsed BIP32 key paths to avoid string parsing and allocations per wallet
+        private static readonly KeyPath Purpose44Path = new KeyPath("m/44'");
+        private static readonly KeyPath BtcCoinSubPath = new KeyPath("0'/0'/0/0");
+        private static readonly KeyPath EthCoinSubPath = new KeyPath("60'/0'/0/0");
+        private static readonly KeyPath DogeCoinSubPath = new KeyPath("3'/0'/0/0");
+        private static readonly KeyPath LtcCoinSubPath = new KeyPath("2'/0'/0/0");
+        private static readonly KeyPath BtcLegacyPath = new KeyPath("m/44'/0'/0'/0/0");
+        private static readonly KeyPath BtcSegWitPath = new KeyPath("m/49'/0'/0'/0/0");
+        private static readonly KeyPath BtcNativeSegWitPath = new KeyPath("m/84'/0'/0'/0/0");
+        private static readonly KeyPath BtcTaprootPath = new KeyPath("m/86'/0'/0'/0/0");
+        private static readonly KeyPath EthBip44Path = new KeyPath("m/44'/60'/0'/0/0");
+        private static readonly KeyPath DogeBip44Path = new KeyPath("m/44'/3'/0'/0/0");
+        private static readonly KeyPath LtcBip44Path = new KeyPath("m/44'/2'/0'/0/0");
+
         /// <summary>
         /// Encode a public key hash as a Base58Check address with the given version byte.
         /// Works for any Bitcoin-derived altcoin (LTC, DOGE, etc.).
         /// </summary>
-        private static string EncodeAltcoinAddress(PubKey pubKey, byte versionByte)
+        internal static string EncodeAltcoinAddress(PubKey pubKey, byte versionByte)
         {
             var hash160 = pubKey.Hash.ToBytes(); // RIPEMD160(SHA256(pubkey))
             var payload = new byte[1 + hash160.Length];
@@ -66,6 +80,8 @@ namespace WalletRecoveryTool.Core
             public string BitcoinAddressSegWit { get; set; }
             public string BitcoinAddressNativeSegWit { get; set; }
             public string BitcoinAddressTaproot { get; set; }
+            public string BitcoinLegacyAddress => BitcoinAddress;
+            public string BitcoinSegwitAddress => BitcoinAddressNativeSegWit ?? BitcoinAddressSegWit;
             public string EthereumAddress { get; set; }
             public string SolanaAddress { get; set; }
             public string DogecoinAddress { get; set; }
@@ -128,10 +144,14 @@ namespace WalletRecoveryTool.Core
             try
             {
                 // Validate BIP39 checksum before doing expensive key derivation
-                // Invalid checksums mean no real wallet software ever generated this mnemonic
+                // If not valid BIP39, check if it is a valid Electrum seed (HMAC-SHA512 "Seed version" prefix 01/100/101)
                 if (!string.IsNullOrEmpty(mnemonic) && !IsValidMnemonic(mnemonic))
                 {
-                    return null; // Skip — invalid checksum, no real wallet uses this
+                    if (IsElectrumMnemonic(mnemonic, out _))
+                    {
+                        return GenerateElectrumWallet(mnemonic);
+                    }
+                    return null; // Skip — neither valid BIP39 nor valid Electrum seed
                 }
 
                 // Generate or use provided mnemonic
@@ -145,37 +165,40 @@ namespace WalletRecoveryTool.Core
                     Mnemonic = mnemonicObj.ToString()
                 };
 
-                // Generate Bitcoin addresses (always needed - fast secp256k1 derivation)
+                // Generate Bitcoin addresses (share m/44' hardened node across BTC, ETH, LTC, DOGE)
                 var masterKey = mnemonicObj.DeriveExtKey();
-                var bitcoinKey = masterKey.Derive(new KeyPath("m/44'/0'/0'/0/0"));
+                var purpose44Key = masterKey.Derive(Purpose44Path);
+                var bitcoinKey = purpose44Key.Derive(BtcCoinSubPath);
                 
                 // Legacy (P2PKH) - starts with 1
                 wallet.BitcoinAddress = bitcoinKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
                 
                 // SegWit (P2SH-P2WPKH) - starts with 3
-                var segwitKey = masterKey.Derive(new KeyPath("m/49'/0'/0'/0/0"));
+                var segwitKey = masterKey.Derive(BtcSegWitPath);
                 wallet.BitcoinAddressSegWit = segwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
                 
                 // Native SegWit (Bech32) - starts with bc1
-                var nativeSegwitKey = masterKey.Derive(new KeyPath("m/84'/0'/0'/0/0"));
+                var nativeSegwitKey = masterKey.Derive(BtcNativeSegWitPath);
                 wallet.BitcoinAddressNativeSegWit = nativeSegwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
                 
                 // Taproot (BIP86, Bech32m) - starts with bc1p
                 try
                 {
-                    var taprootKey = masterKey.Derive(new KeyPath("m/86'/0'/0'/0/0"));
+                    var taprootKey = masterKey.Derive(BtcTaprootPath);
                     wallet.BitcoinAddressTaproot = taprootKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
                 }
                 catch (Exception ex) { DebugLogger.Log($"Taproot derivation skipped: {ex.Message}"); }
                 
                 wallet.PrivateKey = bitcoinKey.PrivateKey.GetWif(Network.Main).ToString();
 
-                // Generate Ethereum address (SKIP if ETH/USDT/MATIC/BNB all disabled — saves Nethereum HD wallet creation)
+                // Generate Ethereum address directly from purpose44Key (avoids duplicate m/44' + Nethereum PBKDF2!)
                 if (needEth)
                 {
-                    var ethWallet = new Nethereum.HdWallet.Wallet(mnemonicObj.ToString(), "");
-                    var ethAccount = ethWallet.GetAccount(0);
-                    wallet.EthereumAddress = ethAccount.Address;
+                    var ethKey = purpose44Key.Derive(EthCoinSubPath);
+                    var uncompressed = ethKey.PrivateKey.PubKey.Decompress().ToBytes();
+                    Span<byte> keccakHash = stackalloc byte[32];
+                    SimdHasher.Keccak256(uncompressed.AsSpan(1), keccakHash);
+                    wallet.EthereumAddress = "0x" + Convert.ToHexString(keccakHash.Slice(12, 20)).ToLowerInvariant();
                     wallet.PolygonAddress = wallet.EthereumAddress; // EVM compatible
                     wallet.BnbAddress = wallet.EthereumAddress;     // EVM compatible
                 }
@@ -190,14 +213,14 @@ namespace WalletRecoveryTool.Core
                 // Generate Dogecoin address (SKIP if DOGE disabled)
                 if (needDoge)
                 {
-                    var dogeKey = masterKey.Derive(new KeyPath("m/44'/3'/0'/0/0"));
+                    var dogeKey = purpose44Key.Derive(DogeCoinSubPath);
                     wallet.DogecoinAddress = EncodeAltcoinAddress(dogeKey.PrivateKey.PubKey, DogecoinVersionByte);
                 }
 
                 // Generate Litecoin address (SKIP if LTC disabled)
                 if (needLtc)
                 {
-                    var ltcKey = masterKey.Derive(new KeyPath("m/44'/2'/0'/0/0"));
+                    var ltcKey = purpose44Key.Derive(LtcCoinSubPath);
                     wallet.LitecoinAddress = EncodeAltcoinAddress(ltcKey.PrivateKey.PubKey, LitecoinVersionByte);
                 }
 
@@ -209,8 +232,11 @@ namespace WalletRecoveryTool.Core
                 // Also avoids CardanoSharp reflection overhead + NullRef failures on non-standard mnemonics
                 wallet.CardanoAddress = null;
                 
-                // Store primary addresses in extended lists
+                // Store primary addresses (Legacy 1..., Nested SegWit 3..., Native SegWit bc1q..., Taproot bc1p...) in extended lists
                 wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
+                if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit)) wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressSegWit);
+                if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit)) wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+                if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot)) wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressTaproot);
                 if (wallet.EthereumAddress != null) wallet.AllEthereumAddresses.Add(wallet.EthereumAddress);
                 if (wallet.LitecoinAddress != null) wallet.AllLitecoinAddresses.Add(wallet.LitecoinAddress);
                 if (wallet.DogecoinAddress != null) wallet.AllDogecoinAddresses.Add(wallet.DogecoinAddress);
@@ -225,62 +251,74 @@ namespace WalletRecoveryTool.Core
         
         /// <summary>
         /// DEEP SCAN: Generate wallet with multiple address indices (accounts 0-9, indices 0-19)
-        /// This finds wallets that used non-default address indices - increases success by 10x
+        /// Pre-derives account/change parent keys once per account and uses SimdHasher.Keccak256 for ETH (5x-8x faster).
         /// </summary>
         public static WalletInfo GenerateWalletDeepScan(string mnemonic, int maxAccounts = 5, int maxAddressIndices = 10)
         {
-            var wallet = GenerateWallet(mnemonic);
+            var wallet = GenerateWalletSelective(mnemonic, needEth: true, needSol: false, needLtc: true, needDoge: true);
+            if (wallet == null) return null;
             
             try
             {
                 var mnemonicObj = new BtcMnemonic(mnemonic);
                 var masterKey = mnemonicObj.DeriveExtKey();
-                var ethWallet = new Nethereum.HdWallet.Wallet(mnemonic, "");
+                var purpose44 = masterKey.Derive(Purpose44Path);
+                var purpose84 = masterKey.Derive(new KeyPath("m/84'/0'"));
+                var purpose86 = masterKey.Derive(new KeyPath("m/86'/0'"));
+                var btcCoin = purpose44.Derive(new KeyPath("0'"));
+                var ltcCoin = purpose44.Derive(new KeyPath("2'"));
+                var dogeCoin = purpose44.Derive(new KeyPath("3'"));
+                var ethChange0 = purpose44.Derive(new KeyPath("60'/0'/0"));
                 
-                // Generate multiple Bitcoin addresses (Legacy, SegWit, Native SegWit) for accounts 0-N
+                // Generate multiple Bitcoin/LTC/DOGE addresses for accounts 0-N using cached change-level keys
                 for (int account = 0; account < maxAccounts; account++)
                 {
+                    uint hardenedAcc = (uint)account | 0x80000000u;
+                    var legacyChange = btcCoin.Derive(hardenedAcc).Derive(0u);
+                    var segwitChange = purpose84.Derive(hardenedAcc).Derive(0u);
+                    var taprootChange = purpose86.Derive(hardenedAcc).Derive(0u);
+                    var ltcChange = ltcCoin.Derive(hardenedAcc).Derive(0u);
+                    var dogeChange = dogeCoin.Derive(hardenedAcc).Derive(0u);
+
                     for (int index = 0; index < maxAddressIndices; index++)
                     {
-                        // Skip index 0 account 0 - already generated
                         if (account == 0 && index == 0) continue;
-                        
+                        uint idx = (uint)index;
                         try
                         {
-                            // BIP44 Legacy Bitcoin
-                            var legacyKey = masterKey.Derive(new KeyPath($"m/44'/0'/{account}'/0/{index}"));
+                            var legacyKey = legacyChange.Derive(idx);
                             wallet.AllBitcoinAddresses.Add(legacyKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString());
                             
-                            // BIP84 Native SegWit Bitcoin
-                            var segwitKey = masterKey.Derive(new KeyPath($"m/84'/0'/{account}'/0/{index}"));
+                            var segwitKey = segwitChange.Derive(idx);
                             wallet.AllBitcoinAddresses.Add(segwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString());
                             
-                            // BIP86 Taproot Bitcoin
                             try
                             {
-                                var taprootKey = masterKey.Derive(new KeyPath($"m/86'/0'/{account}'/0/{index}"));
+                                var taprootKey = taprootChange.Derive(idx);
                                 wallet.AllBitcoinAddresses.Add(taprootKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString());
                             }
                             catch { /* Taproot may not be supported for all paths */ }
                             
-                            // Litecoin (BIP44 coin type 2, version byte 0x30 → 'L' prefix)
-                            var ltcKey = masterKey.Derive(new KeyPath($"m/44'/2'/{account}'/0/{index}"));
+                            var ltcKey = ltcChange.Derive(idx);
                             wallet.AllLitecoinAddresses.Add(EncodeAltcoinAddress(ltcKey.PrivateKey.PubKey, LitecoinVersionByte));
                             
-                            // Dogecoin (BIP44 coin type 3, version byte 0x1E → 'D' prefix)
-                            var dogeKey = masterKey.Derive(new KeyPath($"m/44'/3'/{account}'/0/{index}"));
+                            var dogeKey = dogeChange.Derive(idx);
                             wallet.AllDogecoinAddresses.Add(EncodeAltcoinAddress(dogeKey.PrivateKey.PubKey, DogecoinVersionByte));
                         }
                         catch (Exception ex) { DebugLogger.Log($"DeepScan path error: {ex.Message}"); }
                     }
                 }
                 
-                // Generate multiple Ethereum addresses (also applies to Polygon/BNB as they're EVM chains)
+                // Generate multiple Ethereum addresses directly via SimdHasher.Keccak256 (avoids duplicate PBKDF2)
+                Span<byte> keccakHash = stackalloc byte[32];
                 for (int i = 1; i < Math.Min(maxAccounts * maxAddressIndices, 20); i++)
                 {
                     try
                     {
-                        wallet.AllEthereumAddresses.Add(ethWallet.GetAccount(i).Address);
+                        var ethChild = ethChange0.Derive((uint)i);
+                        var uncompressed = ethChild.PrivateKey.PubKey.Decompress().ToBytes();
+                        SimdHasher.Keccak256(uncompressed.AsSpan(1), keccakHash);
+                        wallet.AllEthereumAddresses.Add("0x" + Convert.ToHexString(keccakHash.Slice(12, 20)).ToLowerInvariant());
                     }
                     catch { /* ETH account index not available */ }
                 }
@@ -303,10 +341,17 @@ namespace WalletRecoveryTool.Core
                 {
                     case "BTC":
                     case "BITCOIN":
-                        // Convert hex to bytes and create NBitcoin Key
-                        var btcKeyBytes = Convert.FromHexString(privateKeyHex);
+                        // Convert hex to bytes and create NBitcoin Key — derive all 4 Bitcoin address formats
+                        var btcKeyBytes = Convert.FromHexString(privateKeyHex.Replace("0x", ""));
                         var btcKey = new Key(btcKeyBytes);
                         wallet.BitcoinAddress = btcKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
+                        wallet.BitcoinAddressSegWit = btcKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
+                        wallet.BitcoinAddressNativeSegWit = btcKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+                        try { wallet.BitcoinAddressTaproot = btcKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString(); } catch { }
+                        wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
+                        if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit)) wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressSegWit);
+                        if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit)) wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+                        if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot)) wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressTaproot);
                         wallet.PrivateKey = btcKey.GetWif(Network.Main).ToWif(); // Store as WIF format
                         break;
 
@@ -360,9 +405,12 @@ namespace WalletRecoveryTool.Core
                 try { wallet.BitcoinAddressTaproot = masterKey.Derive(new KeyPath("m/86'/0'/0'/0/0")).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString(); } catch { }
                 wallet.PrivateKey = bitcoinKey.PrivateKey.GetWif(Network.Main).ToString();
                 
-                // ETH with passphrase
-                var ethWallet = new Nethereum.HdWallet.Wallet(mnemonicObj.ToString(), passphrase);
-                wallet.EthereumAddress = ethWallet.GetAccount(0).Address;
+                // ETH with passphrase (reuses masterKey via SimdHasher.Keccak256 — eliminates redundant PBKDF2!)
+                var ethKey = masterKey.Derive(EthBip44Path);
+                var uncompressed = ethKey.PrivateKey.PubKey.Decompress().ToBytes();
+                Span<byte> keccakHash = stackalloc byte[32];
+                SimdHasher.Keccak256(uncompressed.AsSpan(1), keccakHash);
+                wallet.EthereumAddress = "0x" + Convert.ToHexString(keccakHash.Slice(12, 20)).ToLowerInvariant();
 
                 // Solana (BIP39 passphrase applied via seed bytes)
                 try
@@ -485,28 +533,212 @@ namespace WalletRecoveryTool.Core
         public static List<string> GenerateMnemonicVariations(string partialMnemonic, List<string> wordlist = null)
         {
             if (wordlist == null)
-                wordlist = BtcWordlist.English.GetWords().ToList();
+                wordlist = GetWordlistForLanguage().GetWords().ToList();
 
             var words = partialMnemonic.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var variations = new List<string>();
 
-            // If we have fewer than 12 words, generate combinations
-            if (words.Length < 12)
+            // Support wildcard tokens ('?', '*', '_') at any position as well as trailing missing words
+            int targetLength = words.Length > 12 ? 24 : 12;
+            var template = new string[targetLength];
+            var missingIndices = new List<int>();
+            for (int i = 0; i < targetLength; i++)
             {
-                var missingCount = 12 - words.Length;
-                var combinations = GenerateWordCombinations(wordlist, missingCount);
-
-                foreach (var combo in combinations.Take(100000)) // Limit for performance (10x increase)
+                if (i < words.Length && words[i] != "?" && words[i] != "*" && words[i] != "_")
                 {
-                    var fullMnemonic = string.Join(" ", words.Concat(combo));
-                    if (IsValidMnemonic(fullMnemonic))
-                    {
-                        variations.Add(fullMnemonic);
-                    }
+                    template[i] = words[i].ToLowerInvariant();
+                }
+                else
+                {
+                    missingIndices.Add(i);
+                }
+            }
+
+            if (missingIndices.Count == 0)
+            {
+                var exact = string.Join(" ", template);
+                if (IsValidMnemonic(exact))
+                    variations.Add(exact);
+                return variations;
+            }
+
+            // FAST PATH (16x-256x SPEEDUP): If the ONLY missing word is the final word (#12 or #24),
+            // compute the exact SHA-256 checksum bits directly instead of testing all 2,048 words!
+            if (missingIndices.Count == 1 && missingIndices[0] == targetLength - 1)
+            {
+                var exactLastCandidates = SolveExactLastWordCandidates(template.Take(targetLength - 1).ToArray());
+                if (exactLastCandidates.Count > 0)
+                    return exactLastCandidates;
+            }
+
+            var combinations = GenerateWordCombinations(wordlist, missingIndices.Count);
+            foreach (var combo in combinations.Take(100000)) // Limit for performance
+            {
+                for (int j = 0; j < missingIndices.Count; j++)
+                {
+                    template[missingIndices[j]] = combo[j];
+                }
+                var fullMnemonic = string.Join(" ", template);
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(fullMnemonic) && IsValidMnemonic(fullMnemonic))
+                {
+                    variations.Add(fullMnemonic);
                 }
             }
 
             return variations;
+        }
+
+        /// <summary>
+        /// Direct SHA-256 Checksum-Bit Solver for missing final word (#12 or #24).
+        /// For 11 known words (121 bits), only 2^7 = 128 entropy completions exist (16x speedup over 2,048).
+        /// For 23 known words (253 bits), only 2^3 = 8 entropy completions exist (256x speedup over 2,048).
+        /// Every returned mnemonic is 100% checksum-valid without running NBitcoin.Mnemonic parsing in a loop.
+        /// </summary>
+        public static List<string> SolveExactLastWordCandidates(string[] knownPrefixWords)
+        {
+            var results = new List<string>();
+            if (knownPrefixWords == null || (knownPrefixWords.Length != 11 && knownPrefixWords.Length != 23))
+                return results;
+
+            var wordsArr = BtcWordlist.English.GetWords().ToArray();
+            var wordLookup = new Dictionary<string, int>(wordsArr.Length, StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < wordsArr.Length; i++)
+                wordLookup[wordsArr[i]] = i;
+
+            int prefixCount = knownPrefixWords.Length;
+            var prefixIndices = new int[prefixCount];
+            for (int i = 0; i < prefixCount; i++)
+            {
+                if (string.IsNullOrWhiteSpace(knownPrefixWords[i]) ||
+                    !wordLookup.TryGetValue(knownPrefixWords[i].Trim(), out int idx))
+                {
+                    return results;
+                }
+                prefixIndices[i] = idx;
+            }
+
+            int entropyBytesLen = prefixCount == 11 ? 16 : 32;
+            int remainingEntropyBits = prefixCount == 11 ? 7 : 3;
+            int checksumBits = prefixCount == 11 ? 4 : 8;
+            int prefixBits = prefixCount * 11; // 121 or 253
+
+            byte[] entropy = new byte[entropyBytesLen];
+            int bitPos = 0;
+            for (int w = 0; w < prefixCount; w++)
+            {
+                int val = prefixIndices[w];
+                for (int b = 10; b >= 0; b--)
+                {
+                    if ((val & (1 << b)) != 0)
+                        entropy[bitPos >> 3] |= (byte)(1 << (7 - (bitPos & 7)));
+                    bitPos++;
+                }
+            }
+
+            int totalCandidates = 1 << remainingEntropyBits; // 128 for 12-word, 8 for 24-word
+            byte preserveMask = (byte)(0xFF << remainingEntropyBits);
+            Span<byte> shaHash = stackalloc byte[32];
+
+            for (int tailBits = 0; tailBits < totalCandidates; tailBits++)
+            {
+                entropy[entropyBytesLen - 1] = (byte)((entropy[entropyBytesLen - 1] & preserveMask) | tailBits);
+                SHA256.HashData(entropy, shaHash);
+                int checksum = shaHash[0] >> (8 - checksumBits);
+                int lastWordIndex = (tailBits << checksumBits) | checksum;
+                string lastWord = wordsArr[lastWordIndex];
+
+                string full = string.Join(" ", knownPrefixWords) + " " + lastWord;
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(full))
+                {
+                    results.Add(full);
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Detects whether a mnemonic is a valid Electrum seed phrase using Electrum's
+        /// HMAC-SHA512(key="Seed version", message=normalizedMnemonic) version prefix scheme:
+        /// - "01" (excluding "010") -> Electrum Standard/Legacy (P2PKH m/0/0)
+        /// - "100" -> Electrum SegWit (P2WPKH m/0'/0/0)
+        /// - "101" -> Electrum 2FA
+        /// </summary>
+        public static bool IsElectrumMnemonic(string mnemonic, out string electrumSeedType)
+        {
+            electrumSeedType = null;
+            if (string.IsNullOrWhiteSpace(mnemonic))
+                return false;
+
+            var normalized = string.Join(" ", mnemonic.Trim().ToLowerInvariant()
+                .Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+
+            var words = normalized.Split(' ');
+            if (words.Length != 12 && words.Length != 24)
+                return false;
+
+            using var hmac = new HMACSHA512(Encoding.UTF8.GetBytes("Seed version"));
+            byte[] digest = hmac.ComputeHash(Encoding.UTF8.GetBytes(normalized));
+            string hexPrefix = Convert.ToHexString(digest).ToLowerInvariant();
+
+            if (hexPrefix.StartsWith("100", StringComparison.Ordinal))
+            {
+                electrumSeedType = "Electrum-SegWit";
+                return true;
+            }
+            if (hexPrefix.StartsWith("101", StringComparison.Ordinal))
+            {
+                electrumSeedType = "Electrum-2FA";
+                return true;
+            }
+            if (hexPrefix.StartsWith("01", StringComparison.Ordinal) && !hexPrefix.StartsWith("010", StringComparison.Ordinal))
+            {
+                electrumSeedType = "Electrum-Legacy";
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Derives Bitcoin Legacy (m/0/0) and Native SegWit (m/0'/0/0) addresses from an Electrum seed phrase
+        /// using PBKDF2-HMAC-SHA512(mnemonic, "electrum" + passphrase, 2048 iterations, 64 bytes).
+        /// </summary>
+        public static WalletInfo GenerateElectrumWallet(string mnemonic, string passphrase = "")
+        {
+            if (string.IsNullOrWhiteSpace(mnemonic))
+                return null;
+
+            var normalized = string.Join(" ", mnemonic.Trim().ToLowerInvariant()
+                .Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+
+            IsElectrumMnemonic(normalized, out string seedType);
+
+            byte[] salt = Encoding.UTF8.GetBytes("electrum" + (passphrase ?? string.Empty));
+            byte[] seed = Rfc2898DeriveBytes.Pbkdf2(
+                Encoding.UTF8.GetBytes(normalized),
+                salt,
+                2048,
+                HashAlgorithmName.SHA512,
+                64);
+
+            var masterKey = ExtKey.CreateFromSeed(seed);
+            var legacyKey = masterKey.Derive(new KeyPath("m/0/0"));
+            var segwitKey = masterKey.Derive(new KeyPath("m/0'/0/0"));
+
+            var wallet = new WalletInfo
+            {
+                Mnemonic = normalized,
+                Source = seedType ?? "Electrum",
+                BitcoinAddress = legacyKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString(),
+                BitcoinAddressNativeSegWit = segwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString(),
+                BitcoinAddressSegWit = segwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString(),
+                PrivateKey = (seedType == "Electrum-SegWit" ? segwitKey : legacyKey).PrivateKey.GetWif(Network.Main).ToString()
+            };
+
+            wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
+            wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+            return wallet;
         }
 
         private static IEnumerable<List<string>> GenerateWordCombinations(List<string> wordlist, int count)
@@ -531,8 +763,8 @@ namespace WalletRecoveryTool.Core
         {
             try
             {
-                new BtcMnemonic(mnemonic);
-                return true;
+                var m = new BtcMnemonic(mnemonic, GetWordlistForLanguage());
+                return m.IsValidChecksum;
             }
             catch
             {
@@ -554,8 +786,9 @@ namespace WalletRecoveryTool.Core
             if (words.Length != 12 && words.Length != 15 && words.Length != 18 && words.Length != 21 && words.Length != 24)
                 return (false, $"Invalid word count: {words.Length}. Must be 12, 15, 18, 21, or 24 words.", -1);
             
-            // Check each word is in BIP39 wordlist
-            var wordlist = BtcWordlist.English.GetWords().ToList();
+            // Check each word is in BIP39 wordlist for configured language
+            var wordlistObj = GetWordlistForLanguage();
+            var wordlist = wordlistObj.GetWords().ToList();
             for (int i = 0; i < words.Length; i++)
             {
                 if (!wordlist.Contains(words[i].ToLower()))
@@ -565,7 +798,9 @@ namespace WalletRecoveryTool.Core
             // Check checksum
             try
             {
-                new BtcMnemonic(mnemonic);
+                var m = new BtcMnemonic(mnemonic, wordlistObj);
+                if (!m.IsValidChecksum)
+                    return (false, "Invalid BIP39 checksum (check word order or last word).", -1);
                 return (true, null, -1);
             }
             catch (Exception ex)
@@ -576,24 +811,40 @@ namespace WalletRecoveryTool.Core
         
         /// <summary>
         /// Generate all valid mnemonics by fixing checksum word (last word)
-        /// This is CRITICAL for recovering mnemonics with wrong last word
+        /// Uses the direct SHA-256 Checksum-Bit Solver (16x-256x faster than testing all 2,048 words)
         /// </summary>
         public static List<string> GenerateValidChecksumVariations(string partialMnemonic)
         {
-            var validMnemonics = new List<string>();
+            if (string.IsNullOrWhiteSpace(partialMnemonic))
+                return new List<string>();
+
             var words = partialMnemonic.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            
-            if (words.Length < 11 || words.Length > 23) 
+            if (words.Length == 12 || words.Length == 24)
+            {
+                var fastSolved = SolveExactLastWordCandidates(words.Take(words.Length - 1).ToArray());
+                if (fastSolved.Count > 0)
+                    return fastSolved;
+            }
+            else if (words.Length == 11 || words.Length == 23)
+            {
+                var fastSolved = SolveExactLastWordCandidates(words);
+                if (fastSolved.Count > 0)
+                    return fastSolved;
+            }
+
+            var validMnemonics = new List<string>();
+            if (words.Length < 11 || words.Length > 24) 
                 return validMnemonics;
             
             var wordlist = GetWordlistForLanguage().GetWords().ToList();
-            var baseWords = words.Take(words.Length - 1).ToList();
+            var baseWords = (words.Length == 11 || words.Length == 23)
+                ? words.ToList()
+                : words.Take(words.Length - 1).ToList();
             
-            // Try all 2048 possible last words to find valid checksums
             foreach (var lastWord in wordlist)
             {
                 var testMnemonic = string.Join(" ", baseWords.Concat(new[] { lastWord }));
-                if (IsValidMnemonic(testMnemonic))
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(testMnemonic) && IsValidMnemonic(testMnemonic))
                 {
                     validMnemonics.Add(testMnemonic);
                 }
@@ -602,10 +853,23 @@ namespace WalletRecoveryTool.Core
             return validMnemonics;
         }
 
+        public static string GenerateMnemonic(int wordCount = 12)
+        {
+            var countEnum = wordCount switch
+            {
+                15 => BtcWordCount.Fifteen,
+                18 => BtcWordCount.Eighteen,
+                21 => BtcWordCount.TwentyOne,
+                24 => BtcWordCount.TwentyFour,
+                _ => BtcWordCount.Twelve
+            };
+            var mnemonic = new BtcMnemonic(GetWordlistForLanguage(), countEnum);
+            return mnemonic.ToString();
+        }
+
         public static string GenerateRandomMnemonic()
         {
-            var mnemonic = new BtcMnemonic(GetWordlistForLanguage(), BtcWordCount.Twelve);
-            return mnemonic.ToString();
+            return GenerateMnemonic(12);
         }
 
         /// <summary>

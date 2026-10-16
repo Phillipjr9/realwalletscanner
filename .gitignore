@@ -9,3 +9,17 @@ btcrecover/
 *.suo
 *.pdb
 *.log
+smtp.local.json
+.env
+.env.*
+WebWorkstation/node_modules
+WebWorkstation/scanned_empty_wallets.json
+WebWorkstation/cognitive_brain_state.json
+WebWorkstation/smtp_config.json
+WebWorkstation/smtp_alerts_outbox.json
+WebWorkstation/target_addresses.json
+WebWorkstation/scan_checkpoint.json
+WebWorkstation/FOUND_WALLETS_VAULT.json
+WebWorkstation/FOUND_WALLETS.txt
+
+

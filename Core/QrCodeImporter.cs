@@ -81,55 +81,84 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
+        /// Public entrypoint to analyze a decoded QR payload string (BIP-21, EIP-681, BIP39, Electrum, WIF, BIP38, Hex, Address).
+        /// </summary>
+        public static QrDecodeResult AnalyzeDecodedString(string content) => AnalyzeContent(content);
+
+        /// <summary>
         /// Analyze decoded content to determine type
         /// </summary>
         private static QrDecodeResult AnalyzeContent(string content)
         {
+            if (string.IsNullOrWhiteSpace(content))
+                return new QrDecodeResult { Success = false, Error = "Empty QR content" };
+
             var result = new QrDecodeResult { Success = true, RawContent = content };
 
-            // Remove common prefixes
-            content = content
-                .Replace("bitcoin:", "")
-                .Replace("ethereum:", "")
-                .Replace("solana:", "")
-                .Trim();
+            // Strip BIP-21 / EIP-681 URI schemes (case-insensitive)
+            content = Regex.Replace(content.Trim(), @"^(bitcoin|ethereum|solana|litecoin|dogecoin|bcash):", "", RegexOptions.IgnoreCase).Trim();
+            if (content.StartsWith("pay-", StringComparison.OrdinalIgnoreCase))
+                content = content[4..].Trim();
 
-            // Check for BIP39 mnemonic (12, 15, 18, 21, or 24 words)
-            var words = content.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            // Strip query parameters (?amount=0.5&label=...) and EIP-681 chainId/method suffixes (@1/transfer)
+            int queryIdx = content.IndexOf('?');
+            if (queryIdx > 0)
+                content = content[..queryIdx].Trim();
+            int atIdx = content.IndexOf('@');
+            if (atIdx > 0 && content.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                content = content[..atIdx].Trim();
+            int slashIdx = content.IndexOf('/');
+            if (slashIdx > 0 && content.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                content = content[..slashIdx].Trim();
+
+            // Check for BIP39 or Electrum mnemonic (12, 15, 18, 21, or 24 words)
+            var words = content.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             if (words.Length >= 12 && words.Length <= 24 && words.Length % 3 == 0)
             {
-                // All words should be lowercase letters
-                if (Array.TrueForAll(words, w => Regex.IsMatch(w, @"^[a-z]+$")))
+                if (Array.TrueForAll(words, w => Regex.IsMatch(w, @"^[a-zA-Z]+$")))
                 {
+                    var normalizedMnemonic = string.Join(" ", Array.ConvertAll(words, w => w.ToLowerInvariant()));
                     result.ContentType = QrContentType.Mnemonic;
-                    result.Mnemonic = string.Join(" ", words);
+                    result.Mnemonic = normalizedMnemonic;
                     result.WordCount = words.Length;
+                    result.IsValidChecksum = CryptoWalletGenerator.IsValidMnemonic(normalizedMnemonic) ||
+                                             CryptoWalletGenerator.IsElectrumMnemonic(normalizedMnemonic, out _);
+                    result.IsRestrictedTrivial = MnemonicTracker.IsRestrictedTrivialMnemonic(normalizedMnemonic);
+                    result.AlreadyScannedEmpty = GlobalMnemonicTracker.Instance.WasScanned(normalizedMnemonic);
                     return result;
                 }
             }
 
-            // Check for WIF private key (starts with 5, K, or L for mainnet)
-            if (Regex.IsMatch(content, @"^[5KL][1-9A-HJ-NP-Za-km-z]{50,51}$"))
+            // Check for WIF private key (starts with 5, K, or L for mainnet) or BIP38 encrypted key (starts with 6P)
+            if (Regex.IsMatch(content, @"^[5KL][1-9A-HJ-NP-Za-km-z]{50,51}$") ||
+                Regex.IsMatch(content, @"^6P[1-9A-HJ-NP-Za-km-z]{56}$"))
             {
                 result.ContentType = QrContentType.WifPrivateKey;
                 result.PrivateKey = content;
+                result.IsValidChecksum = true;
                 return result;
             }
 
             // Check for hex private key (64 hex characters)
             if (Regex.IsMatch(content, @"^(0x)?[0-9a-fA-F]{64}$"))
             {
+                var hexKey = content.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    ? content[2..].ToLowerInvariant()
+                    : content.ToLowerInvariant();
                 result.ContentType = QrContentType.HexPrivateKey;
-                result.PrivateKey = content.Replace("0x", "").ToLower();
+                result.PrivateKey = hexKey;
+                result.IsRestrictedTrivial = MnemonicTracker.IsRestrictedTrivialPrivateKey(hexKey);
+                result.AlreadyScannedEmpty = GlobalMnemonicTracker.Instance.WasScanned("pk:" + hexKey);
                 return result;
             }
 
-            // Check for Bitcoin address
+            // Check for Bitcoin address (Legacy 1..., SegWit 3..., Native SegWit bc1q..., Taproot bc1p...)
             if (Regex.IsMatch(content, @"^(1|3)[1-9A-HJ-NP-Za-km-z]{25,34}$") ||
-                Regex.IsMatch(content, @"^bc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{39,59}$"))
+                Regex.IsMatch(content, @"^bc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{39,89}$", RegexOptions.IgnoreCase))
             {
                 result.ContentType = QrContentType.BitcoinAddress;
                 result.Address = content;
+                result.AlreadyScannedEmpty = GlobalMnemonicTracker.Instance.IsAddressOrKeyScannedEmpty(content);
                 return result;
             }
 
@@ -138,6 +167,7 @@ namespace WalletRecoveryTool.Core
             {
                 result.ContentType = QrContentType.EthereumAddress;
                 result.Address = content;
+                result.AlreadyScannedEmpty = GlobalMnemonicTracker.Instance.IsAddressOrKeyScannedEmpty(content);
                 return result;
             }
 
@@ -194,6 +224,9 @@ namespace WalletRecoveryTool.Core
         public string PrivateKey { get; set; }
         public string Address { get; set; }
         public int WordCount { get; set; }
+        public bool IsValidChecksum { get; set; }
+        public bool IsRestrictedTrivial { get; set; }
+        public bool AlreadyScannedEmpty { get; set; }
     }
 
     public enum QrContentType

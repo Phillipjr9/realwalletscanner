@@ -292,28 +292,68 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
-        /// Finds dust transactions (potential address tagging)
+        /// Finds dust transactions (potential address tagging / dust-attack outputs <= 10,000 satoshis or <= 0.0001 ETH)
         /// </summary>
         public async Task<List<string>> FindDustTransactions(string address)
         {
             var dustTxs = new List<string>();
+            if (string.IsNullOrWhiteSpace(address))
+                return dustTxs;
 
             try
             {
-                // Dust = very small amounts (< 0.0001 BTC or < 0.001 ETH)
-                // Often used to tag addresses for tracking
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                if (address.StartsWith("1") || address.StartsWith("3") || address.StartsWith("bc1", StringComparison.OrdinalIgnoreCase))
+                {
+                    var json = await http.GetStringAsync($"https://blockstream.info/api/address/{address}/txs");
+                    var txs = Newtonsoft.Json.Linq.JArray.Parse(json);
+                    foreach (var tx in txs)
+                    {
+                        string txid = tx["txid"]?.ToString();
+                        var vouts = tx["vout"] as Newtonsoft.Json.Linq.JArray;
+                        if (string.IsNullOrEmpty(txid) || vouts == null) continue;
 
-                var metadata = await _patternAnalyzer.AnalyzeWalletBehavior(address);
-
-                // In production, check transaction amounts
-                DebugLogger.Log($"Scanning for dust transactions to {address}");
+                        foreach (var vout in vouts)
+                        {
+                            string outAddr = vout["scriptpubkey_address"]?.ToString();
+                            long sats = vout["value"]?.Value<long>() ?? 0L;
+                            // Standard Bitcoin dust-attack window: 294 to 10,000 satoshis sent to target address
+                            if (string.Equals(outAddr, address, StringComparison.OrdinalIgnoreCase) && sats > 0 && sats <= 10_000)
+                            {
+                                dustTxs.Add(txid);
+                                break;
+                            }
+                        }
+                    }
+                }
+                else if (address.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    var json = await http.GetStringAsync($"https://eth.blockscout.com/api?module=account&action=txlist&address={address}&page=1&offset=50&sort=desc");
+                    var root = Newtonsoft.Json.Linq.JObject.Parse(json);
+                    if (root["result"] is Newtonsoft.Json.Linq.JArray arr)
+                    {
+                        foreach (var tx in arr)
+                        {
+                            string hash = tx["hash"]?.ToString();
+                            string toAddr = tx["to"]?.ToString();
+                            string valStr = tx["value"]?.ToString();
+                            if (!string.IsNullOrEmpty(hash) &&
+                                string.Equals(toAddr, address, StringComparison.OrdinalIgnoreCase) &&
+                                System.Numerics.BigInteger.TryParse(valStr, out var wei) &&
+                                wei > 0 && wei <= new System.Numerics.BigInteger(100_000_000_000_000UL)) // <= 0.0001 ETH
+                            {
+                                dustTxs.Add(hash);
+                            }
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
                 DebugLogger.Log($"Dust detection error: {ex.Message}");
             }
 
-            return dustTxs;
+            return dustTxs.Distinct().ToList();
         }
 
         /// <summary>

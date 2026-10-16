@@ -125,8 +125,17 @@ namespace WalletRecoveryTool.Core
             };
             SessionManager.SaveSession(CurrentSession);
             
-            // Reset address deduplication cache for new recovery
+            // Reset address deduplication cache for new recovery and ensure persistent empty filters are active
             _checkedAddresses.Clear();
+            try
+            {
+                FundedAddressFilter.InitializeBTCEmpty();
+                FundedAddressFilter.InitializeETHEmpty();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[ENGINE] Empty filter init warning: {ex.Message}");
+            }
 
             try
             {
@@ -145,7 +154,7 @@ namespace WalletRecoveryTool.Core
                         DebugLogger.Log("[ENGINE] Starting SmartHunting recovery (EnableSmartHunting=true)");
                         await RecoverWithSmartHunting(options, token);
                     }
-                    else if (settings.UseHashcatPipeline)
+                    else if (settings.UseHashcatPipeline && !options.ScanSolana)
                     {
                         DebugLogger.Log("[ENGINE] Starting HASHCAT PIPELINE (UseHashcatPipeline=true) — optimized PBKDF2 batch processing");
                         await RecoverWithHashcatPipeline(options, token);
@@ -202,6 +211,13 @@ namespace WalletRecoveryTool.Core
             finally
             {
                 _statistics.Stop();
+                try { _mnemonicTracker.Flush(); } catch { }
+                try
+                {
+                    var upgrade = CognitiveBrainEngine.Instance.ExecuteCognitivePulse();
+                    DebugLogger.Log($"[BRAIN ENGINE] Self-upgraded to {upgrade.VersionTag} (IQ {upgrade.CognitiveIqScore:F1} | Top Arm: {upgrade.TopStrategyArm})");
+                }
+                catch { }
             }
         }
 
@@ -267,11 +283,11 @@ namespace WalletRecoveryTool.Core
                 {
                     if (ct.IsCancellationRequested) return;
 
-                    // SKIP ALREADY SCANNED: Check if this mnemonic was scanned before (even months ago)
-                    if (!settings.StrictScanMode && !_mnemonicTracker.TryMarkAsScanned(mnemonic))
+                    // STRICT NON-REPETITION RULE: Never repeat a mnemonic already scanned as empty across any section
+                    if (!_mnemonicTracker.TryMarkAsScanned(mnemonic))
                     {
                         _statistics.IncrementSkipped();
-                        return; // Skip - already scanned in a previous session
+                        return; // Skip - already scanned in a previous session or another section
                     }
 
                     try
@@ -284,17 +300,21 @@ namespace WalletRecoveryTool.Core
                             _statistics.IncrementSkipped();
                             return; // Invalid BIP39 checksum — skip
                         }
+
+                        // Also check if the derived primary addresses were already confirmed empty in another section
+                        if (_mnemonicTracker.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) ||
+                            _mnemonicTracker.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                        {
+                            _statistics.IncrementSkipped();
+                            return;
+                        }
+
                         _statistics.IncrementAttempts();
                         _logger.LogWalletChecked(wallet);
                         
                         // SPEED BOOST: Skip balance check if disabled
                         if (options.CheckBalancesRealTime)
                         {
-                            // REMOVED: Dangerous deduplication check that skipped balance checking on first scan
-                            // The old code would exit early if AreAllAddressesChecked() returned true,
-                            // but this method isn't reliable during the first scan and caused wallets to never be checked.
-                            // New approach: Always check balances when requested, rely on WalletDatabase for true deduplication.
-
                             try
                             {
                                 var balances = await _balanceChecker.CheckAllBalances(wallet, 
@@ -318,9 +338,15 @@ namespace WalletRecoveryTool.Core
                                 // Only fire WalletFound if ACTUAL balance > minimum threshold
                                 if (balances.Any(b => b.Value > 0.00000001m))
                                 {
+                                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
                                     _statistics.IncrementWalletsFound();
                                     _logger.LogWalletFound(wallet);
                                     WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                                }
+                                else
+                                {
+                                    // Permanently record as confirmed empty across all identifiers
+                                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
                                 }
                             }
                             catch (Exception ex)
@@ -384,6 +410,9 @@ namespace WalletRecoveryTool.Core
             
             if (batch.Count == 0) return;
 
+            Interlocked.Exchange(ref _lastBatchFlushTicks, DateTime.UtcNow.Ticks);
+            bool useOfflineFilter = AppSettings.Current.EnableOfflineFilter;
+
             // Collect ETH addresses for batch checking
             var ethAddresses = new List<string>();
             var ethToWallet = new Dictionary<string, (CryptoWalletGenerator.WalletInfo wallet, int checkNumber)>();
@@ -393,6 +422,10 @@ namespace WalletRecoveryTool.Core
                 if (!string.IsNullOrEmpty(wallet.EthereumAddress) && options.ScanEthereum)
                 {
                     var ethAddr = wallet.EthereumAddress.ToLowerInvariant();
+                    if (FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddr) || _mnemonicTracker.IsAddressOrKeyScannedEmpty(ethAddr))
+                        continue;
+                    if (useOfflineFilter && FundedAddressFilter.ETH.IsLoaded && !FundedAddressFilter.ETH.MightBeFunded(ethAddr))
+                        continue;
                     ethAddresses.Add(ethAddr);
                     ethToWallet[ethAddr] = (wallet, checkNumber);
                 }
@@ -400,16 +433,23 @@ namespace WalletRecoveryTool.Core
 
             // BATCH CHECK ETH: 20 addresses in 1 API call instead of 20 separate calls
             Dictionary<string, decimal> ethBalances = null;
-            if (ethAddresses.Count > 0)
+            if (options.ScanEthereum)
             {
-                try
+                if (ethAddresses.Count > 0)
                 {
-                    ethBalances = await _balanceChecker.GetEthereumBalancesBatch(ethAddresses);
-                    DebugLogger.Log($"[BATCH] ETH batch checked {ethAddresses.Count} addresses in 1 API call");
+                    try
+                    {
+                        ethBalances = await _balanceChecker.GetEthereumBalancesBatch(ethAddresses);
+                        DebugLogger.Log($"[BATCH] ETH batch checked {ethAddresses.Count} addresses in 1 API call");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.Log($"[BATCH] ETH batch error, falling back to individual: {ex.Message}");
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    DebugLogger.Log($"[BATCH] ETH batch error, falling back to individual: {ex.Message}");
+                    ethBalances = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
                 }
             }
 
@@ -422,7 +462,12 @@ namespace WalletRecoveryTool.Core
                 foreach (var (w, _) in batch)
                 {
                     foreach (var a in new[] { w.BitcoinAddress, w.BitcoinAddressSegWit, w.BitcoinAddressNativeSegWit, w.BitcoinAddressTaproot })
-                        if (!string.IsNullOrEmpty(a)) allBtcAddrs.Add(a);
+                        if (!string.IsNullOrEmpty(a) && !_mnemonicTracker.IsAddressOrKeyScannedEmpty(a)) allBtcAddrs.Add(a);
+                }
+                allBtcAddrs = FundedAddressFilter.BTCEmpty.FilterOutKnownEmpty(allBtcAddrs);
+                if (useOfflineFilter && FundedAddressFilter.BTC.IsLoaded)
+                {
+                    allBtcAddrs = FundedAddressFilter.BTC.FilterPotentiallyFunded(allBtcAddrs);
                 }
                 if (allBtcAddrs.Count > 0)
                 {
@@ -435,6 +480,44 @@ namespace WalletRecoveryTool.Core
                     {
                         DebugLogger.Log($"[BATCH] BTC batch error, falling back to individual: {ex.Message}");
                     }
+                }
+                else
+                {
+                    btcBalances = new Dictionary<string, decimal>();
+                }
+            }
+
+            // BATCH CHECK SOL, MATIC, BNB
+            Dictionary<string, decimal> solBalances = null;
+            if (options.ScanSolana)
+            {
+                var solAddrs = batch.Select(b => b.wallet.SolanaAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                if (solAddrs.Count > 0)
+                {
+                    try { solBalances = await _balanceChecker.GetSolanaBalancesBatch(solAddrs); }
+                    catch (Exception ex) { DebugLogger.Log($"[BATCH] SOL batch error: {ex.Message}"); }
+                }
+            }
+
+            Dictionary<string, decimal> maticBalances = null;
+            if (options.ScanPolygon)
+            {
+                var maticAddrs = batch.Select(b => b.wallet.PolygonAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                if (maticAddrs.Count > 0)
+                {
+                    try { maticBalances = await _balanceChecker.GetPolygonBalancesBatch(maticAddrs); }
+                    catch (Exception ex) { DebugLogger.Log($"[BATCH] MATIC batch error: {ex.Message}"); }
+                }
+            }
+
+            Dictionary<string, decimal> bnbBalances = null;
+            if (options.ScanBnb)
+            {
+                var bnbAddrs = batch.Select(b => b.wallet.BnbAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                if (bnbAddrs.Count > 0)
+                {
+                    try { bnbBalances = await _balanceChecker.GetBnbBalancesBatch(bnbAddrs); }
+                    catch (Exception ex) { DebugLogger.Log($"[BATCH] BNB batch error: {ex.Message}"); }
                 }
             }
 
@@ -457,6 +540,7 @@ namespace WalletRecoveryTool.Core
                         {
                             wallet.Balances["ETH"] = ethBal;
                             if (ethBal > 0.00000001m) hasBalance = true;
+                            else FundedAddressFilter.ETHEmpty.MarkAsEmpty(ethAddr);
                         }
                     }
                     else if (options.ScanEthereum && !string.IsNullOrEmpty(wallet.EthereumAddress))
@@ -467,6 +551,7 @@ namespace WalletRecoveryTool.Core
                             var ethBal = await _balanceChecker.GetEthereumBalance(wallet.EthereumAddress);
                             wallet.Balances["ETH"] = ethBal;
                             if (ethBal > 0.00000001m) hasBalance = true;
+                            else FundedAddressFilter.ETHEmpty.MarkAsEmpty(wallet.EthereumAddress.ToLowerInvariant());
                         }
                         catch (Exception ex) { DebugLogger.Log($"[ETH] balance check failed for {wallet.EthereumAddress}: {ex.Message}"); }
                     }
@@ -476,11 +561,18 @@ namespace WalletRecoveryTool.Core
                     {
                         foreach (var a in new[] { wallet.BitcoinAddress, wallet.BitcoinAddressSegWit, wallet.BitcoinAddressNativeSegWit, wallet.BitcoinAddressTaproot })
                         {
-                            if (!string.IsNullOrEmpty(a) && btcBalances.TryGetValue(a, out var bal) && bal > 0.00000001m)
+                            if (!string.IsNullOrEmpty(a) && btcBalances.TryGetValue(a, out var bal))
                             {
-                                wallet.Balances["BTC"] = bal;
-                                hasBalance = true;
-                                break;
+                                if (bal > 0.00000001m)
+                                {
+                                    wallet.Balances["BTC"] = bal;
+                                    hasBalance = true;
+                                    break;
+                                }
+                                else
+                                {
+                                    FundedAddressFilter.BTCEmpty.MarkAsEmpty(a);
+                                }
                             }
                         }
                         if (!wallet.Balances.ContainsKey("BTC") && !string.IsNullOrEmpty(wallet.BitcoinAddress))
@@ -494,32 +586,46 @@ namespace WalletRecoveryTool.Core
                             var btcBal = await _balanceChecker.GetBitcoinBalance(wallet.BitcoinAddress);
                             wallet.Balances["BTC"] = btcBal;
                             if (btcBal > 0.00000001m) hasBalance = true;
+                            else FundedAddressFilter.BTCEmpty.MarkAsEmpty(wallet.BitcoinAddress);
                         }
                         catch (Exception ex) { DebugLogger.Log($"[BTC] balance check failed for {wallet.BitcoinAddress}: {ex.Message}"); }
                     }
 
-                    // Check SOL individually
+                    // Check SOL (batch result or fallback)
                     if (options.ScanSolana && !string.IsNullOrEmpty(wallet.SolanaAddress))
                     {
-                        try
+                        if (solBalances != null && solBalances.TryGetValue(wallet.SolanaAddress, out var solBal))
                         {
-                            var solBal = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
                             wallet.Balances["SOL"] = solBal;
                             if (solBal > 0.00000001m) hasBalance = true;
                         }
-                        catch (Exception ex) { DebugLogger.Log($"[SOL] balance check failed for {wallet.SolanaAddress}: {ex.Message}"); }
+                        else
+                        {
+                            try
+                            {
+                                var solBal = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
+                                wallet.Balances["SOL"] = solBal;
+                                if (solBal > 0.00000001m) hasBalance = true;
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"[SOL] balance check failed for {wallet.SolanaAddress}: {ex.Message}"); }
+                        }
                     }
 
-                    // Check USDT (ERC-20) individually
+                    // Check USDT (ERC-20) gated by ETH offline filter so empty ETH addresses don't trigger individual RPC calls
                     if (options.ScanUSDT && !string.IsNullOrEmpty(wallet.EthereumAddress))
                     {
-                        try
+                        var ethAddrLower = wallet.EthereumAddress.ToLowerInvariant();
+                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower) &&
+                            (!useOfflineFilter || !FundedAddressFilter.ETH.IsLoaded || FundedAddressFilter.ETH.MightBeFunded(ethAddrLower)))
                         {
-                            var usdtBal = await _balanceChecker.GetUSDTBalance(wallet.EthereumAddress);
-                            wallet.Balances["USDT"] = usdtBal;
-                            if (usdtBal > 0.01m) hasBalance = true;
+                            try
+                            {
+                                var usdtBal = await _balanceChecker.GetUSDTBalance(wallet.EthereumAddress);
+                                wallet.Balances["USDT"] = usdtBal;
+                                if (usdtBal > 0.01m) hasBalance = true;
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"[USDT] balance check failed for {wallet.EthereumAddress}: {ex.Message}"); }
                         }
-                        catch (Exception ex) { DebugLogger.Log($"[USDT] balance check failed for {wallet.EthereumAddress}: {ex.Message}"); }
                     }
 
                     // Check LTC individually
@@ -546,28 +652,44 @@ namespace WalletRecoveryTool.Core
                         catch (Exception ex) { DebugLogger.Log($"[DOGE] balance check failed for {wallet.DogecoinAddress}: {ex.Message}"); }
                     }
 
-                    // Check MATIC individually
+                    // Check MATIC (batch result or fallback)
                     if (options.ScanPolygon && !string.IsNullOrEmpty(wallet.PolygonAddress))
                     {
-                        try
+                        if (maticBalances != null && maticBalances.TryGetValue(wallet.PolygonAddress, out var maticBal))
                         {
-                            var maticBal = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
                             wallet.Balances["MATIC"] = maticBal;
                             if (maticBal > 0.00000001m) hasBalance = true;
                         }
-                        catch (Exception ex) { DebugLogger.Log($"[MATIC] balance check failed for {wallet.PolygonAddress}: {ex.Message}"); }
+                        else
+                        {
+                            try
+                            {
+                                var maticBal = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
+                                wallet.Balances["MATIC"] = maticBal;
+                                if (maticBal > 0.00000001m) hasBalance = true;
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"[MATIC] balance check failed for {wallet.PolygonAddress}: {ex.Message}"); }
+                        }
                     }
 
-                    // Check BNB individually
+                    // Check BNB (batch result or fallback)
                     if (options.ScanBnb && !string.IsNullOrEmpty(wallet.BnbAddress))
                     {
-                        try
+                        if (bnbBalances != null && bnbBalances.TryGetValue(wallet.BnbAddress, out var bnbBal))
                         {
-                            var bnbBal = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
                             wallet.Balances["BNB"] = bnbBal;
                             if (bnbBal > 0.00000001m) hasBalance = true;
                         }
-                        catch (Exception ex) { DebugLogger.Log($"[BNB] balance check failed for {wallet.BnbAddress}: {ex.Message}"); }
+                        else
+                        {
+                            try
+                            {
+                                var bnbBal = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
+                                wallet.Balances["BNB"] = bnbBal;
+                                if (bnbBal > 0.00000001m) hasBalance = true;
+                            }
+                            catch (Exception ex) { DebugLogger.Log($"[BNB] balance check failed for {wallet.BnbAddress}: {ex.Message}"); }
+                        }
                     }
 
                     // Update live preview with actual balances
@@ -586,18 +708,27 @@ namespace WalletRecoveryTool.Core
                     // FOUND WALLET WITH BALANCE!
                     if (hasBalance)
                     {
+                        _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
+                        CognitiveBrainEngine.Instance.RecordScanFeedback(
+                            wallet.Mnemonic,
+                            wallet.Source ?? "DeepEntropyCsprng",
+                            passedOfflineFilter: true,
+                            hasTransactionsOrBalance: true,
+                            balanceUsd: 100m);
                         DebugLogger.Log($"[BATCH] 🔥🔥🔥 WALLET FOUND! #{checkNumber} Mnemonic: {wallet.Mnemonic}");
                         _statistics.IncrementWalletsFound();
                         _logger.LogWalletFound(wallet, mnemonicOnly: true);
                         WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
                     }
-                    else if (AppSettings.Current.EnableOfflineFilter && !AppSettings.Current.StrictScanMode)
+                    else
                     {
-                        // AUTO-LEARN: Mark empty addresses
-                        if (!string.IsNullOrEmpty(wallet.BitcoinAddress))
-                            FundedAddressFilter.BTCEmpty.MarkAsEmpty(wallet.BitcoinAddress);
-                        if (!string.IsNullOrEmpty(wallet.EthereumAddress))
-                            FundedAddressFilter.ETHEmpty.MarkAsEmpty(wallet.EthereumAddress);
+                        // STRICT NON-REPETITION RULE: Permanently record confirmed-empty wallet across all sections
+                        _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
+                        CognitiveBrainEngine.Instance.RecordScanFeedback(
+                            wallet.Mnemonic,
+                            wallet.Source ?? "DeepEntropyCsprng",
+                            passedOfflineFilter: false,
+                            hasTransactionsOrBalance: false);
                     }
                 }
                 catch (Exception ex)
@@ -652,8 +783,8 @@ namespace WalletRecoveryTool.Core
                 var checkNumber = Interlocked.Increment(ref processed);
                 _statistics.IncrementAttempts();
 
-                // Skip if already scanned (persistent deduplication)
-                if (!settings.StrictScanMode && !_mnemonicTracker.TryMarkAsScanned(wallet.Mnemonic))
+                // STRICT NON-REPETITION RULE: Skip if already scanned in any section (persistent deduplication)
+                if (!_mnemonicTracker.TryMarkWalletCandidate(wallet))
                 {
                     _statistics.IncrementSkipped();
                     return;
@@ -664,7 +795,14 @@ namespace WalletRecoveryTool.Core
                 {
                     _randomBatchBuffer.Enqueue((wallet, checkNumber));
 
-                    if (_randomBatchBuffer.Count >= RandomBatchSize &&
+                    var nowFlushTicks = DateTime.UtcNow.Ticks;
+                    bool bloomFilterActive = settings.EnableOfflineFilter &&
+                        (FundedAddressFilter.BTC.IsLoaded || FundedAddressFilter.ETH.IsLoaded);
+                    bool shouldFlush = _randomBatchBuffer.Count >= RandomBatchSize ||
+                        bloomFilterActive ||
+                        (nowFlushTicks - Interlocked.Read(ref _lastBatchFlushTicks) > TimeSpan.TicksPerSecond * 2);
+
+                    if (shouldFlush &&
                         Interlocked.CompareExchange(ref _batchProcessorRunning, 1, 0) == 0)
                     {
                         try
@@ -726,30 +864,32 @@ namespace WalletRecoveryTool.Core
             DebugLogger.Log($"[HASHCAT] Starting continuous pipeline: threads={settings.ThreadCount}, batch={settings.HashcatBatchSize}");
 
             bool isUnlimited = options.MaxAttempts <= 0 || options.MaxAttempts == int.MaxValue;
+            bool needEth = NeedEthAddress(options);
             if (isUnlimited)
             {
                 // Use continuous mode: each worker thread loops forever until cancellation
                 await hashcat.RunContinuousAsync(
                     options.ScanBitcoin,
-                    options.ScanEthereum,
+                    needEth,
                     OnWalletPassedBloom,
                     OnProgress,
-                    token);
+                    token,
+                    options.ScanLitecoin,
+                    options.ScanDogecoin);
             }
             else
             {
-                while (!token.IsCancellationRequested)
-                {
-                    await hashcat.RunPipelineAsync(
-                        options.MaxAttempts,
-                        options.ScanBitcoin,
-                        options.ScanEthereum,
-                        OnWalletPassedBloom,
-                        OnProgress,
-                        token);
+                await hashcat.RunPipelineAsync(
+                    options.MaxAttempts,
+                    options.ScanBitcoin,
+                    needEth,
+                    OnWalletPassedBloom,
+                    OnProgress,
+                    token,
+                    options.ScanLitecoin,
+                    options.ScanDogecoin);
 
-                    DebugLogger.Log($"[HASHCAT] Batch completed ({options.MaxAttempts:N0}). Restarting...");
-                }
+                DebugLogger.Log($"[HASHCAT] Batch completed ({options.MaxAttempts:N0}).");
             }
 
             // Flush remaining batch buffer (always flush, even on cancel - don't lose potential finds)
@@ -795,10 +935,15 @@ namespace WalletRecoveryTool.Core
                 }
             }
 
-            // CONTINUOUS MODE: Keep scanning in batches until user clicks Stop
-            while (!token.IsCancellationRequested)
+            bool isUnlimited = options.MaxAttempts <= 0 || options.MaxAttempts == int.MaxValue;
+            int totalTarget = isUnlimited ? int.MaxValue : options.MaxAttempts;
+
+            // Scan in batches until MaxAttempts is reached or user clicks Stop
+            while (!token.IsCancellationRequested && (isUnlimited || processed < totalTarget))
             {
-            await Parallel.ForEachAsync(Enumerable.Range(0, options.MaxAttempts),
+            int remaining = isUnlimited ? 100_000 : Math.Max(1, totalTarget - processed);
+            int currentBatchCount = Math.Min(remaining, 100_000);
+            await Parallel.ForEachAsync(Enumerable.Range(0, currentBatchCount),
                 new ParallelOptions { MaxDegreeOfParallelism = threadCount, CancellationToken = token },
                 async (i, ct) =>
                 {
@@ -806,17 +951,35 @@ namespace WalletRecoveryTool.Core
 
                         try
                         {
-                            // 1. GENERATE RANDOM MNEMONIC (SPEED: skip derivations for disabled coins)
-                            var wallet = CryptoWalletGenerator.GenerateWalletSelective(null,
+                            // 1. GENERATE CANDIDATE (Interleave Cognitive Brain Engine self-learning synthesis with CSPRNG)
+                            bool useCognitiveBrain = (i % 2 == 0);
+                            string candidateMnemonic = null;
+                            string strategyArm = "DeepEntropyCsprng";
+
+                            if (useCognitiveBrain)
+                            {
+                                var brainCand = CognitiveBrainEngine.Instance.SynthesizeNextCandidate(markAsScannedImmediately: false);
+                                candidateMnemonic = brainCand.Mnemonic;
+                                strategyArm = brainCand.StrategyArm;
+                            }
+
+                            var wallet = CryptoWalletGenerator.GenerateWalletSelective(candidateMnemonic,
                                 needEth: NeedEthAddress(options), needSol: options.ScanSolana,
                                 needLtc: options.ScanLitecoin, needDoge: options.ScanDogecoin);
-                            wallet.Source = "Random Mnemonic";
-                            
-                            // SKIP ALREADY SCANNED: Check if this mnemonic was scanned before (even months ago)
-                            if (!settings.StrictScanMode && !_mnemonicTracker.TryMarkAsScanned(wallet.Mnemonic))
+                            if (wallet == null)
                             {
                                 _statistics.IncrementSkipped();
-                                return; // Skip - already scanned in a previous session
+                                return;
+                            }
+                            wallet.Source = useCognitiveBrain
+                                ? $"Cognitive Brain [{strategyArm}]"
+                                : "Random Mnemonic";
+                            
+                            // STRICT NON-REPETITION RULE: Check if this wallet (mnemonic, key, or address) was scanned before in any section
+                            if (!_mnemonicTracker.TryMarkWalletCandidate(wallet))
+                            {
+                                _statistics.IncrementSkipped();
+                                return; // Skip - already scanned in a previous session or another section
                             }
                             
                             _statistics.IncrementAttempts();
@@ -875,19 +1038,31 @@ namespace WalletRecoveryTool.Core
                                     // BLOOM FILTER PRE-CHECK: Skip API call if address is definitely NOT funded
                                     // Works in StrictScanMode too — bloom is a pre-filter, StrictScanMode only affects verification
                                     bool skipApiCheck = false;
-                                    if (AppSettings.Current.EnableOfflineFilter && FundedAddressFilter.BTC.IsLoaded)
+                                    bool hasNonFilterableChain = options.ScanSolana || options.ScanLitecoin || options.ScanDogecoin;
+                                    if (AppSettings.Current.EnableOfflineFilter && !hasNonFilterableChain &&
+                                        (FundedAddressFilter.BTC.IsLoaded || FundedAddressFilter.ETH.IsLoaded))
                                     {
-                                        bool mightBeFundedBtc = FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddress) ||
+                                        bool needBtc = options.ScanBitcoin;
+                                        bool needEth = NeedEthAddress(options);
+
+                                        bool mightBeFundedBtc = needBtc && (!FundedAddressFilter.BTC.IsLoaded ||
+                                            FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddress) ||
                                             (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressNativeSegWit)) ||
                                             (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressSegWit)) ||
-                                            (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressTaproot));
-                                        bool mightBeFundedEth = !FundedAddressFilter.ETH.IsLoaded || 
-                                            FundedAddressFilter.ETH.MightBeFunded(wallet.EthereumAddress);
+                                            (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressTaproot)));
+                                        bool mightBeFundedEth = needEth && (!FundedAddressFilter.ETH.IsLoaded ||
+                                            (!string.IsNullOrEmpty(wallet.EthereumAddress) && FundedAddressFilter.ETH.MightBeFunded(wallet.EthereumAddress)));
                                         
                                         if (!mightBeFundedBtc && !mightBeFundedEth)
                                         {
                                             skipApiCheck = true;
                                             _statistics.IncrementSkipped();
+                                            _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
+                                            CognitiveBrainEngine.Instance.RecordScanFeedback(
+                                                wallet.Mnemonic,
+                                                strategyArm,
+                                                passedOfflineFilter: false,
+                                                hasTransactionsOrBalance: false);
                                         }
                                     }
                                     
@@ -896,8 +1071,15 @@ namespace WalletRecoveryTool.Core
                                         // Add to batch buffer for efficient batch API checking
                                         _randomBatchBuffer.Enqueue((wallet, checkNumber));
                                         
-                                        // When buffer reaches batch size, flush it
-                                        if (_randomBatchBuffer.Count >= RandomBatchSize && 
+                                        var nowFlushTicks = DateTime.UtcNow.Ticks;
+                                        bool bloomFilterActive = AppSettings.Current.EnableOfflineFilter &&
+                                            (FundedAddressFilter.BTC.IsLoaded || FundedAddressFilter.ETH.IsLoaded);
+                                        bool shouldFlush = _randomBatchBuffer.Count >= RandomBatchSize ||
+                                            bloomFilterActive ||
+                                            (nowFlushTicks - Interlocked.Read(ref _lastBatchFlushTicks) > TimeSpan.TicksPerSecond * 2);
+
+                                        // When buffer reaches batch size or timeout, flush it
+                                        if (shouldFlush && 
                                             Interlocked.CompareExchange(ref _batchProcessorRunning, 1, 0) == 0)
                                         {
                                             try
@@ -935,7 +1117,12 @@ namespace WalletRecoveryTool.Core
                 await ProcessRandomBatchAsync(options, CancellationToken.None);
             }
             
-            DebugLogger.Log($"[ENGINE] Continuous scan batch completed ({options.MaxAttempts:N0} attempts). Restarting...");
+            if (!isUnlimited && processed >= totalTarget)
+            {
+                DebugLogger.Log($"[ENGINE] Random scan completed ({processed:N0}/{totalTarget:N0} attempts).");
+                break;
+            }
+            DebugLogger.Log($"[ENGINE] Continuous scan batch completed ({processed:N0} attempts). Restarting...");
             } // end continuous while loop
         }
 
@@ -962,7 +1149,21 @@ namespace WalletRecoveryTool.Core
                         System.Security.Cryptography.RandomNumberGenerator.Fill(keyBytes);
                         var privateKey = Convert.ToHexString(keyBytes).ToLower();
 
+                        // STRICT NON-REPETITION RULE: Never repeat a private key already scanned as empty across any section
+                        if (!_mnemonicTracker.TryMarkAsScanned("pk:" + privateKey))
+                        {
+                            _statistics.IncrementSkipped();
+                            return;
+                        }
+
                         var wallet = CryptoWalletGenerator.GenerateFromPrivateKey(privateKey, options.CryptoType);
+                        if (_mnemonicTracker.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) ||
+                            _mnemonicTracker.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                        {
+                            _statistics.IncrementSkipped();
+                            return;
+                        }
+
                         _statistics.IncrementAttempts();
                         _logger.LogWalletChecked(wallet);
                         
@@ -988,9 +1189,14 @@ namespace WalletRecoveryTool.Core
                                 // Only fire WalletFound if ACTUAL balance > minimum threshold
                                 if (balances.Any(b => b.Value > 0.00000001m))
                                 {
+                                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet, "pk:" + privateKey);
                                     _statistics.IncrementWalletsFound();
                                     _logger.LogWalletFound(wallet);
                                     WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                                }
+                                else
+                                {
+                                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet, "pk:" + privateKey);
                                 }
                             }
                             catch (Exception ex)
@@ -1045,7 +1251,7 @@ namespace WalletRecoveryTool.Core
         private async Task RecoverWithSmartHunting(RecoveryOptions options, CancellationToken token)
         {
             var settings = AppSettings.Current;
-            var hunter = new SmartWalletHunter();
+            using var hunter = new SmartWalletHunter();
             _activeHunter = hunter; // Expose for live counter polling
             
             // Pass crypto scanning options from RecoveryOptions
@@ -1110,6 +1316,13 @@ namespace WalletRecoveryTool.Core
             // preventing async continuations from flooding the UI thread.
             var phases = new List<Task>();
 
+            // Phase 0: Autonomous Cognitive Self-Learning Brain Engine (runs when Human Patterns / Cognitive Brain is enabled)
+            if (settings.ScanHumanPatterns)
+            {
+                DebugLogger.Log($"🧠 Phase 0: Cognitive Self-Learning Brain Engine {CognitiveBrainEngine.Instance.VersionTag} (IQ {CognitiveBrainEngine.Instance.CognitiveIqScore:F1})...");
+                phases.Add(Task.Run(() => hunter.ScanCognitiveBrainEngine(token, Math.Max(10000, settings.SmartHuntingMaxAttempts / 4)), token));
+            }
+
             if (settings.ScanBrainWallets)
             {
                 DebugLogger.Log("📖 Phase 1: Scanning Brain Wallets...");
@@ -1160,12 +1373,12 @@ namespace WalletRecoveryTool.Core
             {
                 DebugLogger.Log("🔑 Phase 8: Known Leaked / Compromised Keys...");
                 phases.Add(Task.Run(() => hunter.ScanKnownLeakedKeys(token), token));
-            }
 
-            if (settings.ScanExchangeHackKeys)
-            {
-                DebugLogger.Log("🔑 Phase 11: Exchange Hack Keys (HIGH PRIORITY)...");
-                phases.Add(Task.Run(() => hunter.ScanExchangeHackKeys(token), token));
+                if (settings.ScanExchangeHackKeys)
+                {
+                    DebugLogger.Log("🔑 Phase 11: Exchange Hack Keys (HIGH PRIORITY)...");
+                    phases.Add(Task.Run(() => hunter.ScanExchangeHackKeys(token), token));
+                }
             }
 
             if (settings.ScanRepeatedWordMnemonics)
@@ -1206,6 +1419,7 @@ namespace WalletRecoveryTool.Core
 
             // Flush remaining batch queue items before finishing
             await hunter.FlushBatchQueue();
+            _activeHunter = null;
 
             // Flush progress to disk so next run resumes where we left off
             ScanProgress.Flush();

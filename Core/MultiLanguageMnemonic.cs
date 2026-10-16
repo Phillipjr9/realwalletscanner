@@ -102,9 +102,10 @@ namespace WalletRecoveryTool.Core
                 {
                     var wordlist = GetWordlist(language);
                     var mnemonicObj = new Mnemonic(mnemonic, wordlist);
-                    
-                    // If we get here without exception, it's valid
-                    return (true, language);
+                    if (mnemonicObj.IsValidChecksum)
+                    {
+                        return (true, language);
+                    }
                 }
                 catch
                 {
@@ -133,7 +134,7 @@ namespace WalletRecoveryTool.Core
             {
                 var wordlist = GetWordlist(language);
                 var mnemonicObj = new Mnemonic(mnemonic, wordlist);
-                return true;
+                return mnemonicObj.IsValidChecksum;
             }
             catch
             {

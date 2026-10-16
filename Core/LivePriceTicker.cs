@@ -89,12 +89,30 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
+        /// Normalize balance key to base crypto symbol (e.g. BTC-SegWit -> BTC, USDT-TRC20 -> USDT)
+        /// </summary>
+        private static string NormalizeSymbol(string symbol)
+        {
+            if (string.IsNullOrWhiteSpace(symbol)) return "";
+            symbol = symbol.Trim().ToUpperInvariant();
+            if (symbol.StartsWith("BTC-") || symbol.StartsWith("BTC_")) return "BTC";
+            if (symbol.StartsWith("ETH-") || symbol.StartsWith("ETH_")) return "ETH";
+            if (symbol.StartsWith("USDT-") || symbol.StartsWith("USDT_")) return "USDT";
+            if (symbol.StartsWith("SOL-") || symbol.StartsWith("SOL_")) return "SOL";
+            return symbol;
+        }
+
+        /// <summary>
         /// Get current price for a cryptocurrency
         /// </summary>
         public static decimal GetPrice(string symbol)
         {
-            symbol = symbol.ToUpper();
-            return _prices.TryGetValue(symbol, out var price) ? price : 0;
+            symbol = NormalizeSymbol(symbol);
+            if (_prices.TryGetValue(symbol, out var price) && price > 0)
+                return price;
+            if (symbol == "USDT")
+                return 1.0m;
+            return 0;
         }
 
         /// <summary>

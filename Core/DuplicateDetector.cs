@@ -56,7 +56,7 @@ namespace WalletRecoveryTool.Core
             if (string.IsNullOrEmpty(address)) return false;
             
             var key = address.ToLowerInvariant();
-            if (_addressBloom.MightContain(key))
+            if (_addressBloom.MightContain(key) || GlobalMnemonicTracker.Instance.IsAddressOrKeyScannedEmpty(key))
             {
                 Interlocked.Increment(ref _duplicatesSkipped);
                 return true;
@@ -73,6 +73,7 @@ namespace WalletRecoveryTool.Core
             
             var key = address.ToLowerInvariant();
             _addressBloom.Add(key);
+            GlobalMnemonicTracker.Instance.TryMarkAsScanned("addr:" + key);
             _checkedAddresses.TryAdd(key, DateTime.Now);
             
             // Prevent unbounded dict growth (bloom filter handles dedup, dict is just for persistence)
@@ -97,7 +98,7 @@ namespace WalletRecoveryTool.Core
             
             // Normalize mnemonic (lowercase, single spaces)
             var key = NormalizeMnemonic(mnemonic);
-            if (_mnemonicBloom.MightContain(key))
+            if (_mnemonicBloom.MightContain(key) || GlobalMnemonicTracker.Instance.WasScanned(key))
             {
                 Interlocked.Increment(ref _duplicatesSkipped);
                 return true;
@@ -114,6 +115,7 @@ namespace WalletRecoveryTool.Core
             
             var key = NormalizeMnemonic(mnemonic);
             _mnemonicBloom.Add(key);
+            GlobalMnemonicTracker.Instance.TryMarkAsScanned(key);
             _checkedMnemonics.TryAdd(key, DateTime.Now);
             
             // Prevent unbounded dict growth

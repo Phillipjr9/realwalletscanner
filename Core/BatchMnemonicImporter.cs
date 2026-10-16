@@ -183,14 +183,13 @@ namespace WalletRecoveryTool.Core
             if (string.IsNullOrWhiteSpace(mnemonic))
                 return false;
 
-            var words = mnemonic.Trim().Split(' ');
+            var words = mnemonic.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
             
             // Must be 12, 15, 18, 21, or 24 words
             if (words.Length != 12 && words.Length != 15 && words.Length != 18 && words.Length != 21 && words.Length != 24)
                 return false;
 
-            // All words should be lowercase letters only
-            return words.All(w => w.All(c => char.IsLower(c)));
+            return CryptoWalletGenerator.IsValidMnemonic(string.Join(" ", words));
         }
 
         /// <summary>
@@ -214,8 +213,10 @@ namespace WalletRecoveryTool.Core
 
                 try
                 {
-                    // Skip duplicates
-                    if (DuplicateDetector.CheckAndMarkMnemonic(mnemonic))
+                    var tracker = GlobalMnemonicTracker.Instance;
+
+                    // STRICT NON-REPETITION RULE: Skip if already scanned empty in any section
+                    if (DuplicateDetector.CheckAndMarkMnemonic(mnemonic) || !tracker.TryMarkAsScanned(mnemonic))
                     {
                         processed++;
                         continue;
@@ -229,6 +230,13 @@ namespace WalletRecoveryTool.Core
                         continue; // Invalid BIP39 checksum — skip
                     }
 
+                    if (tracker.IsAddressOrKeyScannedEmpty(wallet.BitcoinAddress) &&
+                        tracker.IsAddressOrKeyScannedEmpty(wallet.EthereumAddress))
+                    {
+                        processed++;
+                        continue;
+                    }
+
                     // Check balances
                     var balances = await _balanceChecker.CheckAllBalances(wallet, scanBtc, scanEth, scanSol, scanUsdt);
                     wallet.Balances = balances;
@@ -236,11 +244,16 @@ namespace WalletRecoveryTool.Core
                     // Check if found
                     if (balances.Any(b => b.Value > 0.00000001m))
                     {
+                        tracker.MarkWalletConfirmedFunded(wallet);
                         found++;
                         wallet.FoundAt = DateTime.Now;
                         wallet.Source = "Batch Import";
                         _logger.LogWalletFound(wallet);
                         WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                    }
+                    else
+                    {
+                        tracker.MarkWalletConfirmedEmpty(wallet);
                     }
 
                     processed++;

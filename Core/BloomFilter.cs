@@ -47,19 +47,15 @@ namespace WalletRecoveryTool.Core
 
             _persistPath = persistPath;
             _isPersistent = !string.IsNullOrEmpty(persistPath);
+            _bitArray = new BitArray(_bitArraySize);
 
             if (_isPersistent && File.Exists(persistPath))
             {
                 LoadFromFile();
             }
-            else
+            else if (_isPersistent)
             {
-                _bitArray = new BitArray(_bitArraySize);
-                
-                if (_isPersistent)
-                {
-                    InitializeMemoryMappedFile();
-                }
+                InitializeMemoryMappedFile();
             }
 
             DebugLogger.Log($"BloomFilter initialized: {_bitArraySize:N0} bits ({_bitArraySize / 8 / 1024 / 1024:F1} MB), {_hashFunctionCount} hash functions");

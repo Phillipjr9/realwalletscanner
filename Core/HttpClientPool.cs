@@ -104,7 +104,7 @@ namespace WalletRecoveryTool.Core
         public RestClient GetRestClient(string baseUrl, TimeSpan? timeout = null)
         {
             var uri = new Uri(baseUrl);
-            var key = $"rest:{uri.Scheme}://{uri.Host}:{uri.Port}";
+            var key = $"rest:{uri.AbsoluteUri.TrimEnd('/')}";
 
             var pooled = _clients.GetOrAdd(key, k =>
             {
@@ -125,7 +125,8 @@ namespace WalletRecoveryTool.Core
             {
                 var options = new RestClientOptions(baseUrl)
                 {
-                    Timeout = timeout ?? _defaultTimeout
+                    Timeout = timeout ?? _defaultTimeout,
+                    ThrowOnAnyError = false
                 };
                 var newPooled = new PooledClient
                 {

@@ -172,8 +172,9 @@ namespace WalletRecoveryTool.Core
                 // Read worker info
                 var buffer = new byte[4096];
                 var bytesRead = await worker.Stream.ReadAsync(buffer, cancellationToken);
-                var message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                var workerInfo = JsonSerializer.Deserialize<WorkerInfo>(message);
+                var initialText = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var firstLine = initialText.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? initialText;
+                var workerInfo = JsonSerializer.Deserialize<WorkerInfo>(firstLine);
 
                 worker.Name = workerInfo?.Name ?? $"Worker-{worker.Id[..8]}";
                 worker.CoreCount = workerInfo?.CoreCount ?? 1;
@@ -189,7 +190,8 @@ namespace WalletRecoveryTool.Core
                 // Assign work
                 AssignWorkToWorker(worker);
 
-                // Handle worker messages
+                // Handle worker messages (newline-delimited JSON framing)
+                var remainder = string.Empty;
                 while (_isRunning && client.Connected && !cancellationToken.IsCancellationRequested)
                 {
                     try
@@ -198,8 +200,17 @@ namespace WalletRecoveryTool.Core
                         if (bytesRead == 0)
                             break;
 
-                        message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                        await ProcessWorkerMessage(worker, message);
+                        remainder += Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                        int newlineIdx;
+                        while ((newlineIdx = remainder.IndexOf('\n')) >= 0)
+                        {
+                            var line = remainder[..newlineIdx].Trim();
+                            remainder = remainder[(newlineIdx + 1)..];
+                            if (!string.IsNullOrEmpty(line))
+                            {
+                                await ProcessWorkerMessage(worker, line);
+                            }
+                        }
                     }
                     catch (IOException)
                     {
@@ -316,7 +327,7 @@ namespace WalletRecoveryTool.Core
 
                 try
                 {
-                    var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+                    var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message) + "\n");
                     worker.Stream.Write(bytes, 0, bytes.Length);
                 }
                 catch (Exception ex)
@@ -400,11 +411,12 @@ namespace WalletRecoveryTool.Core
                 Name = workerName,
                 CoreCount = Environment.ProcessorCount
             };
-            var infoBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(workerInfo));
+            var infoBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(workerInfo) + "\n");
             await stream.WriteAsync(infoBytes, cancellationToken);
 
-            // Process work
+            // Process work (newline-delimited JSON framing)
             var buffer = new byte[65536];
+            var remainder = string.Empty;
             while (client.Connected && !cancellationToken.IsCancellationRequested)
             {
                 try
@@ -413,16 +425,24 @@ namespace WalletRecoveryTool.Core
                     if (bytesRead == 0)
                         break;
 
-                    var message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    var msg = JsonSerializer.Deserialize<WorkerMessage>(message);
-
-                    if (msg?.Type == "work")
+                    remainder += Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    int newlineIdx;
+                    while ((newlineIdx = remainder.IndexOf('\n')) >= 0)
                     {
-                        var workUnit = JsonSerializer.Deserialize<WorkUnit>(msg.Payload);
-                        if (workUnit != null)
+                        var line = remainder[..newlineIdx].Trim();
+                        remainder = remainder[(newlineIdx + 1)..];
+                        if (string.IsNullOrEmpty(line))
+                            continue;
+
+                        var msg = JsonSerializer.Deserialize<WorkerMessage>(line);
+                        if (msg?.Type == "work")
                         {
-                            DebugLogger.Log($"📥 Received work: {workUnit.StartIndex:N0} - {workUnit.EndIndex:N0}");
-                            await ProcessWorkUnit(stream, workUnit, cancellationToken);
+                            var workUnit = JsonSerializer.Deserialize<WorkUnit>(msg.Payload);
+                            if (workUnit != null)
+                            {
+                                DebugLogger.Log($"📥 Received work: {workUnit.StartIndex:N0} - {workUnit.EndIndex:N0}");
+                                await ProcessWorkUnit(stream, workUnit, cancellationToken);
+                            }
                         }
                     }
                 }
@@ -441,6 +461,7 @@ namespace WalletRecoveryTool.Core
         {
             var engine = new EnhancedGPUAccelerator();
             var processed = 0L;
+            var lastReported = 0L;
             var lastReport = DateTime.Now;
 
             try
@@ -456,10 +477,12 @@ namespace WalletRecoveryTool.Core
                             {
                                 processed = progress;
                                 
-                                // Report progress every 5 seconds
+                                // Report delta progress every 5 seconds
                                 if ((DateTime.Now - lastReport).TotalSeconds >= 5)
                                 {
-                                    SendProgress(stream, progress);
+                                    var delta = progress - Interlocked.Exchange(ref lastReported, progress);
+                                    if (delta > 0)
+                                        SendProgress(stream, delta);
                                     lastReport = DateTime.Now;
                                 }
                             },
@@ -486,13 +509,47 @@ namespace WalletRecoveryTool.Core
                                 processed = progress;
                                 if ((DateTime.Now - lastReport).TotalSeconds >= 5)
                                 {
-                                    SendProgress(stream, progress);
+                                    var delta = progress - Interlocked.Exchange(ref lastReported, progress);
+                                    if (delta > 0)
+                                        SendProgress(stream, delta);
                                     lastReport = DateTime.Now;
                                 }
                             },
                             cancellationToken);
-                        // Results would be checked by balance API on worker
+
+                        // Filter generated candidates against target address or offline funded address filter
+                        foreach (var (mnemonic, btcAddress, ethAddress) in generated)
+                        {
+                            bool match = false;
+                            if (!string.IsNullOrWhiteSpace(workUnit.TargetAddress))
+                            {
+                                match = string.Equals(btcAddress, workUnit.TargetAddress, StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ethAddress, workUnit.TargetAddress, StringComparison.OrdinalIgnoreCase);
+                            }
+                            else
+                            {
+                                match = (!string.IsNullOrEmpty(btcAddress) && FundedAddressFilter.Instance.BTC.MightBeFunded(btcAddress)) ||
+                                        (!string.IsNullOrEmpty(ethAddress) && FundedAddressFilter.Instance.ETH.MightBeFunded(ethAddress));
+                            }
+
+                            if (match)
+                            {
+                                SendResult(stream, new RecoveryResult
+                                {
+                                    FoundMnemonic = mnemonic,
+                                    WorkUnitId = workUnit.Id,
+                                    FoundAt = DateTime.UtcNow
+                                });
+                            }
+                        }
                         break;
+                }
+
+                // Flush remaining progress delta before completion
+                var finalDelta = processed - Interlocked.Exchange(ref lastReported, processed);
+                if (finalDelta > 0)
+                {
+                    SendProgress(stream, finalDelta);
                 }
 
                 // Send completion
@@ -512,7 +569,7 @@ namespace WalletRecoveryTool.Core
                 Type = "progress",
                 Payload = JsonSerializer.Serialize(new ProgressReport { AttemptsDelta = attempts })
             };
-            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg));
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg) + "\n");
             stream.Write(bytes, 0, bytes.Length);
         }
 
@@ -523,14 +580,14 @@ namespace WalletRecoveryTool.Core
                 Type = "result",
                 Payload = JsonSerializer.Serialize(result)
             };
-            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg));
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg) + "\n");
             stream.Write(bytes, 0, bytes.Length);
         }
 
         private void SendComplete(NetworkStream stream)
         {
             var msg = new WorkerMessage { Type = "complete", Payload = "{}" };
-            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg));
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg) + "\n");
             stream.Write(bytes, 0, bytes.Length);
         }
 

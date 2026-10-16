@@ -5,61 +5,131 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <materialDesign:BundledTheme BaseTheme="Dark" PrimaryColor="DeepPurple" SecondaryColor="Lime" />
+                <materialDesign:BundledTheme BaseTheme="Dark" PrimaryColor="Cyan" SecondaryColor="Teal" />
                 <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesignTheme.Defaults.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Core palette -->
-            <SolidColorBrush x:Key="AccentGreen" Color="#00E676"/>
-            <SolidColorBrush x:Key="AccentOrange" Color="#FFB74D"/>
-            <SolidColorBrush x:Key="AccentCyan" Color="#4DD0E1"/>
-            <SolidColorBrush x:Key="AccentRed" Color="#EF5350"/>
-            <SolidColorBrush x:Key="SurfaceDark" Color="#0A0E14"/>
-            <SolidColorBrush x:Key="SurfaceMid" Color="#131920"/>
-            <SolidColorBrush x:Key="SurfaceLight" Color="#1C2430"/>
-            <SolidColorBrush x:Key="TextDim" Color="#6B7D8F"/>
-            <SolidColorBrush x:Key="BorderSubtle" Color="#1E2A38"/>
+            <!-- ═══════════════════════ EXECUTIVE OBSIDIAN PALETTE ═══════════════════════ -->
+            <SolidColorBrush x:Key="AccentGreen" Color="#10B981"/>
+            <SolidColorBrush x:Key="AccentEmeraldBright" Color="#34D399"/>
+            <SolidColorBrush x:Key="AccentOrange" Color="#F59E0B"/>
+            <SolidColorBrush x:Key="AccentCyan" Color="#38BDF8"/>
+            <SolidColorBrush x:Key="AccentIndigo" Color="#818CF8"/>
+            <SolidColorBrush x:Key="AccentPurple" Color="#C084FC"/>
+            <SolidColorBrush x:Key="AccentRed" Color="#F43F5E"/>
+            <SolidColorBrush x:Key="AccentGold" Color="#FBBF24"/>
+
+            <SolidColorBrush x:Key="SurfaceDark" Color="#070A0F"/>
+            <SolidColorBrush x:Key="SurfaceMid" Color="#0D131D"/>
+            <SolidColorBrush x:Key="SurfaceLight" Color="#131C2B"/>
+            <SolidColorBrush x:Key="SurfaceElevated" Color="#192436"/>
+            <SolidColorBrush x:Key="TextPrimary" Color="#F8FAFC"/>
+            <SolidColorBrush x:Key="TextSecondary" Color="#CBD5E1"/>
+            <SolidColorBrush x:Key="TextDim" Color="#64748B"/>
+            <SolidColorBrush x:Key="BorderSubtle" Color="#1E293B"/>
+            <SolidColorBrush x:Key="BorderHighlight" Color="#2DD4BF"/>
+
+            <!-- Luxury Linear Gradients -->
+            <LinearGradientBrush x:Key="HeaderGradient" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#090D15" Offset="0.0"/>
+                <GradientStop Color="#0F172A" Offset="0.5"/>
+                <GradientStop Color="#0B1320" Offset="1.0"/>
+            </LinearGradientBrush>
+
+            <LinearGradientBrush x:Key="CardSurfaceGradient" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#111827" Offset="0.0"/>
+                <GradientStop Color="#0B101B" Offset="1.0"/>
+            </LinearGradientBrush>
+
+            <LinearGradientBrush x:Key="InnerCardGradient" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#0B0F19" Offset="0.0"/>
+                <GradientStop Color="#111827" Offset="1.0"/>
+            </LinearGradientBrush>
+
+            <LinearGradientBrush x:Key="PrimaryCtaGradient" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#0EA5E9" Offset="0.0"/>
+                <GradientStop Color="#10B981" Offset="1.0"/>
+            </LinearGradientBrush>
+
+            <LinearGradientBrush x:Key="AccentBorderGradient" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#2A3B54" Offset="0.0"/>
+                <GradientStop Color="#1A2434" Offset="0.5"/>
+                <GradientStop Color="#1E293B" Offset="1.0"/>
+            </LinearGradientBrush>
 
             <!-- Crypto brand colors -->
             <SolidColorBrush x:Key="BtcColor" Color="#F7931A"/>
             <SolidColorBrush x:Key="EthColor" Color="#627EEA"/>
             <SolidColorBrush x:Key="SolColor" Color="#14F195"/>
             <SolidColorBrush x:Key="UsdtColor" Color="#26A17B"/>
-            <SolidColorBrush x:Key="LtcColor" Color="#BFBBBB"/>
-            <SolidColorBrush x:Key="DogeColor" Color="#C2A633"/>
-            <SolidColorBrush x:Key="MaticColor" Color="#8247E5"/>
+            <SolidColorBrush x:Key="LtcColor" Color="#CBD5E1"/>
+            <SolidColorBrush x:Key="DogeColor" Color="#EAB308"/>
+            <SolidColorBrush x:Key="MaticColor" Color="#A855F7"/>
             <SolidColorBrush x:Key="BnbColor" Color="#F3BA2F"/>
+
+            <!-- Shared DropShadow Effect -->
+            <DropShadowEffect x:Key="CardShadow" BlurRadius="18" ShadowDepth="4" Direction="270" Color="#000000" Opacity="0.45"/>
 
             <!-- Section header style -->
             <Style x:Key="SectionHeader" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="Bold"/>
                 <Setter Property="Foreground" Value="{StaticResource AccentCyan}"/>
-                <Setter Property="Margin" Value="0,0,0,8"/>
+                <Setter Property="Margin" Value="0,0,0,10"/>
+            </Style>
+
+            <!-- Section subtitle style -->
+            <Style x:Key="SectionSubHeader" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+                <Setter Property="Margin" Value="0,-6,0,12"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
             </Style>
 
             <!-- Stat value style -->
             <Style x:Key="StatValue" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="22"/>
                 <Setter Property="FontWeight" Value="Bold"/>
-                <Setter Property="FontFamily" Value="Segoe UI"/>
+                <Setter Property="FontFamily" Value="Segoe UI Semibold, Segoe UI"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             </Style>
 
             <!-- Stat label style -->
             <Style x:Key="StatLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="10"/>
                 <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
-                <Setter Property="Margin" Value="0,0,0,2"/>
-                <Setter Property="FontWeight" Value="Medium"/>
+                <Setter Property="Margin" Value="0,0,0,3"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
             </Style>
 
-            <!-- Compact card style -->
+            <!-- Elevated Executive Card style -->
             <Style x:Key="DashCard" TargetType="Border">
-                <Setter Property="Background" Value="{StaticResource SurfaceMid}"/>
+                <Setter Property="Background" Value="{StaticResource CardSurfaceGradient}"/>
+                <Setter Property="CornerRadius" Value="12"/>
+                <Setter Property="Padding" Value="18"/>
+                <Setter Property="Margin" Value="0,0,0,12"/>
+                <Setter Property="BorderBrush" Value="{StaticResource AccentBorderGradient}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Effect" Value="{StaticResource CardShadow}"/>
+            </Style>
+
+            <!-- Subtle card for inner sections & KPI tiles -->
+            <Style x:Key="InnerCard" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource InnerCardGradient}"/>
                 <Setter Property="CornerRadius" Value="10"/>
-                <Setter Property="Padding" Value="16"/>
-                <Setter Property="Margin" Value="0,0,0,10"/>
-                <Setter Property="BorderBrush" Value="{StaticResource BorderSubtle}"/>
+                <Setter Property="Padding" Value="14,12"/>
+                <Setter Property="Margin" Value="0,0,0,8"/>
+                <Setter Property="BorderBrush" Value="#1E293B"/>
+                <Setter Property="BorderThickness" Value="1"/>
+            </Style>
+
+            <!-- KPI Ribbon Pill Card -->
+            <Style x:Key="KpiRibbonCard" TargetType="Border">
+                <Setter Property="Background" Value="#0B111C"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="10,7"/>
+                <Setter Property="Margin" Value="3,0"/>
+                <Setter Property="BorderBrush" Value="#1B263B"/>
                 <Setter Property="BorderThickness" Value="1"/>
             </Style>
 
@@ -67,8 +137,12 @@
             <Style x:Key="PrimaryActionButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignRaisedButton}">
                 <Setter Property="Height" Value="42"/>
                 <Setter Property="FontSize" Value="12"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Padding" Value="24,0"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Padding" Value="22,0"/>
+                <Setter Property="Background" Value="{StaticResource PrimaryCtaGradient}"/>
+                <Setter Property="BorderBrush" Value="#38BDF8"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Foreground" Value="#FFFFFF"/>
                 <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="8"/>
             </Style>
 
@@ -76,7 +150,11 @@
             <Style x:Key="SecondaryActionButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
                 <Setter Property="Height" Value="36"/>
                 <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Padding" Value="16,0"/>
+                <Setter Property="BorderBrush" Value="#2A3B54"/>
+                <Setter Property="Foreground" Value="#E2E8F0"/>
+                <Setter Property="Background" Value="#111827"/>
                 <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="8"/>
             </Style>
 
@@ -84,30 +162,23 @@
             <Style x:Key="ToolbarIconButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignIconButton}">
                 <Setter Property="Width" Value="36"/>
                 <Setter Property="Height" Value="36"/>
-                <Setter Property="Foreground" Value="#9CA3AF"/>
-                <Setter Property="ToolTipService.InitialShowDelay" Value="300"/>
+                <Setter Property="Margin" Value="2,0"/>
+                <Setter Property="Foreground" Value="#94A3B8"/>
+                <Setter Property="ToolTipService.InitialShowDelay" Value="250"/>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Foreground" Value="#38BDF8"/>
+                        <Setter Property="Background" Value="#1538BDF8"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
 
-            <!-- Subtle card for inner sections -->
-            <Style x:Key="InnerCard" TargetType="Border">
-                <Setter Property="Background" Value="#0D1117"/>
-                <Setter Property="CornerRadius" Value="8"/>
-                <Setter Property="Padding" Value="14"/>
-                <Setter Property="Margin" Value="0,0,0,8"/>
-                <Setter Property="BorderBrush" Value="#1B2332"/>
-                <Setter Property="BorderThickness" Value="1"/>
-            </Style>
-
             <!-- Crypto checkbox style -->
             <Style x:Key="CryptoCheckBox" TargetType="CheckBox" BasedOn="{StaticResource MaterialDesignCheckBox}">
-                <Setter Property="Margin" Value="0,0,14,4"/>
+                <Setter Property="Margin" Value="0,0,14,6"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="#E2E8F0"/>
             </Style>
 
         </ResourceDictionary>

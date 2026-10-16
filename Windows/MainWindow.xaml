@@ -2,7 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-        Title="Wallet Recovery Tool — by CodeHaven" Height="780" Width="1500"
+        Title="CodeHaven Quantum Wallet Recovery Suite — Institutional Multi-Chain Edition"
+        Height="900" Width="1560"
+        MinHeight="720" MinWidth="1160"
         Background="{StaticResource SurfaceDark}"
         TextElement.Foreground="{DynamicResource MaterialDesignBody}"
         TextElement.FontWeight="Regular"
@@ -13,30 +15,36 @@
         WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
-        <!-- Tab header template -->
+        <!-- Refined Navigation Tab Header -->
         <Style x:Key="NavTab" TargetType="TabItem" BasedOn="{StaticResource MaterialDesignTabItem}">
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="FontSize" Value="11.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="Padding" Value="15,0"/>
         </Style>
 
-        <!-- DataGrid clean style -->
+        <!-- Institutional DataGrid Style -->
         <Style x:Key="CleanDataGrid" TargetType="DataGrid" BasedOn="{StaticResource MaterialDesignDataGrid}">
             <Setter Property="AutoGenerateColumns" Value="True"/>
             <Setter Property="IsReadOnly" Value="True"/>
             <Setter Property="CanUserAddRows" Value="False"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="#080C14"/>
+            <Setter Property="RowBackground" Value="#0B101B"/>
+            <Setter Property="AlternatingRowBackground" Value="#0E1523"/>
+            <Setter Property="BorderBrush" Value="#1E293B"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-            <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource BorderSubtle}"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="RowHeight" Value="32"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#162030"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="FontFamily" Value="Consolas, Segoe UI"/>
+            <Setter Property="RowHeight" Value="34"/>
         </Style>
 
-        <!-- Input TextBox -->
+        <!-- Elevated Outlined Input Box -->
         <Style x:Key="InputBox" TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Background" Value="#080C14"/>
+            <Setter Property="BorderBrush" Value="#243247"/>
             <Setter Property="materialDesign:HintAssist.FloatingScale" Value="0.85"/>
         </Style>
     </Window.Resources>
@@ -50,148 +58,229 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══════════════════════ HEADER BAR ═══════════════════════ -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceMid}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
-            <DockPanel Margin="16,8">
+        <!-- ═══════════════════════ EXECUTIVE COMMAND HEADER BAR ═══════════════════════ -->
+        <Border Grid.Row="0" Background="{StaticResource HeaderGradient}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="20,10">
+                <!-- Brand Identity + Capability Badges -->
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <materialDesign:PackIcon Kind="Wallet" Height="22" Width="22" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
-                    <TextBlock Text="WALLET RECOVERY" FontSize="14" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                    <TextBlock Text="TOOL" FontSize="14" FontWeight="Light" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                    <Border Width="36" Height="36" CornerRadius="10" Margin="0,0,12,0"
+                            Background="#131C2E" BorderBrush="#3538BDF8" BorderThickness="1">
+                        <materialDesign:PackIcon Kind="ShieldKeyOutline" Height="20" Width="20"
+                                                 Foreground="{StaticResource AccentCyan}"
+                                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="CODEHAVEN" FontSize="15" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                            <TextBlock Text="WALLET RECOVERY SUITE" FontSize="15" FontWeight="Light" Foreground="#94A3B8" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="5" Padding="7,1.5" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="v2.2 PRO" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                            </Border>
+                            <Border Background="#1438BDF8" BorderBrush="#3038BDF8" BorderThickness="1" CornerRadius="5" Padding="7,1.5" Margin="6,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="AVX2 SIMD • RPC BATCH" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock Text="Multi-Chain Cryptographic Key Recovery, Seed Forensics &amp; High-Throughput Scanner"
+                                   FontSize="10.5" Foreground="#64748B" Margin="0,1,0,0"/>
+                    </StackPanel>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
-                    <Button x:Name="ThemeToggleButton" Style="{StaticResource ToolbarIconButton}" Click="ThemeToggle_Click" ToolTip="Toggle theme">
-                        <materialDesign:PackIcon Kind="Brightness6" Height="18" Width="18"/>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="AnalyticsButton_Click" ToolTip="Analytics">
-                        <materialDesign:PackIcon Kind="ChartLine" Height="18" Width="18"/>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="TestApiConnection_Click" ToolTip="Test API" Foreground="#4DD0E1">
-                        <materialDesign:PackIcon Kind="FlaskOutline" Height="18" Width="18"/>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="ViewFoundWallets_Click" ToolTip="View found wallets" Foreground="#FFD54F">
-                        <materialDesign:PackIcon Kind="FolderOpen" Height="18" Width="18"/>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="SessionsButton_Click" ToolTip="Sessions">
-                        <materialDesign:PackIcon Kind="History" Height="18" Width="18"/>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="ExportButton_Click" ToolTip="Export results">
-                        <materialDesign:PackIcon Kind="Export" Height="18" Width="18"/>
-                    </Button>
-                    <Rectangle Width="1" Height="20" Fill="{StaticResource BorderSubtle}" Margin="6,0"/>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="SettingsButton_Click" ToolTip="Settings">
-                        <materialDesign:PackIcon Kind="CogOutline" Height="18" Width="18"/>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarIconButton}" Click="AboutButton_Click" ToolTip="About">
-                        <materialDesign:PackIcon Kind="InformationOutline" Height="18" Width="18"/>
-                    </Button>
-                    <Button x:Name="AdminKeyGenButton" Style="{StaticResource ToolbarIconButton}" Click="AdminKeyGen_Click" ToolTip="Generate License Keys (Admin)" Visibility="Collapsed">
-                        <materialDesign:PackIcon Kind="KeyPlus" Height="18" Width="18" Foreground="#FFD700"/>
-                    </Button>
-                </StackPanel>
+
+                <!-- Executive Command Toolbar -->
+                <Border HorizontalAlignment="Right" DockPanel.Dock="Right" VerticalAlignment="Center"
+                        Background="#090D16" CornerRadius="10" Padding="6,3" BorderBrush="#1E293B" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="ThemeToggleButton" Style="{StaticResource ToolbarIconButton}" Click="ThemeToggle_Click" ToolTip="Toggle Dark / Light Theme">
+                            <materialDesign:PackIcon Kind="Brightness6" Height="18" Width="18"/>
+                        </Button>
+                        <Button Style="{StaticResource ToolbarIconButton}" Click="AnalyticsButton_Click" ToolTip="Real-Time Telemetry &amp; Analytics">
+                            <materialDesign:PackIcon Kind="ChartTimelineVariantShimmer" Height="18" Width="18" Foreground="{StaticResource AccentCyan}"/>
+                        </Button>
+                        <Button Style="{StaticResource ToolbarIconButton}" Click="TestApiConnection_Click" ToolTip="Test Multi-Chain API &amp; RPC Connectivity" Foreground="#4DD0E1">
+                            <materialDesign:PackIcon Kind="AccessPointNetwork" Height="18" Width="18"/>
+                        </Button>
+                        <Button Style="{StaticResource ToolbarIconButton}" Click="ViewFoundWallets_Click" ToolTip="Open Discovered Wallets Vault" Foreground="#FFD54F">
+                            <materialDesign:PackIcon Kind="SafeSquareOutline" Height="18" Width="18"/>
+                        </Button>
+                        <Button Style="{StaticResource ToolbarIconButton}" Click="SessionsButton_Click" ToolTip="Recovery Session Snapshots">
+                            <materialDesign:PackIcon Kind="History" Height="18" Width="18"/>
+                        </Button>
+                        <Button Style="{StaticResource ToolbarIconButton}" Click="ExportButton_Click" ToolTip="Export Recovery Results">
+                            <materialDesign:PackIcon Kind="FileExportOutline" Height="18" Width="18"/>
+                        </Button>
+                        <Rectangle Width="1" Height="20" Fill="{StaticResource BorderSubtle}" Margin="6,0"/>
+                        <Button Style="{StaticResource SecondaryActionButton}" Height="32" Padding="10,0" Margin="0,0,4,0" Click="OpenWebWorkstation_Click" ToolTip="Open Combined Local Web Workstation (http://localhost:3000)">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <materialDesign:PackIcon Kind="Web" Height="16" Width="16" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="WEB WORKSTATION" FontSize="11" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource SecondaryActionButton}" Height="32" Padding="10,0" Margin="0,0,4,0" Click="SettingsButton_Click" ToolTip="SMTP Email Alerts, Node &amp; Workstation Settings">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <materialDesign:PackIcon Kind="CogOutline" Height="16" Width="16" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="SMTP &amp; SETTINGS" FontSize="11" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource ToolbarIconButton}" Click="AboutButton_Click" ToolTip="System Diagnostics &amp; About">
+                            <materialDesign:PackIcon Kind="InformationOutline" Height="18" Width="18"/>
+                        </Button>
+                        <Button x:Name="AdminKeyGenButton" Style="{StaticResource ToolbarIconButton}" Click="AdminKeyGen_Click" ToolTip="Generate License Keys (Admin)" Visibility="Collapsed">
+                            <materialDesign:PackIcon Kind="KeyPlus" Height="18" Width="18" Foreground="#FFD700"/>
+                        </Button>
+                    </StackPanel>
+                </Border>
             </DockPanel>
         </Border>
 
-        <!-- ═══════════════════════ QUICK STATS BAR ═══════════════════════ -->
-        <Border Grid.Row="1" Background="{StaticResource SurfaceMid}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
+        <!-- ═══════════════════════ INSTITUTIONAL KPI TELEMETRY RIBBON ═══════════════════════ -->
+        <Border Grid.Row="1" Background="#0A0E17" BorderBrush="#1C2333" BorderThickness="0,0,0,1">
             <StackPanel>
-            <UniformGrid Columns="8" Margin="16,6">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="CheckCircle" Foreground="{StaticResource AccentGreen}" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="FOUND" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsFoundText" Text="0" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="Magnify" Foreground="#64B5F6" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="CHECKED" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsCheckedText" Text="0" Foreground="#64B5F6" FontWeight="Bold" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="TimerOutline" Foreground="{StaticResource AccentOrange}" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="RUNTIME" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsRuntimeText" Text="00:00:00" Foreground="{StaticResource AccentOrange}" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="CurrencyUsd" Foreground="{StaticResource AccentGreen}" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="VALUE" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsUsdText" Text="$0.00" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="SpeedometerMedium" Foreground="#CE93D8" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="RATE" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsRateText" Text="0/s" Foreground="#CE93D8" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="FilterRemoveOutline" Foreground="#FFB74D" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="DEDUPE" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsDedupeText" Text="0" Foreground="#FFB74D" FontWeight="Bold" VerticalAlignment="Center"/>
-                </StackPanel>
-                <!-- EFFICIENCY chip -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <materialDesign:PackIcon Kind="GaugeEmpty" Foreground="#81C784" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="EFF" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsEfficiencyText" Text="100%" Foreground="#81C784" FontWeight="Bold" VerticalAlignment="Center"/>
-                </StackPanel>
-                <!-- API HEALTH chip -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <Ellipse x:Name="ApiHealthDot" Width="10" Height="10" Fill="LimeGreen" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="API" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="QuickStatsApiHealthText" Text="OK" Foreground="LimeGreen" FontWeight="Bold" VerticalAlignment="Center"/>
-                </StackPanel>
-            </UniformGrid>
-            <!-- Dedupe hint banner — shown when duplicate ratio is high -->
-            <Border x:Name="DedupeHintBanner" Visibility="Collapsed"
-                    Background="#12FFFFFF" BorderBrush="{StaticResource BorderSubtle}"
-                    BorderThickness="0,1,0,0" Padding="14,5">
-                <DockPanel>
-                    <materialDesign:PackIcon x:Name="DedupeHintIcon" Kind="AlertOutline"
-                                            Height="14" Width="14" VerticalAlignment="Center"
-                                            Margin="0,0,6,0" Foreground="#FFB74D"/>
-                    <TextBlock x:Name="DedupeHintText" FontSize="11" FontStyle="Italic"
-                               Foreground="#FFB74D" VerticalAlignment="Center"
-                               Text="High duplicate rate — consider adjusting phase mix."/>
-                </DockPanel>
-            </Border>
+                <UniformGrid Columns="8" Margin="14,5">
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="TrophyOutline" Foreground="{StaticResource AccentGreen}" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="FOUND" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsFoundText" Text="0" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="DatabaseSearchOutline" Foreground="#7DD3FC" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="CHECKED" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsCheckedText" Text="0" FontFamily="Consolas" Foreground="#7DD3FC" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="TimerOutline" Foreground="#CBD5E1" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="RUNTIME" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsRuntimeText" Text="00:00:00" FontFamily="Consolas" Foreground="#CBD5E1" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="CurrencyUsd" Foreground="{StaticResource AccentGreen}" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBlock Text="VALUE" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsUsdText" Text="$0.00" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="Speedometer" Foreground="#C7D2FE" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="VELOCITY" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsRateText" Text="0/s" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="FilterCheckOutline" Foreground="#FCD34D" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="DEDUPE" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsDedupeText" Text="0" FontFamily="Consolas" Foreground="#FCD34D" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="GaugeFull" Foreground="#6EE7B7" Height="14" Width="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="EFF" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsEfficiencyText" Text="100%" FontFamily="Consolas" Foreground="#6EE7B7" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiRibbonCard}" BorderBrush="#1C2333">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Ellipse x:Name="ApiHealthDot" Width="7" Height="7" Fill="#10B981" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="API" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock x:Name="QuickStatsApiHealthText" Text="OK" FontFamily="Consolas" Foreground="#10B981" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- Dedupe hint banner -->
+                <Border x:Name="DedupeHintBanner" Visibility="Collapsed"
+                        Background="#12F59E0B" BorderBrush="#28F59E0B"
+                        BorderThickness="0,1,0,0" Padding="18,4">
+                    <DockPanel>
+                        <materialDesign:PackIcon x:Name="DedupeHintIcon" Kind="AlertOutline"
+                                                Height="14" Width="14" VerticalAlignment="Center"
+                                                Margin="0,0,6,0" Foreground="#FCD34D"/>
+                        <TextBlock x:Name="DedupeHintText" FontSize="11" FontStyle="Italic"
+                                   Foreground="#FCD34D" VerticalAlignment="Center"
+                                   Text="High duplicate rate — consider adjusting phase mix."/>
+                    </DockPanel>
+                </Border>
+
+                <!-- Autonomous Cognitive Self-Learning Brain Engine Telemetry Strip -->
+                <Border Background="#0D111C" BorderBrush="#1C2333" BorderThickness="0,1,0,0" Padding="18,4">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="#16818CF8" BorderBrush="#35818CF8" BorderThickness="1" CornerRadius="5" Padding="8,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Brain" Foreground="#C7D2FE" Height="13" Width="13" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                <TextBlock x:Name="BrainVersionText" Text="BRAIN v1.0" FontFamily="Consolas" FontSize="10.5" FontWeight="Bold" Foreground="#E0E7FF" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="5" Padding="8,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="BrainIqText" Text="IQ 112.0" FontFamily="Consolas" FontSize="10.5" FontWeight="Bold" Foreground="#6EE7B7" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Column="2" Background="#1238BDF8" BorderBrush="#3038BDF8" BorderThickness="1" CornerRadius="5" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="BrainStrategyArmText" Text="ARM: SemanticClusterBip39" FontFamily="Consolas" FontSize="10.5" FontWeight="SemiBold" Foreground="#7DD3FC" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Grid.Column="3" x:Name="BrainThoughtText"
+                                   Text="Cognitive Brain Engine online — thinking &amp; self-upgrading neural weights while scanning..."
+                                   FontFamily="Consolas" FontSize="11" Foreground="#CBD5E1"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                </Border>
             </StackPanel>
         </Border>
 
-        <!-- ═══════════════════════ MAIN CONTENT TABS ═══════════════════════ -->
-        <TabControl Grid.Row="2" Margin="0" Padding="0"
+        <!-- ═══════════════════════ 12-TAB CRYPTOGRAPHIC WORKSTATION ═══════════════════════ -->
+        <TabControl x:Name="MainTabControl" Grid.Row="2" Margin="0" Padding="0"
                     materialDesign:ColorZoneAssist.Mode="Dark"
                     Style="{StaticResource MaterialDesignTabControl}">
 
             <!-- ──────────── TAB 1: SMART HUNTING ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Smart">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="TargetAccount" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Smart"/>
+                        <materialDesign:PackIcon Kind="Radar" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource AccentCyan}"/>
+                        <TextBlock Text="Smart Hunter"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="300"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Left: Config panel -->
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <!-- Left: Strategy & Chain Config Panel -->
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="SCAN STRATEGIES" Style="{StaticResource SectionHeader}"/>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="HEURISTIC VECTORS" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                    <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="5" Padding="6,1" HorizontalAlignment="Right">
+                                        <TextBlock Text="10,000× ODDS" FontSize="8.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                    </Border>
+                                </DockPanel>
+
                                 <CheckBox x:Name="SmartBrainWalletsCheckBox" Content="Brain Wallets" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartWeakRngCheckBox" Content="Weak RNG" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartHumanPatternsCheckBox" Content="Human Patterns" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartWeakRngCheckBox" Content="Weak RNG Seeds" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartHumanPatternsCheckBox" Content="Human Seed Patterns" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
                                 <CheckBox x:Name="SmartVulnerableCheckBox" Content="Vulnerable Wallets" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartTimestampCheckBox" Content="Timestamp Seeds" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartDerivationPathsCheckBox" Content="Derivation Paths" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartDictBrainCheckBox" Content="Dictionary Brain" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartLeakedKeysCheckBox" Content="Leaked Keys" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartRepeatedWordsCheckBox" Content="Repeated Words" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="SmartIncrementalCheckBox" Content="Incremental Scan" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartTimestampCheckBox" Content="Timestamp PRNG Seeds" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartDerivationPathsCheckBox" Content="Multi-Client Paths" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartDictBrainCheckBox" Content="Dictionary Mutations" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartLeakedKeysCheckBox" Content="Known Test / Leaked Keys" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartRepeatedWordsCheckBox" Content="Repeated Word Seeds" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <CheckBox x:Name="SmartIncrementalCheckBox" Content="Incremental Key Sweep" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
 
-                                <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
+                                <Separator Margin="0,10" Background="{StaticResource BorderSubtle}"/>
 
-                                <TextBlock Text="CHAINS" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="TARGET BLOCKCHAINS" Style="{StaticResource SectionHeader}"/>
                                 <WrapPanel>
                                     <CheckBox x:Name="SmartScanBTCCheckBox" Content="BTC" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BtcColor}"/>
                                     <CheckBox x:Name="SmartScanETHCheckBox" Content="ETH" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource EthColor}"/>
@@ -203,14 +292,14 @@
                                     <CheckBox x:Name="SmartScanBNBCheckBox" Content="BNB" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BnbColor}"/>
                                 </WrapPanel>
 
-                                <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
+                                <Separator Margin="0,10" Background="{StaticResource BorderSubtle}"/>
 
-                                <Button x:Name="StartSmartHuntingButton" Content="START HUNTING" Click="StartSmartHunting_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,4"/>
-                                <Button x:Name="StopSmartHuntingButton" Content="STOP" Click="StopRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}" Margin="0,4"/>
+                                <Button x:Name="StartSmartHuntingButton" Content="LAUNCH SMART HUNTER" Click="StartSmartHunting_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,4"/>
+                                <Button x:Name="StopSmartHuntingButton" Content="STOP ENGINE" Click="StopRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}" Margin="0,4"/>
                             </StackPanel>
                         </Border>
 
-                        <!-- Right: Results -->
+                        <!-- Right: Telemetry & Results -->
                         <Grid Grid.Column="1">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -219,82 +308,93 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Stats row -->
+                            <!-- KPI Stats Row -->
                             <UniformGrid Columns="4" Margin="0,0,0,10">
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="FOUND" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock Text="DISCOVERED" Style="{StaticResource StatLabel}"/>
                                         <TextBlock x:Name="SmartHuntingFoundText" Text="0" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="CHECKED" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock Text="CANDIDATES CHECKED" Style="{StaticResource StatLabel}"/>
                                         <TextBlock x:Name="SmartHuntingCheckedText" Text="0" Style="{StaticResource StatValue}" Foreground="#64B5F6"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="SPEED" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock Text="SCAN VELOCITY" Style="{StaticResource StatLabel}"/>
                                         <TextBlock x:Name="SmartHuntingSpeedText" Text="0/s" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentCyan}"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource InnerCard}">
+                                <Border Style="{StaticResource InnerCard}" Margin="0">
                                     <StackPanel>
-                                        <TextBlock Text="TIME" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock Text="ELAPSED TIME" Style="{StaticResource StatLabel}"/>
                                         <TextBlock x:Name="SmartHuntingTimeText" Text="00:00:00" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentOrange}"/>
                                     </StackPanel>
                                 </Border>
                             </UniformGrid>
 
-                            <!-- Phase banner + progress + ETA -->
+                            <!-- Phase Banner + Progress + ETA -->
                             <StackPanel Grid.Row="1" Margin="0,0,0,10">
-                                <Border x:Name="PhaseBanner" Background="{StaticResource SurfaceLight}" CornerRadius="8" Padding="12,8" Margin="0,0,0,6">
+                                <Border x:Name="PhaseBanner" Background="{StaticResource SurfaceLight}" CornerRadius="8"
+                                        BorderBrush="#1E293B" BorderThickness="1" Padding="14,9" Margin="0,0,0,6">
                                     <DockPanel>
-                                        <TextBlock x:Name="SmartHuntingEtaText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="SmartHuntingEtaText" Text="" FontFamily="Consolas" Foreground="{StaticResource TextDim}" FontSize="11" DockPanel.Dock="Right" VerticalAlignment="Center"/>
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock x:Name="CurrentPhaseText" Text="Ready" FontWeight="Bold" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
-                                            <TextBlock x:Name="PhaseDescriptionText" Text=" — Waiting to start" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <TextBlock x:Name="PhaseDescriptionText" Text=" — Select strategies and launch Smart Hunter" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                                         </StackPanel>
                                     </DockPanel>
                                 </Border>
                                 <TextBlock x:Name="SmartHuntingPhaseText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,0,0,4"/>
-                                <ProgressBar x:Name="SmartHuntingProgressBar" Height="4" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                <ProgressBar x:Name="SmartHuntingProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
                             </StackPanel>
 
-                            <!-- Results grid -->
-                            <DataGrid x:Name="SmartHuntingResultsDataGrid" Grid.Row="3" Style="{StaticResource CleanDataGrid}"/>
+                            <!-- Results DataGrid -->
+                            <Border Grid.Row="3" Style="{StaticResource DashCard}" Padding="14" Margin="0">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Top" Text="SMART HUNTER DISCOVERIES &amp; VERIFIED BALANCES" Style="{StaticResource SectionHeader}"/>
+                                    <DataGrid x:Name="SmartHuntingResultsDataGrid" Style="{StaticResource CleanDataGrid}"/>
+                                </DockPanel>
+                            </Border>
                         </Grid>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 2: RANDOM GENERATION ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Random">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Dice5" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <materialDesign:PackIcon Kind="DiceMultipleOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource AccentGreen}"/>
                         <TextBlock Text="Random"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="300"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Left: Config -->
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="CONFIGURATION" Style="{StaticResource SectionHeader}"/>
-                                <TextBlock Text="Max Attempts" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
-                                <TextBox x:Name="MaxAttemptsTextBox" Text="1000000" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Max attempts"/>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="CSPRNG CONFIGURATION" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                    <Border Background="#1438BDF8" BorderBrush="#3038BDF8" BorderThickness="1" CornerRadius="5" Padding="6,1" HorizontalAlignment="Right">
+                                        <TextBlock Text="2× SEED SPEED" FontSize="8.5" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Text="Maximum Candidates" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
+                                <TextBox x:Name="MaxAttemptsTextBox" Text="1000000" FontFamily="Consolas" FontWeight="Bold" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Max attempts"/>
                                 <CheckBox x:Name="QuickScanCheckBox" Content="Quick Scan Mode" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Margin="0,12,0,0"/>
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
 
-                                <TextBlock Text="CHAINS" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="ACTIVE BLOCKCHAINS" Style="{StaticResource SectionHeader}"/>
                                 <WrapPanel>
                                     <CheckBox x:Name="ScanBTCCheckBox" Content="BTC" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BtcColor}"/>
                                     <CheckBox x:Name="ScanETHCheckBox" Content="ETH" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource EthColor}"/>
@@ -308,7 +408,7 @@
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
 
-                                <Button x:Name="StartRandomGenerationButton" Content="START SCAN" Click="StartRandomGeneration_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,4"/>
+                                <Button x:Name="StartRandomGenerationButton" Content="START RANDOM SCAN" Click="StartRandomGeneration_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,4"/>
                                 <Button x:Name="StopRandomButton" Content="STOP" Click="StopRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}" Margin="0,4"/>
                             </StackPanel>
                         </Border>
@@ -321,44 +421,50 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Portfolio totals -->
+                            <!-- Portfolio Totals -->
                             <Border Style="{StaticResource DashCard}" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <TextBlock Text="PORTFOLIO TOTALS" Style="{StaticResource SectionHeader}"/>
-                                    <UniformGrid Columns="3" Margin="0,4,0,0">
-                                        <StackPanel Margin="0,0,10,0">
-                                            <TextBlock Text="Wallets Found" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalFoundCountText" Text="0" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}"/>
-                                        </StackPanel>
-                                        <StackPanel Margin="0,0,10,0">
-                                            <TextBlock Text="BTC Total" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalBTCText" Text="0.00000000" FontSize="14" FontWeight="Bold" Foreground="{StaticResource BtcColor}"/>
-                                        </StackPanel>
-                                        <StackPanel>
-                                            <TextBlock Text="ETH Total" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalETHText" Text="0.000000" FontSize="14" FontWeight="Bold" Foreground="{StaticResource EthColor}"/>
-                                        </StackPanel>
+                                    <TextBlock Text="DISCOVERED PORTFOLIO ACCUMULATION" Style="{StaticResource SectionHeader}"/>
+                                    <UniformGrid Columns="3" Margin="0,2,0,0">
+                                        <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
+                                            <StackPanel>
+                                                <TextBlock Text="WALLETS FOUND" Style="{StaticResource StatLabel}"/>
+                                                <TextBlock x:Name="TotalFoundCountText" Text="0" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
+                                            <StackPanel>
+                                                <TextBlock Text="BTC ACCUMULATED" Style="{StaticResource StatLabel}"/>
+                                                <TextBlock x:Name="TotalBTCText" Text="0.00000000" FontFamily="Consolas" FontSize="15" FontWeight="Bold" Foreground="{StaticResource BtcColor}" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource InnerCard}" Margin="0">
+                                            <StackPanel>
+                                                <TextBlock Text="ETH ACCUMULATED" Style="{StaticResource StatLabel}"/>
+                                                <TextBlock x:Name="TotalETHText" Text="0.000000" FontFamily="Consolas" FontSize="15" FontWeight="Bold" Foreground="{StaticResource EthColor}" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </Border>
                                     </UniformGrid>
                                     <UniformGrid Columns="5" Margin="0,8,0,0">
                                         <StackPanel>
                                             <TextBlock Text="SOL" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalSOLText" Text="0.00" FontSize="12" Foreground="{StaticResource SolColor}"/>
+                                            <TextBlock x:Name="TotalSOLText" Text="0.00" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SolColor}"/>
                                         </StackPanel>
                                         <StackPanel>
                                             <TextBlock Text="USDT" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalUSDTText" Text="0.00" FontSize="12" Foreground="{StaticResource UsdtColor}"/>
+                                            <TextBlock x:Name="TotalUSDTText" Text="0.00" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource UsdtColor}"/>
                                         </StackPanel>
                                         <StackPanel>
                                             <TextBlock Text="LTC" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalLTCText" Text="0.00" FontSize="12" Foreground="{StaticResource LtcColor}"/>
+                                            <TextBlock x:Name="TotalLTCText" Text="0.00" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource LtcColor}"/>
                                         </StackPanel>
                                         <StackPanel>
                                             <TextBlock Text="DOGE" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalDOGEText" Text="0.00" FontSize="12" Foreground="{StaticResource DogeColor}"/>
+                                            <TextBlock x:Name="TotalDOGEText" Text="0.00" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource DogeColor}"/>
                                         </StackPanel>
                                         <StackPanel>
                                             <TextBlock Text="MATIC" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="TotalMATICText" Text="0.00" FontSize="12" Foreground="{StaticResource MaticColor}"/>
+                                            <TextBlock x:Name="TotalMATICText" Text="0.00" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource MaticColor}"/>
                                         </StackPanel>
                                     </UniformGrid>
                                     <TextBlock x:Name="TotalBNBText" Text="" Visibility="Collapsed"/>
@@ -367,134 +473,150 @@
 
                             <!-- Progress -->
                             <StackPanel Grid.Row="1" Margin="0,0,0,10">
-                                <TextBlock x:Name="ProgressTextBlock" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,0,0,4"/>
-                                <ProgressBar x:Name="RandomProgressBar" Height="4" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                <TextBlock x:Name="ProgressTextBlock" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11.5" Margin="0,0,0,4"/>
+                                <ProgressBar x:Name="RandomProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
                             </StackPanel>
 
-                            <!-- Results grid -->
-                            <DataGrid x:Name="RandomResultsDataGrid" Grid.Row="2" Style="{StaticResource CleanDataGrid}"/>
+                            <!-- Results Grid -->
+                            <Border Grid.Row="2" Style="{StaticResource DashCard}" Padding="14" Margin="0">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Top" Text="GENERATED WALLET STREAM &amp; BALANCES" Style="{StaticResource SectionHeader}"/>
+                                    <DataGrid x:Name="RandomResultsDataGrid" Style="{StaticResource CleanDataGrid}"/>
+                                </DockPanel>
+                            </Border>
                         </Grid>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 3: MNEMONIC RECOVERY ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Mnemonic">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Key" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <materialDesign:PackIcon Kind="KeyChainVariant" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource AccentOrange}"/>
                         <TextBlock Text="Mnemonic"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="360"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Left: Input -->
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
-                            <StackPanel>
-                                <TextBlock Text="SEED PHRASE" Style="{StaticResource SectionHeader}"/>
-                                <TextBox x:Name="MnemonicTextBox" TextChanged="MnemonicTextBox_TextChanged"
-                                         Style="{StaticResource InputBox}"
-                                         materialDesign:HintAssist.Hint="Enter 12 or 24 word mnemonic"
-                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" MaxHeight="120"/>
-                                <TextBlock x:Name="MnemonicValidationTextBlock" Text="" Foreground="{StaticResource AccentOrange}" FontSize="11" Margin="0,4,0,0"/>
-
-                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                    <Button Content="Validate" Click="ValidateMnemonic_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
-                                    <Button Content="Auto-Correct" Click="AutoCorrectMnemonic_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
-                                    <Button Content="Clear" Click="ClearMnemonic_Click" Style="{StaticResource SecondaryActionButton}"/>
-                                </StackPanel>
-
-                                <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
-
-                                <TextBlock Text="CHAINS" Style="{StaticResource SectionHeader}"/>
-                                <WrapPanel>
-                                    <CheckBox x:Name="MnemonicScanBTCCheckBox" Content="BTC" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BtcColor}"/>
-                                    <CheckBox x:Name="MnemonicScanETHCheckBox" Content="ETH" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource EthColor}"/>
-                                    <CheckBox x:Name="MnemonicScanSOLCheckBox" Content="SOL" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource SolColor}"/>
-                                    <CheckBox x:Name="MnemonicScanUSDTCheckBox" Content="USDT" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource UsdtColor}"/>
-                                    <CheckBox x:Name="MnemonicScanLTCCheckBox" Content="LTC" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource LtcColor}"/>
-                                    <CheckBox x:Name="MnemonicScanDOGECheckBox" Content="DOGE" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource DogeColor}"/>
-                                    <CheckBox x:Name="MnemonicScanMATICCheckBox" Content="MATIC" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource MaticColor}"/>
-                                    <CheckBox x:Name="MnemonicScanBNBCheckBox" Content="BNB" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BnbColor}"/>
-                                </WrapPanel>
-
-                                <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
-
-                                <Button x:Name="StartMnemonicRecoveryButton" Content="START RECOVERY" Click="StartMnemonicRecovery_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,4"/>
-                                <Button x:Name="AdvancedSeedRecoveryButton" Content="ADVANCED SEED RECOVERY" Click="AdvancedSeedRecovery_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,4" ToolTip="Use BTCRecover for advanced seed recovery with typos"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                    <Button x:Name="PauseRecoveryButton" Content="PAUSE" Click="PauseRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
-                                    <Button x:Name="StopRecoveryButton" Content="STOP" Click="StopRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Right: Results -->
-                        <Grid Grid.Column="1">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <ProgressBar x:Name="ProgressBar" Height="4" Margin="0,0,0,10" materialDesign:TransitionAssist.DisableTransitions="True"/>
-                            <DataGrid x:Name="ResultsDataGrid" Grid.Row="1" Style="{StaticResource CleanDataGrid}"/>
-                        </Grid>
-                    </Grid>
-                    
-                    <!-- BTCRecover Embedded Output Panel (full width, below both columns) -->
-                    <Border x:Name="BtcRecoverPanel" Visibility="Collapsed"
-                            Style="{StaticResource DashCard}" Margin="0,10,0,0">
                         <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            
-                            <!-- Header -->
-                            <DockPanel Grid.Row="0" Margin="0,0,0,6">
-                                <TextBlock Text="⚡ BTCRECOVER ENGINE" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left" VerticalAlignment="Center"/>
-                                <Button x:Name="StopBtcRecoverButton" Content="STOP" Click="StopBtcRecover_Click"
-                                        Style="{StaticResource SecondaryActionButton}" DockPanel.Dock="Right" 
-                                        HorizontalAlignment="Right" Padding="12,4" IsEnabled="False"/>
-                            </DockPanel>
-                            
-                            <!-- Stats Bar -->
-                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,6">
-                                <TextBlock x:Name="BtcRecoverStatusText" Text="Initializing..." Foreground="{StaticResource AccentGreen}" FontSize="11" FontWeight="Bold" Margin="0,0,16,0"/>
-                                <TextBlock x:Name="BtcRecoverSpeedText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,0,16,0"/>
-                                <TextBlock x:Name="BtcRecoverCheckedText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,0,16,0"/>
-                                <TextBlock x:Name="BtcRecoverElapsedText" Text="" Foreground="{StaticResource TextDim}" FontSize="11"/>
-                            </StackPanel>
-                            
-                            <!-- Output Log -->
-                            <TextBox x:Name="BtcRecoverOutputBox" Grid.Row="2" 
-                                     IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
-                                     VerticalScrollBarVisibility="Auto"
-                                     FontFamily="Consolas" FontSize="11"
-                                     Background="#1a1a2e" Foreground="#e0e0e0"
-                                     BorderThickness="0" Padding="8" Height="250"/>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="380"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Left: Input -->
+                            <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,6">
+                                        <TextBlock Text="SEED PHRASE RECONSTRUCTION" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                        <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="5" Padding="6,1" HorizontalAlignment="Right">
+                                            <TextBlock Text="WILDCARDS: ? * _" FontSize="8.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                        </Border>
+                                    </DockPanel>
+                                    <TextBlock Text="Supports partial phrases and '?' / '*' / '_' wildcards at any word position with 16× checksum pre-filtering."
+                                               Style="{StaticResource SectionSubHeader}"/>
+
+                                    <TextBox x:Name="MnemonicTextBox" TextChanged="MnemonicTextBox_TextChanged"
+                                             Style="{StaticResource InputBox}"
+                                             FontFamily="Consolas"
+                                             materialDesign:HintAssist.Hint="Enter 12/24 words, partial seed, or use ? for missing words"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="84" MaxHeight="130"/>
+                                    <TextBlock x:Name="MnemonicValidationTextBlock" Text="" Foreground="{StaticResource AccentOrange}" FontSize="11.5" FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap"/>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="VALIDATE" Click="ValidateMnemonic_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
+                                        <Button Content="AUTO-CORRECT" Click="AutoCorrectMnemonic_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
+                                        <Button Content="CLEAR" Click="ClearMnemonic_Click" Style="{StaticResource SecondaryActionButton}"/>
+                                    </StackPanel>
+
+                                    <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
+
+                                    <TextBlock Text="TARGET BLOCKCHAINS" Style="{StaticResource SectionHeader}"/>
+                                    <WrapPanel>
+                                        <CheckBox x:Name="MnemonicScanBTCCheckBox" Content="BTC" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BtcColor}"/>
+                                        <CheckBox x:Name="MnemonicScanETHCheckBox" Content="ETH" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource EthColor}"/>
+                                        <CheckBox x:Name="MnemonicScanSOLCheckBox" Content="SOL" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource SolColor}"/>
+                                        <CheckBox x:Name="MnemonicScanUSDTCheckBox" Content="USDT" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource UsdtColor}"/>
+                                        <CheckBox x:Name="MnemonicScanLTCCheckBox" Content="LTC" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource LtcColor}"/>
+                                        <CheckBox x:Name="MnemonicScanDOGECheckBox" Content="DOGE" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource DogeColor}"/>
+                                        <CheckBox x:Name="MnemonicScanMATICCheckBox" Content="MATIC" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource MaticColor}"/>
+                                        <CheckBox x:Name="MnemonicScanBNBCheckBox" Content="BNB" IsChecked="False" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BnbColor}"/>
+                                    </WrapPanel>
+
+                                    <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
+
+                                    <Button x:Name="StartMnemonicRecoveryButton" Content="START SEED RECOVERY" Click="StartMnemonicRecovery_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,4"/>
+                                    <Button x:Name="AdvancedSeedRecoveryButton" Content="BTCRECOVER ADVANCED ENGINE" Click="AdvancedSeedRecovery_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,4" ToolTip="Use BTCRecover for advanced seed recovery with typos"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Button x:Name="PauseRecoveryButton" Content="PAUSE" Click="PauseRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
+                                        <Button x:Name="StopRecoveryButton" Content="STOP" Click="StopRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Right: Results -->
+                            <Grid Grid.Column="1">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <ProgressBar x:Name="ProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" Margin="0,0,0,10" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                <Border Grid.Row="1" Style="{StaticResource DashCard}" Padding="14" Margin="0">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Top" Text="RECONSTRUCTED SEED VARIATIONS &amp; BALANCES" Style="{StaticResource SectionHeader}"/>
+                                        <DataGrid x:Name="ResultsDataGrid" Style="{StaticResource CleanDataGrid}"/>
+                                    </DockPanel>
+                                </Border>
+                            </Grid>
                         </Grid>
-                    </Border>
+
+                        <!-- BTCRecover Embedded Output Panel -->
+                        <Border x:Name="BtcRecoverPanel" Visibility="Collapsed"
+                                Style="{StaticResource DashCard}" Margin="0,12,0,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                                    <TextBlock Text="⚡ BTCRECOVER SUBSYSTEM CONSOLE" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0"/>
+                                    <Button x:Name="StopBtcRecoverButton" Content="STOP" Click="StopBtcRecover_Click"
+                                            Style="{StaticResource SecondaryActionButton}" DockPanel.Dock="Right"
+                                            HorizontalAlignment="Right" Padding="12,4" IsEnabled="False"/>
+                                </DockPanel>
+
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock x:Name="BtcRecoverStatusText" Text="Initializing..." Foreground="{StaticResource AccentGreen}" FontSize="11.5" FontWeight="Bold" Margin="0,0,16,0"/>
+                                    <TextBlock x:Name="BtcRecoverSpeedText" Text="" FontFamily="Consolas" Foreground="{StaticResource AccentCyan}" FontSize="11.5" Margin="0,0,16,0"/>
+                                    <TextBlock x:Name="BtcRecoverCheckedText" Text="" FontFamily="Consolas" Foreground="{StaticResource TextDim}" FontSize="11.5" Margin="0,0,16,0"/>
+                                    <TextBlock x:Name="BtcRecoverElapsedText" Text="" FontFamily="Consolas" Foreground="{StaticResource TextDim}" FontSize="11.5"/>
+                                </StackPanel>
+
+                                <TextBox x:Name="BtcRecoverOutputBox" Grid.Row="2"
+                                         IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         FontFamily="Consolas" FontSize="11.5"
+                                         Background="#070A10" Foreground="#E2E8F0"
+                                         BorderBrush="#1E293B" BorderThickness="1" Padding="10" Height="240"/>
+                            </Grid>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 4: BALANCE CHECK ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Check">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="CheckCircleOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <materialDesign:PackIcon Kind="WalletBifoldOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="Check"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -504,13 +626,16 @@
                         <!-- Left: Input -->
                         <Border Style="{StaticResource DashCard}" Margin="0,0,8,0">
                             <StackPanel>
-                                <TextBlock Text="CHECK BALANCE" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="MULTI-CHAIN SEED BALANCE INSPECTOR" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="Derive Legacy, SegWit, Native Bech32, Ethereum, Solana, and USDT addresses and verify live on-chain balances."
+                                           Style="{StaticResource SectionSubHeader}"/>
                                 <TextBox x:Name="CheckMnemonicTextBox" Style="{StaticResource InputBox}"
-                                         materialDesign:HintAssist.Hint="Enter mnemonic to check balance"
-                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <Button x:Name="CheckBalanceButton" Content="CHECK BALANCE" Click="CheckBalanceOnly_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,8,0"/>
-                                    <Button Content="Clear" Click="ClearCheckMnemonic_Click" Style="{StaticResource SecondaryActionButton}"/>
+                                         FontFamily="Consolas"
+                                         materialDesign:HintAssist.Hint="Enter 12 or 24-word mnemonic to inspect balances"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button x:Name="CheckBalanceButton" Content="INSPECT BALANCES" Click="CheckBalanceOnly_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,8,0"/>
+                                    <Button Content="CLEAR" Click="ClearCheckMnemonic_Click" Style="{StaticResource SecondaryActionButton}"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -518,8 +643,8 @@
                         <!-- Right: Results -->
                         <Border Grid.Column="1" Style="{StaticResource DashCard}" Margin="8,0,0,0">
                             <StackPanel x:Name="BalanceResultPanel" Visibility="Collapsed">
-                                <TextBlock Text="BALANCE RESULTS" Style="{StaticResource SectionHeader}"/>
-                                <Border Style="{StaticResource InnerCard}" Margin="0,0,0,8">
+                                <TextBlock Text="ON-CHAIN PORTFOLIO REPORT" Style="{StaticResource SectionHeader}"/>
+                                <Border Style="{StaticResource InnerCard}" Margin="0,0,0,10">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -530,36 +655,36 @@
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
-                                        <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,8">
-                                            <TextBlock Text="BTC Legacy" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="BtcLegacyBalance" Text="0.00000000" FontWeight="SemiBold" Foreground="{StaticResource BtcColor}"/>
+                                        <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,10">
+                                            <TextBlock Text="BTC Legacy (P2PKH)" Style="{StaticResource StatLabel}"/>
+                                            <TextBlock x:Name="BtcLegacyBalance" Text="0.00000000" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="{StaticResource BtcColor}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,8">
-                                            <TextBlock Text="BTC SegWit" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="BtcSegWitBalance" Text="0.00000000" FontWeight="SemiBold" Foreground="{StaticResource BtcColor}"/>
+                                        <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,10">
+                                            <TextBlock Text="BTC SegWit (P2SH)" Style="{StaticResource StatLabel}"/>
+                                            <TextBlock x:Name="BtcSegWitBalance" Text="0.00000000" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="{StaticResource BtcColor}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,8">
-                                            <TextBlock Text="BTC Native" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="BtcNativeBalance" Text="0.00000000" FontWeight="SemiBold" Foreground="{StaticResource BtcColor}"/>
+                                        <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,10">
+                                            <TextBlock Text="BTC Native SegWit (Bech32)" Style="{StaticResource StatLabel}"/>
+                                            <TextBlock x:Name="BtcNativeBalance" Text="0.00000000" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="{StaticResource BtcColor}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,8">
-                                            <TextBlock Text="ETH" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="EthBalance" Text="0.000000" FontWeight="SemiBold" Foreground="{StaticResource EthColor}"/>
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,10">
+                                            <TextBlock Text="Ethereum (ETH)" Style="{StaticResource StatLabel}"/>
+                                            <TextBlock x:Name="EthBalance" Text="0.000000" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="{StaticResource EthColor}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,8">
-                                            <TextBlock Text="SOL" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="SolBalance" Text="0.000000" FontWeight="SemiBold" Foreground="{StaticResource SolColor}"/>
+                                        <StackPanel Grid.Row="2" Grid.Column="0">
+                                            <TextBlock Text="Solana (SOL)" Style="{StaticResource StatLabel}"/>
+                                            <TextBlock x:Name="SolBalance" Text="0.000000" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SolColor}"/>
                                         </StackPanel>
                                         <StackPanel Grid.Row="2" Grid.Column="1">
-                                            <TextBlock Text="USDT" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="UsdtBalance" Text="0.00" FontWeight="SemiBold" Foreground="{StaticResource UsdtColor}"/>
+                                            <TextBlock Text="Tether USD (USDT)" Style="{StaticResource StatLabel}"/>
+                                            <TextBlock x:Name="UsdtBalance" Text="0.00" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="{StaticResource UsdtColor}"/>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
-                                <TextBlock x:Name="TotalStatus" Text="" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="14" Margin="0,4,0,0"/>
-                                <TextBlock x:Name="HistoricalActivityStatusText" Text="" Foreground="#FFD54F" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                                <TextBlock x:Name="AddressesInfo" Text="" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                <TextBlock x:Name="EmptyBalanceState" Text="" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="TotalStatus" Text="" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="15" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="HistoricalActivityStatusText" Text="" Foreground="#FFD54F" FontSize="11.5" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="AddressesInfo" Text="" FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                <TextBlock x:Name="EmptyBalanceState" Text="" Foreground="{StaticResource TextDim}" FontSize="11.5" Margin="0,4,0,0"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -567,35 +692,38 @@
             </TabItem>
 
             <!-- ──────────── TAB 5: BRAIN WALLET ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Brain">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Brain" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <materialDesign:PackIcon Kind="Brain" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#C084FC"/>
                         <TextBlock Text="Brain"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="300"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Left: Controls -->
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="BRAIN WALLET SCAN" Style="{StaticResource SectionHeader}"/>
-                                <Button x:Name="QuickBrainScanButton" Content="QUICK SCAN" Click="QuickBrainScan_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,0,6"/>
-                                <Button x:Name="DeepBrainScanButton" Content="DEEP SCAN" Click="DeepBrainScan_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,12"/>
+                                <TextBlock Text="BRAINWALLET ENGINE" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="Derive SHA-256 private keys from common human passphrases and custom wordlists."
+                                           Style="{StaticResource SectionSubHeader}"/>
+                                <Button x:Name="QuickBrainScanButton" Content="QUICK SCAN (TOP PATTERNS)" Click="QuickBrainScan_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,0,8"/>
+                                <Button x:Name="DeepBrainScanButton" Content="DEEP MUTATION SCAN" Click="DeepBrainScan_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,14"/>
 
-                                <TextBlock Text="CUSTOM PHRASES" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="CUSTOM PASSPHRASE LIST" Style="{StaticResource SectionHeader}"/>
                                 <TextBox x:Name="CustomBrainPhrasesTextBox" Style="{StaticResource InputBox}"
-                                         materialDesign:HintAssist.Hint="One phrase per line"
-                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100"/>
-                                <Button Content="SCAN CUSTOM" Click="CustomBrainScan_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,8,0,0"/>
+                                         FontFamily="Consolas"
+                                         materialDesign:HintAssist.Hint="One passphrase per line"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="110"/>
+                                <Button Content="SCAN CUSTOM PHRASES" Click="CustomBrainScan_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,10,0,0"/>
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
-                                <TextBlock x:Name="BrainScanStatsText" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="BrainScanStatsText" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11.5" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
 
@@ -608,97 +736,107 @@
                             <UniformGrid Columns="2" Margin="0,0,0,10">
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="TOTAL BALANCE" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock Text="TOTAL BTC RECOVERED" Style="{StaticResource StatLabel}"/>
                                         <TextBlock x:Name="BrainWalletTotalBalanceText" Text="0.00000000 BTC" Style="{StaticResource StatValue}" Foreground="{StaticResource BtcColor}" FontSize="18"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource InnerCard}">
+                                <Border Style="{StaticResource InnerCard}" Margin="0">
                                     <StackPanel>
-                                        <TextBlock Text="USD VALUE" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock Text="TOTAL USD VALUATION" Style="{StaticResource StatLabel}"/>
                                         <TextBlock x:Name="BrainWalletTotalUsdText" Text="$0.00" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}" FontSize="18"/>
                                     </StackPanel>
                                 </Border>
                             </UniformGrid>
-                            <DataGrid x:Name="BrainWalletsDataGrid" Grid.Row="1" Style="{StaticResource CleanDataGrid}"/>
+                            <Border Grid.Row="1" Style="{StaticResource DashCard}" Padding="14" Margin="0">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Top" Text="EVALUATED BRAINWALLETS &amp; DERIVED KEYS" Style="{StaticResource SectionHeader}"/>
+                                    <DataGrid x:Name="BrainWalletsDataGrid" Style="{StaticResource CleanDataGrid}"/>
+                                </DockPanel>
+                            </Border>
                         </Grid>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 6: GENERATE MNEMONICS ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Generate">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="FileDocumentOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <materialDesign:PackIcon Kind="Sparkles" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="Generate"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="300"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="GENERATOR SETTINGS" Style="{StaticResource SectionHeader}"/>
-                                <TextBlock Text="Count" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
-                                <TextBox x:Name="GenerateCountTextBox" Text="1000" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Number to generate"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Text="BULK SEED GENERATOR" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="Batch Quantity" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
+                                <TextBox x:Name="GenerateCountTextBox" Text="1000" FontFamily="Consolas" FontWeight="Bold" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Number to generate"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <RadioButton x:Name="Words12Radio" Content="12 Words" IsChecked="True" GroupName="WordLength" Margin="0,0,16,0"/>
                                     <RadioButton x:Name="Words24Radio" Content="24 Words" GroupName="WordLength"/>
                                 </StackPanel>
-                                <CheckBox x:Name="AutoSaveGeneratedCheckBox" Content="Auto-save to file" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Margin="0,10,0,0"/>
+                                <CheckBox x:Name="AutoSaveGeneratedCheckBox" Content="Auto-save batch to disk" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Margin="0,12,0,0"/>
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
 
-                                <Button x:Name="GenerateMnemonicsButton" Content="GENERATE" Click="GenerateMnemonics_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,0,6"/>
-                                <Button x:Name="CopyAllMnemonicsButton" Content="COPY ALL" Click="CopyAllMnemonics_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,6"/>
-                                <Button Content="CLEAR" Click="ClearGeneratedMnemonics_Click" Style="{StaticResource SecondaryActionButton}"/>
+                                <Button x:Name="GenerateMnemonicsButton" Content="GENERATE SEEDS" Click="GenerateMnemonics_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,0,8"/>
+                                <Button x:Name="CopyAllMnemonicsButton" Content="COPY ALL TO CLIPBOARD" Click="CopyAllMnemonics_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,8"/>
+                                <Button Content="CLEAR OUTPUT" Click="ClearGeneratedMnemonics_Click" Style="{StaticResource SecondaryActionButton}"/>
 
-                                <TextBlock x:Name="GeneratedCountText" Text="0 generated" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,10,0,0"/>
+                                <TextBlock x:Name="GeneratedCountText" Text="0 generated" FontFamily="Consolas" Foreground="{StaticResource AccentCyan}" FontSize="11.5" Margin="0,12,0,0"/>
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Column="1" Style="{StaticResource DashCard}">
-                            <TextBox x:Name="GeneratedMnemonicsTextBox" IsReadOnly="True"
-                                     AcceptsReturn="True" TextWrapping="Wrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     Background="Transparent" BorderThickness="0"
-                                     FontFamily="Consolas" FontSize="11"
-                                     Foreground="{StaticResource TextDim}"/>
+                        <Border Grid.Column="1" Style="{StaticResource DashCard}" Margin="0">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top" Text="GENERATED BIP39 MNEMONIC BATCH OUTPUT" Style="{StaticResource SectionHeader}"/>
+                                <Border Background="#070A10" CornerRadius="8" BorderBrush="#1E293B" BorderThickness="1" Padding="10">
+                                    <TextBox x:Name="GeneratedMnemonicsTextBox" IsReadOnly="True"
+                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                             VerticalScrollBarVisibility="Auto"
+                                             Background="Transparent" BorderThickness="0"
+                                             FontFamily="Consolas" FontSize="11.5"
+                                             Foreground="#CBD5E1"/>
+                                </Border>
+                            </DockPanel>
                         </Border>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 7: PRIVATE KEY ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Key">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="LockOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <materialDesign:PackIcon Kind="KeyVariant" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="Key"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="300"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="PRIVATE KEY RECOVERY" Style="{StaticResource SectionHeader}"/>
-                                <TextBlock Text="Crypto Type" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
-                                <ComboBox x:Name="CryptoTypeComboBox" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,10">
+                                <TextBlock Text="256-BIT PRIVATE KEY SWEEP" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="Target Curve / Key Format" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="CryptoTypeComboBox" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,12">
                                     <ComboBoxItem Content="Bitcoin" IsSelected="True"/>
                                     <ComboBoxItem Content="Ethereum"/>
                                     <ComboBoxItem Content="Both"/>
                                 </ComboBox>
-                                <TextBlock Text="Attempts" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
-                                <TextBox x:Name="PrivateKeyAttemptsTextBox" Text="50000" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Max attempts"/>
+                                <TextBlock Text="Max Key Candidates" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
+                                <TextBox x:Name="PrivateKeyAttemptsTextBox" Text="50000" FontFamily="Consolas" FontWeight="Bold" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Max attempts"/>
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
 
@@ -712,7 +850,7 @@
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
 
-                                <Button x:Name="StartPrivateKeyButton" Content="START SCAN" Click="StartPrivateKeyRecovery_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,0,6"/>
+                                <Button x:Name="StartPrivateKeyButton" Content="START KEY SWEEP" Click="StartPrivateKeyRecovery_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,0,0,8"/>
                                 <Button x:Name="StopPrivateKeyButton" Content="STOP" Click="StopRecovery_Click" IsEnabled="False" Style="{StaticResource SecondaryActionButton}"/>
                             </StackPanel>
                         </Border>
@@ -723,23 +861,28 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <TextBlock x:Name="PrivateKeyProgressTextBlock" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,0,0,4"/>
-                            <ProgressBar x:Name="PrivateKeyProgressBar" Grid.Row="1" Height="4" Margin="0,0,0,10" materialDesign:TransitionAssist.DisableTransitions="True"/>
-                            <DataGrid x:Name="PrivateKeyResultsDataGrid" Grid.Row="2" Style="{StaticResource CleanDataGrid}"/>
+                            <TextBlock x:Name="PrivateKeyProgressTextBlock" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11.5" Margin="0,0,0,4"/>
+                            <ProgressBar x:Name="PrivateKeyProgressBar" Grid.Row="1" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" Margin="0,0,0,10" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                            <Border Grid.Row="2" Style="{StaticResource DashCard}" Padding="14" Margin="0">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Top" Text="DERIVED PRIVATE KEYS &amp; VERIFIED BALANCES" Style="{StaticResource SectionHeader}"/>
+                                    <DataGrid x:Name="PrivateKeyResultsDataGrid" Style="{StaticResource CleanDataGrid}"/>
+                                </DockPanel>
+                            </Border>
                         </Grid>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 8: ADVANCED 1 (TYPO/WORD/PASSPHRASE/MISSING) ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Adv1">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Wrench" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Adv 1"/>
+                        <materialDesign:PackIcon Kind="AutoFix" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="Seed Repair"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -751,22 +894,28 @@
                             <!-- Typo Correction -->
                             <Border Style="{StaticResource DashCard}">
                                 <StackPanel>
-                                    <TextBlock Text="TYPO CORRECTION" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="BIP39 TYPO &amp; LEVENSHTEIN DISTANCE REPAIR" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="Detects and repairs misspelled BIP39 words using phonetic, keyboard-adjacency, and edit-distance matching."
+                                               Style="{StaticResource SectionSubHeader}"/>
                                     <TextBox x:Name="TypoCorrectionTextBox" Style="{StaticResource InputBox}"
-                                             materialDesign:HintAssist.Hint="Mnemonic with possible typos"
-                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"/>
-                                    <Button Content="FIX TYPOS" Click="FixTypos_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
+                                             FontFamily="Consolas"
+                                             materialDesign:HintAssist.Hint="Mnemonic with suspected typos"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"/>
+                                    <Button Content="REPAIR TYPOS &amp; SCAN" Click="FixTypos_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- Word Order -->
                             <Border Style="{StaticResource DashCard}">
                                 <StackPanel>
-                                    <TextBlock Text="WORD ORDER" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="SCRAMBLED WORD ORDER PERMUTATION SOLVER" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="Tests adjacent swaps, paper-column transpositions, reversed rows, and cyclic shifts."
+                                               Style="{StaticResource SectionSubHeader}"/>
                                     <TextBox x:Name="WordOrderTextBox" Style="{StaticResource InputBox}"
-                                             materialDesign:HintAssist.Hint="Mnemonic with wrong word order"
-                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"/>
-                                    <Button Content="TRY ORDERS" Click="TryWordOrders_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
+                                             FontFamily="Consolas"
+                                             materialDesign:HintAssist.Hint="Mnemonic with transposed word order"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"/>
+                                    <Button Content="DESCRAMBLE WORD ORDER" Click="TryWordOrders_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -776,54 +925,57 @@
                             <!-- Passphrase Recovery -->
                             <Border Style="{StaticResource DashCard}">
                                 <StackPanel>
-                                    <TextBlock Text="PASSPHRASE VARIANTS" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="BIP39 25TH-WORD PASSPHRASE VARIANTS" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="Tests high-probability passphrases and mutations against a known 12- or 24-word seed."
+                                               Style="{StaticResource SectionSubHeader}"/>
                                     <TextBox x:Name="PassphraseMnemonicTextBox" Style="{StaticResource InputBox}"
-                                             materialDesign:HintAssist.Hint="Mnemonic for passphrase testing"
-                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"/>
-                                    <Button Content="TRY PASSPHRASES" Click="TryPassphrases_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
+                                             FontFamily="Consolas"
+                                             materialDesign:HintAssist.Hint="Base mnemonic for passphrase testing"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"/>
+                                    <Button Content="TEST PASSPHRASES" Click="TryPassphrases_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- Missing Words -->
                             <Border Style="{StaticResource DashCard}">
                                 <StackPanel>
-                                    <TextBlock Text="FILL MISSING WORDS" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="WILDCARD MISSING WORD SOLVER" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="Use '?' at any word position to brute-force missing words with BIP39 checksum pre-filtering."
+                                               Style="{StaticResource SectionSubHeader}"/>
                                     <TextBox x:Name="MissingWordsTextBox" Style="{StaticResource InputBox}"
-                                             materialDesign:HintAssist.Hint="Partial mnemonic (use ? for missing)"
-                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"/>
+                                             FontFamily="Consolas"
+                                             materialDesign:HintAssist.Hint="Partial mnemonic (use ? for missing positions)"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"/>
                                     <TextBlock Text="Max Variations" Style="{StaticResource StatLabel}" Margin="0,8,0,4"/>
-                                    <TextBox x:Name="MaxVariationsTextBox" Text="5000" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Max variations"/>
-                                    <Button Content="FILL MISSING" Click="FillMissingWords_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
+                                    <TextBox x:Name="MaxVariationsTextBox" Text="5000" FontFamily="Consolas" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Max variations"/>
+                                    <Button Content="SOLVE MISSING WORDS" Click="FillMissingWords_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
                     </Grid>
-
-                    <!-- Shared results area (outside columns) -->
                 </ScrollViewer>
             </TabItem>
 
-            <!-- Separate results display that sits below the two columns -->
-
             <!-- ──────────── TAB 9: ADVANCED 2 (FORENSIC/FINGERPRINT/PASSPHRASE/SMART/PATTERN) ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Adv2">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Microscope" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Adv 2"/>
+                        <materialDesign:PackIcon Kind="Fingerprint" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="Forensics"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <StackPanel>
                         <!-- Results + Progress shared -->
                         <Border Style="{StaticResource DashCard}" Margin="0,0,0,0">
                             <StackPanel>
-                                <TextBlock x:Name="AdvancedResultsTextBlock" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap"/>
-                                <ProgressBar x:Name="AdvancedProgressBar" Height="4" Visibility="Collapsed" Margin="0,8,0,0" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                <TextBlock Text="FORENSIC &amp; HEURISTIC EXECUTION CONSOLE" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock x:Name="AdvancedResultsTextBlock" Text="Ready for forensic analysis..." FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11.5" TextWrapping="Wrap"/>
+                                <ProgressBar x:Name="AdvancedProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" Visibility="Collapsed" Margin="0,8,0,0" materialDesign:TransitionAssist.DisableTransitions="True"/>
                             </StackPanel>
                         </Border>
 
-                        <Grid Margin="0,10,0,0">
+                        <Grid Margin="0,12,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
@@ -834,33 +986,33 @@
                                 <!-- Forensic Scan -->
                                 <Border Style="{StaticResource DashCard}">
                                     <StackPanel>
-                                        <TextBlock Text="FORENSIC SCAN" Style="{StaticResource SectionHeader}"/>
-                                        <CheckBox x:Name="IncludeBrowserCheckBox" Content="Include Browser Data" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                        <CheckBox x:Name="DeepScanCheckBox" Content="Deep Scan" Style="{StaticResource CryptoCheckBox}"/>
-                                        <Button x:Name="ForensicScanButton" Content="START FORENSIC SCAN" Click="ForensicScan_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="ForensicResultsText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                        <TextBlock Text="DISK &amp; BROWSER VAULT FORENSIC SCANNER" Style="{StaticResource SectionHeader}"/>
+                                        <CheckBox x:Name="IncludeBrowserCheckBox" Content="Scan Browser Extension Vaults (MetaMask, Phantom, Brave)" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                        <CheckBox x:Name="DeepScanCheckBox" Content="Deep Recursive Directory Scan" Style="{StaticResource CryptoCheckBox}"/>
+                                        <Button x:Name="ForensicScanButton" Content="START FORENSIC SCAN" Click="ForensicScan_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                                        <TextBlock x:Name="ForensicResultsText" Text="" FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Border>
 
                                 <!-- Wallet Fingerprinting -->
                                 <Border Style="{StaticResource DashCard}">
                                     <StackPanel>
-                                        <TextBlock Text="WALLET FINGERPRINTING" Style="{StaticResource SectionHeader}"/>
+                                        <TextBlock Text="ON-CHAIN WALLET CLIENT FINGERPRINTING" Style="{StaticResource SectionHeader}"/>
                                         <TextBox x:Name="FingerprintAddressTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Bitcoin/Ethereum address"/>
-                                        <Button x:Name="FingerprintButton" Content="ANALYZE" Click="WalletFingerprint_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="FingerprintResultsText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                                 FontFamily="Consolas" materialDesign:HintAssist.Hint="Bitcoin or Ethereum address"/>
+                                        <Button x:Name="FingerprintButton" Content="FINGERPRINT ADDRESS" Click="WalletFingerprint_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                                        <TextBlock x:Name="FingerprintResultsText" Text="" FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Border>
 
                                 <!-- Pattern Analysis -->
                                 <Border Style="{StaticResource DashCard}">
                                     <StackPanel>
-                                        <TextBlock Text="PATTERN ANALYSIS" Style="{StaticResource SectionHeader}"/>
+                                        <TextBlock Text="BLOCKCHAIN TRANSACTION PATTERN ANALYZER" Style="{StaticResource SectionHeader}"/>
                                         <TextBox x:Name="PatternAnalysisAddressTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Address to analyze"/>
-                                        <Button x:Name="PatternAnalysisButton" Content="ANALYZE PATTERNS" Click="BlockchainPatternAnalysis_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="PatternAnalysisResultsText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                                 FontFamily="Consolas" materialDesign:HintAssist.Hint="Address to analyze"/>
+                                        <Button x:Name="PatternAnalysisButton" Content="ANALYZE PATTERNS" Click="BlockchainPatternAnalysis_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                                        <TextBlock x:Name="PatternAnalysisResultsText" Text="" FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -870,32 +1022,32 @@
                                 <!-- Advanced Passphrase -->
                                 <Border Style="{StaticResource DashCard}">
                                     <StackPanel>
-                                        <TextBlock Text="ADVANCED PASSPHRASE RECOVERY" Style="{StaticResource SectionHeader}"/>
+                                        <TextBlock Text="TARGETED PERSONAL PASSPHRASE SYNTHESIZER" Style="{StaticResource SectionHeader}"/>
                                         <TextBox x:Name="AdvancedPassphraseMnemonicTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Mnemonic phrase" Margin="0,0,0,6"/>
+                                                 FontFamily="Consolas" materialDesign:HintAssist.Hint="Mnemonic phrase" Margin="0,0,0,6"/>
                                         <TextBox x:Name="PassphraseKnownAddressTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Known address (optional)" Margin="0,0,0,6"/>
+                                                 FontFamily="Consolas" materialDesign:HintAssist.Hint="Known target address (optional)" Margin="0,0,0,6"/>
                                         <TextBox x:Name="PassphraseNamesTextBox" Style="{StaticResource InputBox}"
                                                  materialDesign:HintAssist.Hint="Names (comma separated)" Margin="0,0,0,6"/>
                                         <TextBox x:Name="PassphraseBirthYearsTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Birth years" Margin="0,0,0,6"/>
+                                                 materialDesign:HintAssist.Hint="Birth years / significant dates" Margin="0,0,0,6"/>
                                         <TextBox x:Name="PassphrasePetsTextBox" Style="{StaticResource InputBox}"
                                                  materialDesign:HintAssist.Hint="Pet names" Margin="0,0,0,6"/>
                                         <TextBox x:Name="PassphraseFavoritesTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Favorites (teams, words)"/>
-                                        <Button x:Name="PassphraseRecoveryButton" Content="START RECOVERY" Click="StartPassphraseRecovery_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="PassphraseResultsText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                                 materialDesign:HintAssist.Hint="Favorites (teams, places, words)"/>
+                                        <Button x:Name="PassphraseRecoveryButton" Content="START PASSPHRASE RECOVERY" Click="StartPassphraseRecovery_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                                        <TextBlock x:Name="PassphraseResultsText" Text="" FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Border>
 
                                 <!-- Smart Recovery -->
                                 <Border Style="{StaticResource DashCard}">
                                     <StackPanel>
-                                        <TextBlock Text="SMART RECOVERY" Style="{StaticResource SectionHeader}"/>
+                                        <TextBlock Text="CLIENT-SPECIFIC SMART RECOVERY" Style="{StaticResource SectionHeader}"/>
                                         <TextBox x:Name="SmartMnemonicTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Partial mnemonic" Margin="0,0,0,6"/>
+                                                 FontFamily="Consolas" materialDesign:HintAssist.Hint="Partial mnemonic" Margin="0,0,0,6"/>
                                         <TextBox x:Name="SmartMnemonicAddressTextBox" Style="{StaticResource InputBox}"
-                                                 materialDesign:HintAssist.Hint="Known address (optional)" Margin="0,0,0,6"/>
+                                                 FontFamily="Consolas" materialDesign:HintAssist.Hint="Known address (optional)" Margin="0,0,0,6"/>
                                         <ComboBox x:Name="WalletHintComboBox" SelectedIndex="0" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,6">
                                             <ComboBoxItem Content="Unknown Wallet"/>
                                             <ComboBoxItem Content="Electrum"/>
@@ -904,8 +1056,8 @@
                                             <ComboBoxItem Content="Trezor"/>
                                             <ComboBoxItem Content="Trust Wallet"/>
                                         </ComboBox>
-                                        <Button x:Name="SmartRecoveryButton" Content="SMART RECOVER" Click="StartSmartHunting_Click" Style="{StaticResource PrimaryActionButton}" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SmartRecoveryResultsText" Text="" Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                        <Button x:Name="SmartRecoveryButton" Content="SMART RECOVER" Click="StartSmartHunting_Click" Style="{StaticResource PrimaryActionButton}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                                        <TextBlock x:Name="SmartRecoveryResultsText" Text="" FontFamily="Consolas" Foreground="#CBD5E1" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -915,42 +1067,43 @@
             </TabItem>
 
             <!-- ──────────── TAB 10: PASSPHRASE RECOVERY ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Pass">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="ShieldLockOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Pass"/>
+                        <TextBlock Text="Passphrase"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="320"/>
+                            <ColumnDefinition Width="350"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="PASSPHRASE RECOVERY" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="BIP39 PASSPHRASE RECOVERY" Style="{StaticResource SectionHeader}"/>
                                 <TextBox x:Name="PassphraseRecoveryMnemonicTextBox" Style="{StaticResource InputBox}"
-                                         materialDesign:HintAssist.Hint="Mnemonic phrase"
-                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" Margin="0,0,0,8"/>
-                                <TextBlock Text="Scan Mode" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
-                                <ComboBox x:Name="PassphraseScanModeCombo" SelectedIndex="0" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,8">
+                                         FontFamily="Consolas"
+                                         materialDesign:HintAssist.Hint="Enter 12 or 24-word mnemonic phrase"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="68" Margin="0,0,0,10"/>
+                                <TextBlock Text="Attack Strategy" Style="{StaticResource StatLabel}" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="PassphraseScanModeCombo" SelectedIndex="0" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,10">
                                     <ComboBoxItem Content="Common Passphrases"/>
                                     <ComboBoxItem Content="Personal Info"/>
                                     <ComboBoxItem Content="Dictionary Attack"/>
                                     <ComboBoxItem Content="Smart Combined"/>
                                 </ComboBox>
 
-                                <Separator Margin="0,8" Background="{StaticResource BorderSubtle}"/>
+                                <Separator Margin="0,10" Background="{StaticResource BorderSubtle}"/>
 
-                                <TextBlock Text="PERSONAL INFO (OPTIONAL)" Style="{StaticResource SectionHeader}"/>
-                                <TextBox x:Name="PersonalNameTextBox" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Name" Margin="0,0,0,6"/>
-                                <TextBox x:Name="PersonalEmailTextBox" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Email" Margin="0,0,0,6"/>
-                                <DatePicker x:Name="PersonalBirthdatePicker" Style="{StaticResource MaterialDesignOutlinedDatePicker}" materialDesign:HintAssist.Hint="Birthdate" Margin="0,0,0,8"/>
+                                <TextBlock Text="PERSONAL HINTS (OPTIONAL)" Style="{StaticResource SectionHeader}"/>
+                                <TextBox x:Name="PersonalNameTextBox" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Name" Margin="0,0,0,8"/>
+                                <TextBox x:Name="PersonalEmailTextBox" Style="{StaticResource InputBox}" materialDesign:HintAssist.Hint="Email" Margin="0,0,0,8"/>
+                                <DatePicker x:Name="PersonalBirthdatePicker" Style="{StaticResource MaterialDesignOutlinedDatePicker}" materialDesign:HintAssist.Hint="Birthdate" Margin="0,0,0,12"/>
 
-                                <Button x:Name="StartPassphraseRecoveryButton" Content="START RECOVERY" Click="StartPassphraseRecovery_Click" Style="{StaticResource PrimaryActionButton}"/>
+                                <Button x:Name="StartPassphraseRecoveryButton" Content="START PASSPHRASE RECOVERY" Click="StartPassphraseRecovery_Click" Style="{StaticResource PrimaryActionButton}"/>
                             </StackPanel>
                         </Border>
 
@@ -964,58 +1117,63 @@
                             <UniformGrid Columns="2" Margin="0,0,0,10">
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="TOTAL BALANCE" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="PassphraseTotalBalanceText" Text="0.00000000" Style="{StaticResource StatValue}" Foreground="{StaticResource BtcColor}" FontSize="18"/>
+                                        <TextBlock Text="TOTAL BTC DISCOVERED" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="PassphraseTotalBalanceText" Text="0.00000000" Style="{StaticResource StatValue}" Foreground="{StaticResource BtcColor}" FontSize="19"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource InnerCard}">
+                                <Border Style="{StaticResource InnerCard}" Margin="0">
                                     <StackPanel>
-                                        <TextBlock Text="USD VALUE" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="PassphraseUsdValueText" Text="$0.00" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}" FontSize="18"/>
+                                        <TextBlock Text="USD PORTFOLIO VALUE" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="PassphraseUsdValueText" Text="$0.00" Style="{StaticResource StatValue}" Foreground="{StaticResource AccentGreen}" FontSize="19"/>
                                     </StackPanel>
                                 </Border>
                             </UniformGrid>
 
-                            <StackPanel Grid.Row="1" Margin="0,0,0,10">
-                                <TextBlock x:Name="PassphraseProgressText" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,0,0,4"/>
-                                <ProgressBar x:Name="PassphraseProgressBar" Height="4" materialDesign:TransitionAssist.DisableTransitions="True"/>
-                            </StackPanel>
+                            <Border Grid.Row="1" Style="{StaticResource DashCard}" Padding="16,12">
+                                <StackPanel>
+                                    <TextBlock x:Name="PassphraseProgressText" Text="Ready" Foreground="#CBD5E1" FontSize="11.5" Margin="0,0,0,6"/>
+                                    <ProgressBar x:Name="PassphraseProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                </StackPanel>
+                            </Border>
                         </Grid>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ──────────── TAB 11: DEEP SCAN ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Deep">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Radar" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Deep"/>
+                        <materialDesign:PackIcon Kind="FileTreeOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="Deep Paths"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="320"/>
+                            <ColumnDefinition Width="340"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Style="{StaticResource DashCard}" Margin="0,0,12,0">
+                        <Border Style="{StaticResource DashCard}" Margin="0,0,14,0">
                             <StackPanel>
-                                <TextBlock Text="DEEP DERIVATION SCAN" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="DEEP HD DERIVATION PATH SCANNER" Style="{StaticResource SectionHeader}"/>
+                                <TextBlock Text="Sweeps BIP44, BIP49, BIP84, BIP86 Taproot, Ledger Live, and non-default account/address indices."
+                                           Style="{StaticResource SectionSubHeader}"/>
                                 <TextBox x:Name="DeepScanMnemonicTextBox" Style="{StaticResource InputBox}"
-                                         materialDesign:HintAssist.Hint="Mnemonic phrase"
-                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" Margin="0,0,0,10"/>
+                                         FontFamily="Consolas"
+                                         materialDesign:HintAssist.Hint="Enter 12 or 24-word mnemonic phrase"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72" Margin="0,0,0,12"/>
 
-                                <TextBlock Text="CHAINS" Style="{StaticResource SectionHeader}"/>
-                                <CheckBox x:Name="DeepScanBitcoinCheckBox" Content="Bitcoin" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="DeepScanEthereumCheckBox" Content="Ethereum" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="DeepScanSolanaCheckBox" Content="Solana" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                                <CheckBox x:Name="DeepScanPassphrasesCheckBox" Content="Test Passphrases" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                                <TextBlock Text="TARGET NETWORKS &amp; OPTIONS" Style="{StaticResource SectionHeader}"/>
+                                <CheckBox x:Name="DeepScanBitcoinCheckBox" Content="Bitcoin (BIP44 / 49 / 84 / 86)" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource BtcColor}"/>
+                                <CheckBox x:Name="DeepScanEthereumCheckBox" Content="Ethereum (BIP44 / Ledger / MEW)" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource EthColor}"/>
+                                <CheckBox x:Name="DeepScanSolanaCheckBox" Content="Solana (Phantom / Solflare Paths)" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource SolColor}"/>
+                                <CheckBox x:Name="DeepScanPassphrasesCheckBox" Content="Test Common BIP39 Passphrases" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
 
                                 <Separator Margin="0,12" Background="{StaticResource BorderSubtle}"/>
 
-                                <Button x:Name="StartDeepScanButton" Content="START DEEP SCAN" Click="StartDeepScan_Click" Style="{StaticResource PrimaryActionButton}"/>
+                                <Button x:Name="StartDeepScanButton" Content="START DEEP PATH SCAN" Click="StartDeepScan_Click" Style="{StaticResource PrimaryActionButton}"/>
                             </StackPanel>
                         </Border>
 
@@ -1031,26 +1189,26 @@
                             <UniformGrid Columns="4" Margin="0,0,0,10">
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,6,0">
                                     <StackPanel>
-                                        <TextBlock Text="PATHS" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanPathsCheckedText" Text="0" FontSize="16" FontWeight="Bold" Foreground="#64B5F6"/>
+                                        <TextBlock Text="PATHS PROBED" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="DeepScanPathsCheckedText" Text="0" FontFamily="Consolas" FontSize="17" FontWeight="Bold" Foreground="#64B5F6"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,6,0">
                                     <StackPanel>
-                                        <TextBlock Text="ADDRESSES" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanAddressesCheckedText" Text="0" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
+                                        <TextBlock Text="ADDRESSES DERIVED" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="DeepScanAddressesCheckedText" Text="0" FontFamily="Consolas" FontSize="17" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,6,0">
                                     <StackPanel>
-                                        <TextBlock Text="PASSPHRASES" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanPassphrasesCheckedText" Text="0" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentOrange}"/>
+                                        <TextBlock Text="PASSPHRASES TESTED" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="DeepScanPassphrasesCheckedText" Text="0" FontFamily="Consolas" FontSize="17" FontWeight="Bold" Foreground="{StaticResource AccentOrange}"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource InnerCard}">
+                                <Border Style="{StaticResource InnerCard}" Margin="0">
                                     <StackPanel>
-                                        <TextBlock Text="FOUND" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanWalletsFoundText" Text="0" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                        <TextBlock Text="FUNDED PATHS" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="DeepScanWalletsFoundText" Text="0" FontFamily="Consolas" FontSize="17" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
                                     </StackPanel>
                                 </Border>
                             </UniformGrid>
@@ -1060,43 +1218,49 @@
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,6,0">
                                     <StackPanel>
                                         <TextBlock Text="TOTAL BALANCE" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanTotalBalanceText" Text="0.00000000" FontWeight="Bold" Foreground="{StaticResource BtcColor}"/>
+                                        <TextBlock x:Name="DeepScanTotalBalanceText" Text="0.00000000" FontFamily="Consolas" FontSize="15" FontWeight="Bold" Foreground="{StaticResource BtcColor}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Style="{StaticResource InnerCard}" Margin="0,0,6,0">
                                     <StackPanel>
-                                        <TextBlock Text="USD VALUE" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanUsdValueText" Text="$0.00" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                        <TextBlock Text="USD VALUATION" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="DeepScanUsdValueText" Text="$0.00" FontFamily="Consolas" FontSize="15" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource InnerCard}">
+                                <Border Style="{StaticResource InnerCard}" Margin="0">
                                     <StackPanel>
-                                        <TextBlock Text="SPEED" Style="{StaticResource StatLabel}"/>
-                                        <TextBlock x:Name="DeepScanSpeedText" Text="0/s" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
+                                        <TextBlock Text="SCAN VELOCITY" Style="{StaticResource StatLabel}"/>
+                                        <TextBlock x:Name="DeepScanSpeedText" Text="0/s" FontFamily="Consolas" FontSize="15" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
                                     </StackPanel>
                                 </Border>
                             </UniformGrid>
 
                             <!-- Progress -->
-                            <ProgressBar x:Name="DeepScanProgressBar" Grid.Row="2" Height="4" Margin="0,0,0,10" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                            <ProgressBar x:Name="DeepScanProgressBar" Grid.Row="2" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" Margin="0,0,0,10" materialDesign:TransitionAssist.DisableTransitions="True"/>
 
                             <!-- Coin totals -->
-                            <Border Grid.Row="3" Style="{StaticResource DashCard}">
+                            <Border Grid.Row="3" Style="{StaticResource DashCard}" Margin="0">
                                 <StackPanel>
-                                    <TextBlock Text="COIN TOTALS" Style="{StaticResource SectionHeader}"/>
+                                    <TextBlock Text="CUMULATIVE MULTI-CHAIN TOTALS ACROSS ALL DERIVATION PATHS" Style="{StaticResource SectionHeader}"/>
                                     <UniformGrid Columns="3">
-                                        <StackPanel Margin="0,0,0,4">
-                                            <TextBlock Text="BTC" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="DeepScanBtcTotalText" Text="0.00000000" Foreground="{StaticResource BtcColor}" FontWeight="SemiBold"/>
-                                        </StackPanel>
-                                        <StackPanel Margin="0,0,0,4">
-                                            <TextBlock Text="ETH" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="DeepScanEthTotalText" Text="0.000000" Foreground="{StaticResource EthColor}" FontWeight="SemiBold"/>
-                                        </StackPanel>
-                                        <StackPanel Margin="0,0,0,4">
-                                            <TextBlock Text="TOTAL USD" Style="{StaticResource StatLabel}"/>
-                                            <TextBlock x:Name="DeepScanGrandTotalUsdText" Text="$0.00" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="16"/>
-                                        </StackPanel>
+                                        <Border Style="{StaticResource InnerCard}" Margin="0,0,6,0">
+                                            <StackPanel>
+                                                <TextBlock Text="BITCOIN (BTC)" Style="{StaticResource StatLabel}"/>
+                                                <TextBlock x:Name="DeepScanBtcTotalText" Text="0.00000000" FontFamily="Consolas" FontSize="15" Foreground="{StaticResource BtcColor}" FontWeight="Bold"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource InnerCard}" Margin="3,0">
+                                            <StackPanel>
+                                                <TextBlock Text="ETHEREUM (ETH)" Style="{StaticResource StatLabel}"/>
+                                                <TextBlock x:Name="DeepScanEthTotalText" Text="0.000000" FontFamily="Consolas" FontSize="15" Foreground="{StaticResource EthColor}" FontWeight="Bold"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource InnerCard}" Margin="6,0,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="COMBINED PORTFOLIO (USD)" Style="{StaticResource StatLabel}"/>
+                                                <TextBlock x:Name="DeepScanGrandTotalUsdText" Text="$0.00" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" FontWeight="Bold" FontSize="17"/>
+                                            </StackPanel>
+                                        </Border>
                                     </UniformGrid>
                                 </StackPanel>
                             </Border>
@@ -1106,14 +1270,14 @@
             </TabItem>
 
             <!-- ──────────── TAB 12: HISTORICAL WATCHLIST ──────────── -->
-            <TabItem Style="{StaticResource NavTab}">
+            <TabItem Style="{StaticResource NavTab}" Tag="Watch">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="EyeOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Watch"/>
+                        <materialDesign:PackIcon Kind="EyeCheckOutline" Height="16" Width="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="Watchlist"/>
                     </StackPanel>
                 </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -1124,17 +1288,21 @@
                         <Border Style="{StaticResource DashCard}" Margin="0,0,0,10">
                             <DockPanel>
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                                    <TextBlock Text="HISTORICAL WATCHLIST" Style="{StaticResource SectionHeader}" Margin="0,0,12,0"/>
-                                    <TextBlock Text="Entries:" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock x:Name="HistoricalWatchlistCountText" Text="0" FontWeight="Bold" Foreground="{StaticResource AccentOrange}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <TextBlock Text="HISTORICAL ACTIVITY WATCHLIST" Style="{StaticResource SectionHeader}" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                                    <Border Background="#14F59E0B" BorderBrush="#35F59E0B" BorderThickness="1" CornerRadius="6" Padding="8,2" Margin="0,0,12,0" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="ENTRIES: " FontSize="9.5" FontWeight="Bold" Foreground="#FDE68A"/>
+                                            <TextBlock x:Name="HistoricalWatchlistCountText" Text="0" FontFamily="Consolas" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource AccentOrange}"/>
+                                        </StackPanel>
+                                    </Border>
                                     <TextBlock Text="Last updated:" Style="{StaticResource StatLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock x:Name="HistoricalWatchlistUpdatedText" Text="-" Foreground="{StaticResource TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="HistoricalWatchlistUpdatedText" Text="-" FontFamily="Consolas" Foreground="{StaticResource TextDim}" FontSize="11" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-                                    <Button Content="REFRESH" Click="RefreshHistoricalWatchlist_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                                    <Button x:Name="RecheckHistoricalButton" Content="RE-CHECK SELECTED" Click="RecheckHistoricalSelected_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                                    <Button x:Name="RecheckAllHistoricalButton" Content="RE-CHECK ALL" Click="RecheckHistoricalAll_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                                    <Button x:Name="StopRecheckHistoricalButton" Content="STOP" Click="StopRecheckHistorical_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0" IsEnabled="False"/>
+                                    <Button Content="REFRESH" Click="RefreshHistoricalWatchlist_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
+                                    <Button x:Name="RecheckHistoricalButton" Content="RE-CHECK SELECTED" Click="RecheckHistoricalSelected_Click" Style="{StaticResource PrimaryActionButton}" Height="36" Margin="0,0,6,0"/>
+                                    <Button x:Name="RecheckAllHistoricalButton" Content="RE-CHECK ALL" Click="RecheckHistoricalAll_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0"/>
+                                    <Button x:Name="StopRecheckHistoricalButton" Content="STOP" Click="StopRecheckHistorical_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,6,0" IsEnabled="False"/>
                                     <Button Content="OPEN FILE" Click="OpenHistoricalWatchlistFile_Click" Style="{StaticResource SecondaryActionButton}"/>
                                 </StackPanel>
                             </DockPanel>
@@ -1142,39 +1310,41 @@
 
                         <Border Grid.Row="1" Style="{StaticResource InnerCard}" Margin="0,0,0,10">
                             <StackPanel>
-                                <DockPanel Margin="0,0,0,4">
-                                    <TextBlock x:Name="HistoricalRecheckProgressText" Text="Idle" Foreground="{StaticResource TextDim}" FontSize="11" DockPanel.Dock="Left"/>
-                                    <TextBlock x:Name="HistoricalRecheckStatsText" Text="Checked: 0 | Confirmed: 0" Foreground="{StaticResource AccentGreen}" FontSize="11" DockPanel.Dock="Right"/>
+                                <DockPanel Margin="0,0,0,6">
+                                    <TextBlock x:Name="HistoricalRecheckProgressText" Text="Idle" Foreground="#CBD5E1" FontSize="11.5" DockPanel.Dock="Left"/>
+                                    <TextBlock x:Name="HistoricalRecheckStatsText" Text="Checked: 0 | Confirmed: 0" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" FontSize="11.5" DockPanel.Dock="Right"/>
                                 </DockPanel>
-                                <ProgressBar x:Name="HistoricalRecheckProgressBar" Height="4" Minimum="0" Maximum="100" Value="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                <ProgressBar x:Name="HistoricalRecheckProgressBar" Height="5" Minimum="0" Maximum="100" Value="0" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
                             </StackPanel>
                         </Border>
 
-                        <DataGrid x:Name="HistoricalWatchlistDataGrid" Grid.Row="2" Style="{StaticResource CleanDataGrid}">
-                            <DataGrid.RowStyle>
-                                <Style TargetType="DataGridRow">
-                                    <Setter Property="ToolTip" Value="{Binding HistoricalDetails}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding HistoricalStatus}" Value="Confirmed">
-                                            <Setter Property="Background" Value="#1A2E7D32"/>
-                                            <Setter Property="Foreground" Value="#C8FACC"/>
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding HistoricalStatus}" Value="Likely">
-                                            <Setter Property="Background" Value="#1AFFA000"/>
-                                            <Setter Property="Foreground" Value="#FFE7BA"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </DataGrid.RowStyle>
-                        </DataGrid>
+                        <Border Grid.Row="2" Style="{StaticResource DashCard}" Padding="14" Margin="0">
+                            <DataGrid x:Name="HistoricalWatchlistDataGrid" Style="{StaticResource CleanDataGrid}">
+                                <DataGrid.RowStyle>
+                                    <Style TargetType="DataGridRow">
+                                        <Setter Property="ToolTip" Value="{Binding HistoricalDetails}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HistoricalStatus}" Value="Confirmed">
+                                                <Setter Property="Background" Value="#1A2E7D32"/>
+                                                <Setter Property="Foreground" Value="#C8FACC"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding HistoricalStatus}" Value="Likely">
+                                                <Setter Property="Background" Value="#1AFFA000"/>
+                                                <Setter Property="Foreground" Value="#FFE7BA"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGrid.RowStyle>
+                            </DataGrid>
+                        </Border>
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
         </TabControl>
 
-        <!-- ═══════════════════════ LIVE PREVIEW PANEL ═══════════════════════ -->
-        <Border Grid.Row="3" Background="{StaticResource SurfaceMid}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0" Padding="16,8">
+        <!-- ═══════════════════════ REAL-TIME CRYPTOGRAPHIC TELEMETRY CONSOLE ═══════════════════════ -->
+        <Border Grid.Row="3" Background="#090D16" BorderBrush="#1B2537" BorderThickness="0,1,0,0" Padding="18,8">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -1187,82 +1357,86 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Left: Source info -->
+                <!-- Left: Source & Phrase Type Badges -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock x:Name="LivePreviewSourceText" Text="" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="PhraseTypeLabel" Text="" Foreground="{StaticResource AccentCyan}" FontSize="10" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <Border Background="#1238BDF8" BorderBrush="#3038BDF8" BorderThickness="1" CornerRadius="5" Padding="8,2">
+                        <TextBlock x:Name="LivePreviewSourceText" Text="IDLE" Foreground="{StaticResource AccentCyan}" FontWeight="Bold" FontSize="10" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock x:Name="PhraseTypeLabel" Text="" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" FontWeight="SemiBold" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
 
-                <!-- Center: Live data -->
+                <!-- Center: Live Derived Addresses & Multi-Chain Balance Chips -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <TextBox x:Name="PreviewMnemonicTextBox" IsReadOnly="True" Background="Transparent" BorderThickness="0"
-                             Foreground="{StaticResource TextDim}" FontFamily="Consolas" FontSize="10" MaxWidth="300"
+                             Foreground="#64748B" FontFamily="Consolas" FontSize="10" MaxWidth="260"
                              VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <TextBox x:Name="PreviewBtcAddressTextBox" IsReadOnly="True" Background="Transparent" BorderThickness="0"
-                             Foreground="{StaticResource BtcColor}" FontFamily="Consolas" FontSize="10" MaxWidth="180"
+                    <TextBox x:Name="PreviewBtcAddressTextBox" IsReadOnly="True" Background="#060910" BorderBrush="#1A2436" BorderThickness="1" Padding="6,2"
+                             Foreground="{StaticResource BtcColor}" FontFamily="Consolas" FontSize="10.5" MaxWidth="190"
                              VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox x:Name="PreviewEthAddressTextBox" IsReadOnly="True" Background="Transparent" BorderThickness="0"
-                             Foreground="{StaticResource EthColor}" FontFamily="Consolas" FontSize="10" MaxWidth="180"
+                    <TextBox x:Name="PreviewEthAddressTextBox" IsReadOnly="True" Background="#060910" BorderBrush="#1A2436" BorderThickness="1" Padding="6,2"
+                             Foreground="{StaticResource EthColor}" FontFamily="Consolas" FontSize="10.5" MaxWidth="190"
                              VerticalAlignment="Center" Margin="0,0,12,0"/>
 
                     <!-- Balance chips -->
-                    <TextBlock x:Name="PreviewBtcBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource BtcColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewEthBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource EthColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewSolBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource SolColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewUsdtBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource UsdtColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewLtcBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource LtcColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewDogeBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource DogeColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewMaticBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource MaticColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewBnbBalanceTextBlock" Text="" FontSize="10" Foreground="{StaticResource BnbColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewTotalTextBlock" Text="" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="PreviewFoundTextBlock" Text="" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="PreviewBtcBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource BtcColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewEthBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource EthColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewSolBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource SolColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewUsdtBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource UsdtColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewLtcBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource LtcColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewDogeBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource DogeColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewMaticBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource MaticColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewBnbBalanceTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="{StaticResource BnbColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewTotalTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PreviewFoundTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Full-width mnemonic preview -->
-                <Border Grid.Row="1" Grid.ColumnSpan="3" Background="{StaticResource SurfaceLight}" CornerRadius="6" Padding="8,6" Margin="0,8,0,0">
+                <!-- Right: Status & Speed -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border x:Name="PreviewStatusBorder" Background="Transparent" CornerRadius="5" Padding="8,2" Margin="0,0,8,0">
+                        <TextBlock x:Name="PreviewStatusTextBlock" Text="" FontSize="10" FontWeight="Bold"/>
+                    </Border>
+                    <TextBlock x:Name="PreviewSpeedTextBlock" Text="" FontFamily="Consolas" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Row 1: Compact Active Candidate Mnemonic Readout -->
+                <Border Grid.Row="1" Grid.ColumnSpan="3" Background="#070A10" BorderBrush="#1C2333" BorderThickness="1" CornerRadius="5" Padding="10,3" Margin="0,4,0,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="CURRENT MNEMONIC:" Foreground="{StaticResource AccentCyan}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="CANDIDATE SEED:" Foreground="{StaticResource AccentCyan}" FontSize="9.5" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <TextBox x:Name="PreviewMnemonicWideTextBox" Grid.Column="1" IsReadOnly="True" Background="Transparent" BorderThickness="0"
-                                 Foreground="White" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold"
-                                 TextWrapping="Wrap" VerticalAlignment="Center" MinHeight="24"/>
+                                 Foreground="#F8FAFC" FontFamily="Consolas" FontSize="11" FontWeight="SemiBold"
+                                 TextWrapping="NoWrap" VerticalAlignment="Center" MinHeight="18"/>
                     </Grid>
                 </Border>
 
-                <!-- Recent scanned mnemonics feed -->
-                <Border Grid.Row="2" Grid.ColumnSpan="3" Background="{StaticResource SurfaceDark}" CornerRadius="6" Padding="8,6" Margin="0,8,0,0">
+                <!-- Row 2: Live Cryptographic Stream -->
+                <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#070A10" BorderBrush="#1C2333" BorderThickness="1" CornerRadius="5" Padding="10,4" Margin="0,4,0,0">
                     <StackPanel>
-                        <TextBlock Text="LIVE SCAN FEED (LAST 20 SAMPLED)" Foreground="{StaticResource AccentOrange}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                        <WrapPanel Margin="0,0,0,4">
-                            <TextBlock Text="● Brain" Foreground="MediumPurple" FontSize="10" Margin="0,0,10,0"/>
-                            <TextBlock Text="● Random" Foreground="DeepSkyBlue" FontSize="10" Margin="0,0,10,0"/>
-                            <TextBlock Text="● Mnemonic" Foreground="Khaki" FontSize="10" Margin="0,0,10,0"/>
-                            <TextBlock Text="● Private" Foreground="LightCoral" FontSize="10" Margin="0,0,10,0"/>
-                            <TextBlock Text="● Smart" Foreground="LightGreen" FontSize="10" Margin="0,0,10,0"/>
-                            <TextBlock Text="● Timestamp" Foreground="Orange" FontSize="10"/>
-                        </WrapPanel>
+                        <DockPanel Margin="0,0,0,2">
+                            <TextBlock Text="LIVE CRYPTOGRAPHIC STREAM" Foreground="#94A3B8" FontSize="9.5" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <WrapPanel HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <TextBlock Text="● Brain" Foreground="#A78BFA" FontSize="9.5" Margin="0,0,10,0"/>
+                                <TextBlock Text="● Random" Foreground="#38BDF8" FontSize="9.5" Margin="0,0,10,0"/>
+                                <TextBlock Text="● Mnemonic" Foreground="#FCD34D" FontSize="9.5" Margin="0,0,10,0"/>
+                                <TextBlock Text="● Private" Foreground="#FB7185" FontSize="9.5" Margin="0,0,10,0"/>
+                                <TextBlock Text="● Smart" Foreground="#34D399" FontSize="9.5" Margin="0,0,10,0"/>
+                                <TextBlock Text="● Timestamp" Foreground="#FBBF24" FontSize="9.5"/>
+                            </WrapPanel>
+                        </DockPanel>
                         <RichTextBox x:Name="RecentScansRichTextBox" IsReadOnly="True" Background="Transparent" BorderThickness="0"
-                                     Foreground="{StaticResource TextDim}" FontFamily="Consolas" FontSize="10"
+                                     Foreground="#94A3B8" FontFamily="Consolas" FontSize="10"
                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                                     MinHeight="80" MaxHeight="140" IsDocumentEnabled="False"/>
+                                     MinHeight="46" MaxHeight="76" IsDocumentEnabled="False"/>
                     </StackPanel>
                 </Border>
-
-                <!-- Right: Status -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border x:Name="PreviewStatusBorder" Background="Transparent" CornerRadius="4" Padding="8,2" Margin="0,0,8,0">
-                        <TextBlock x:Name="PreviewStatusTextBlock" Text="" FontSize="10" FontWeight="SemiBold"/>
-                    </Border>
-                    <TextBlock x:Name="PreviewSpeedTextBlock" Text="" FontSize="10" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
-                </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ═══════════════════════ STATUS BAR ═══════════════════════ -->
-        <Border Grid.Row="4" Background="#0D1117" Padding="12,5" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
+        <!-- ═══════════════════════ EXECUTIVE STATUS BAR ═══════════════════════ -->
+        <Border Grid.Row="4" Background="#05070C" Padding="16,6" BorderBrush="#151E2E" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -1277,34 +1451,36 @@
 
                 <!-- Live scan info -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,16,0">
-                    <TextBlock x:Name="LiveScanAddressText" Text="" Foreground="{StaticResource TextDim}" FontSize="10" FontFamily="Consolas" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="LiveScanAddressText" Text="" Foreground="#94A3B8" FontSize="10.5" FontFamily="Consolas" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock x:Name="LiveScanBalanceText" Grid.Column="1" Text="" Foreground="{StaticResource AccentGreen}" FontSize="10" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                <TextBlock x:Name="LiveScanCountText" Grid.Column="2" Text="" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                <TextBlock x:Name="LiveScanBalanceText" Grid.Column="1" Text="" Foreground="{StaticResource AccentGreen}" FontFamily="Consolas" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                <TextBlock x:Name="LiveScanCountText" Grid.Column="2" Text="" Foreground="#94A3B8" FontFamily="Consolas" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,16,0"/>
 
                 <!-- Status -->
-                <TextBlock x:Name="StatusTextBlock" Grid.Column="3" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center"/>
+                <TextBlock x:Name="StatusTextBlock" Grid.Column="3" Text="Ready" Foreground="#CBD5E1" FontSize="10.5" VerticalAlignment="Center"/>
 
                 <!-- Install location -->
-                <TextBlock x:Name="InstallPathTextBlock" Grid.Column="4" Text="Installed: -" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center" Margin="0,0,16,0" MaxWidth="360" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="InstallPathTextBlock" Grid.Column="4" Text="Installed: -" Foreground="#475569" FontSize="10" VerticalAlignment="Center" Margin="0,0,16,0" MaxWidth="360" TextTrimming="CharacterEllipsis"/>
 
                 <!-- Network status -->
-                <StackPanel Grid.Column="5" Orientation="Horizontal" Margin="0,0,16,0">
-                    <materialDesign:PackIcon x:Name="NetworkStatusIcon" Kind="CircleSmall" Foreground="{StaticResource AccentGreen}" Height="14" Width="14" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="NetworkStatusText" Text="Online" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center"/>
-                </StackPanel>
+                <Border Grid.Column="5" Background="#0B111E" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="5" Padding="8,2" Margin="0,0,12,0">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon x:Name="NetworkStatusIcon" Kind="CircleSmall" Foreground="{StaticResource AccentGreen}" Height="14" Width="14" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="NetworkStatusText" Text="Online" Foreground="#CBD5E1" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
 
                 <!-- API usage -->
-                <TextBlock x:Name="ApiUsageTextBlock" Grid.Column="6" Text="" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center" Margin="0,0,8,0"
+                <TextBlock x:Name="ApiUsageTextBlock" Grid.Column="6" Text="" FontFamily="Consolas" Foreground="{StaticResource AccentCyan}" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,10,0"
                            Cursor="Hand" MouseLeftButtonUp="ApiUsage_Click"/>
                 <TextBlock x:Name="ApiDebugTextBlock" Grid.Column="6" Text="" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center" Visibility="Collapsed"/>
 
                 <!-- Stats summary -->
                 <StackPanel Grid.Column="7" Orientation="Horizontal">
-                    <TextBlock x:Name="StatisticsTextBlock" Text="" Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <TextBlock x:Name="WalletsFoundTextBlock" Text="" Foreground="{StaticResource AccentGreen}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <TextBlock Text="│" Foreground="#333" FontSize="10" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock Text="© CodeHaven" Foreground="#555" FontSize="9" VerticalAlignment="Center" FontStyle="Italic"/>
+                    <TextBlock x:Name="StatisticsTextBlock" Text="" FontFamily="Consolas" Foreground="#94A3B8" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <TextBlock x:Name="WalletsFoundTextBlock" Text="" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" FontSize="10.5" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <TextBlock Text="│" Foreground="#1E293B" FontSize="10" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="© CodeHaven Security" Foreground="#64748B" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
             </Grid>
         </Border>

@@ -172,8 +172,10 @@ namespace WalletRecoveryTool.Core
                     var testWords = GenerateWordCombination(words, missingIndices, attempt);
                     var testMnemonic = string.Join(" ", testWords);
 
-                    // Quick checksum validation (skip expensive address generation if invalid)
-                    if (IsValidChecksumFast(testWords))
+                    // Quick checksum validation + trivial/empty filter (skip expensive address generation if invalid)
+                    if (!MnemonicTracker.IsRestrictedTrivialMnemonic(testMnemonic) &&
+                        !GlobalMnemonicTracker.Instance.WasScanned(testMnemonic) &&
+                        IsValidChecksumFast(testWords))
                     {
                         // Full verification
                         if (VerifyMnemonic(testMnemonic, targetAddress))
@@ -223,11 +225,15 @@ namespace WalletRecoveryTool.Core
 
                 try
                 {
-                    // Generate random mnemonic
+                    // Generate valid 12-word BIP39 mnemonic with proper 4-bit SHA-256 checksum
                     var mnemonic = GenerateRandomMnemonicFast();
+                    if (string.IsNullOrEmpty(mnemonic) || !GlobalMnemonicTracker.Instance.TryMarkAsScanned(mnemonic))
+                        return;
                     
                     // Generate addresses using optimized path
                     var (btcAddr, ethAddr) = GenerateAddressesFast(mnemonic);
+                    if (btcAddr == null && ethAddr == null)
+                        return;
                     
                     results.Add((mnemonic, btcAddr, ethAddr));
 
@@ -246,25 +252,17 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
-        /// Fast random mnemonic generation without full validation
+        /// Fast valid BIP39 12-word mnemonic generation (128-bit CSPRNG entropy + 4-bit SHA-256 checksum)
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private string GenerateRandomMnemonicFast()
         {
-            Span<byte> entropy = stackalloc byte[16]; // 128 bits for 12 words
-            RandomNumberGenerator.Fill(entropy);
-            
-            // Convert entropy to word indices
-            var words = new string[12];
-            var bits = new BigInteger(entropy.ToArray(), isUnsigned: true);
-            
-            for (int i = 11; i >= 0; i--)
+            while (true)
             {
-                words[i] = Bip39Words[(int)(bits % 2048)];
-                bits /= 2048;
+                var mnemonic = CryptoWalletGenerator.GenerateMnemonic(12);
+                if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic))
+                    return mnemonic;
             }
-            
-            return string.Join(" ", words);
         }
 
         /// <summary>
@@ -313,58 +311,45 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
-        /// Fast checksum validation without full address generation
+        /// Fast zero-allocation checksum validation without full address generation
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsValidChecksumFast(string[] words)
         {
-            try
+            if (words == null || words.Length != 12)
+                return false;
+
+            Span<byte> entropyBytes = stackalloc byte[16];
+            entropyBytes.Clear();
+            int bitPos = 0;
+            int actualChecksum = 0;
+
+            for (int w = 0; w < 12; w++)
             {
-                // Convert words to bits
-                var bits = new List<bool>();
-                foreach (var word in words)
-                {
-                    if (!WordToIndex.TryGetValue(word.ToLower(), out var index))
-                        return false;
-                    
-                    for (int i = 10; i >= 0; i--)
-                        bits.Add((index & (1 << i)) != 0);
-                }
-
-                // For 12 words: 128 bits entropy + 4 bits checksum
-                int entropyBits = 128;
-                int checksumBits = 4;
-
-                if (bits.Count != entropyBits + checksumBits)
+                if (!WordToIndex.TryGetValue(words[w].ToLowerInvariant(), out var index))
                     return false;
 
-                // Extract entropy
-                var entropyBytes = new byte[entropyBits / 8];
-                for (int i = 0; i < entropyBits; i++)
+                for (int b = 10; b >= 0; b--)
                 {
-                    if (bits[i])
-                        entropyBytes[i / 8] |= (byte)(1 << (7 - (i % 8)));
+                    bool bit = (index & (1 << b)) != 0;
+                    if (bitPos < 128)
+                    {
+                        if (bit)
+                            entropyBytes[bitPos >> 3] |= (byte)(1 << (7 - (bitPos & 7)));
+                    }
+                    else
+                    {
+                        if (bit)
+                            actualChecksum |= 1 << (131 - bitPos);
+                    }
+                    bitPos++;
                 }
-
-                // Calculate expected checksum
-                using var sha256 = SHA256.Create();
-                var hash = sha256.ComputeHash(entropyBytes);
-                var expectedChecksum = hash[0] >> (8 - checksumBits);
-
-                // Extract actual checksum
-                int actualChecksum = 0;
-                for (int i = 0; i < checksumBits; i++)
-                {
-                    if (bits[entropyBits + i])
-                        actualChecksum |= 1 << (checksumBits - 1 - i);
-                }
-
-                return expectedChecksum == actualChecksum;
             }
-            catch
-            {
-                return false;
-            }
+
+            Span<byte> hash = stackalloc byte[32];
+            SHA256.HashData(entropyBytes, hash);
+            int expectedChecksum = hash[0] >> 4;
+            return expectedChecksum == actualChecksum;
         }
 
         /// <summary>
@@ -458,19 +443,37 @@ namespace WalletRecoveryTool.Core
 
                     try
                     {
+                        if (string.IsNullOrWhiteSpace(phrase))
+                            return;
+
+                        if (!GlobalMnemonicTracker.Instance.TryMarkAsScanned($"BRAIN:{phrase}"))
+                            return;
+
                         // Generate address from brain wallet phrase
-                        using var sha256 = SHA256.Create();
-                        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(phrase));
+                        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(phrase));
+                        var privHex = Convert.ToHexString(hash).ToLowerInvariant();
+                        if (MnemonicTracker.IsRestrictedTrivialPrivateKey(privHex) ||
+                            !GlobalMnemonicTracker.Instance.TryMarkAsScanned($"pk:{privHex}"))
+                            return;
+
                         var key = new Key(hash);
                         var address = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
+
+                        if (FundedAddressFilter.Instance.IsAddressOrKeyScannedEmpty(address))
+                            return;
 
                         // Check balance (async in sync context)
                         var balance = balanceChecker(address).GetAwaiter().GetResult();
 
                         if (balance > 0)
                         {
+                            FundedAddressFilter.Instance.MarkWalletConfirmedFunded(null, privHex, address);
                             results.Add((phrase, address, balance));
                             DebugLogger.Log($"💰 Found brain wallet: {phrase} -> {balance} BTC");
+                        }
+                        else
+                        {
+                            FundedAddressFilter.Instance.MarkWalletConfirmedEmpty($"BRAIN:{phrase}", privHex, address);
                         }
 
                         var current = Interlocked.Increment(ref processed);

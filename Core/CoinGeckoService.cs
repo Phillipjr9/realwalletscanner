@@ -54,8 +54,20 @@ namespace WalletRecoveryTool.Core
             { "MATIC", "matic-network" },
             { "BNB", "binancecoin" },
             { "TRX", "tron" },
-            { "XRP", "ripple" }
+            { "XRP", "ripple" },
+            { "ADA", "cardano" }
         };
+
+        private static string NormalizeSymbol(string symbol)
+        {
+            if (string.IsNullOrWhiteSpace(symbol)) return "";
+            symbol = symbol.Trim().ToUpperInvariant();
+            if (symbol.StartsWith("BTC-") || symbol.StartsWith("BTC_")) return "BTC";
+            if (symbol.StartsWith("ETH-") || symbol.StartsWith("ETH_")) return "ETH";
+            if (symbol.StartsWith("USDT-") || symbol.StartsWith("USDT_")) return "USDT";
+            if (symbol.StartsWith("SOL-") || symbol.StartsWith("SOL_")) return "SOL";
+            return symbol;
+        }
 
         /// <summary>
         /// Get current USD price for a cryptocurrency symbol.
@@ -64,15 +76,16 @@ namespace WalletRecoveryTool.Core
         /// <returns>USD price or 0 if unavailable</returns>
         public static async Task<decimal> GetPriceUSD(string symbol)
         {
+            symbol = NormalizeSymbol(symbol);
             await RefreshCacheIfNeeded();
             
             lock (_cacheLock)
             {
-                if (_priceCache.TryGetValue(symbol.ToUpper(), out var price))
+                if (_priceCache.TryGetValue(symbol, out var price))
                     return price;
             }
             
-            return 0m;
+            return symbol == "USDT" ? 1.0m : 0m;
         }
 
         /// <summary>
@@ -103,9 +116,15 @@ namespace WalletRecoveryTool.Core
 
             foreach (var balance in balances)
             {
-                if (balance.Value > 0 && prices.TryGetValue(balance.Key.ToUpper(), out var price))
+                if (balance.Value <= 0) continue;
+                var symbol = NormalizeSymbol(balance.Key);
+                if (prices.TryGetValue(symbol, out var price))
                 {
                     total += balance.Value * price;
+                }
+                else if (symbol == "USDT")
+                {
+                    total += balance.Value;
                 }
             }
 
@@ -208,7 +227,8 @@ namespace WalletRecoveryTool.Core
         {
             { "BTC", "bitcoin" }, { "ETH", "ethereum" }, { "SOL", "solana" },
             { "USDT", "tether" }, { "LTC", "litecoin" }, { "DOGE", "dogecoin" },
-            { "MATIC", "polygon" }, { "BNB", "binance-coin" }, { "TRX", "tron" }, { "XRP", "xrp" }
+            { "MATIC", "polygon" }, { "BNB", "binance-coin" }, { "TRX", "tron" },
+            { "XRP", "xrp" }, { "ADA", "cardano" }
         };
 
         private static async Task<bool> TryFetchCoinCap()

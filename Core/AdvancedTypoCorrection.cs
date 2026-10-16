@@ -29,6 +29,32 @@ namespace WalletRecoveryTool.Core
                 return corrections.ToList();
             }
 
+            // 1b. Official BIP39 4-character prefix expansion (Cryptosteel / Billfodl 4-letter tile backups)
+            if (word.Length == 4)
+            {
+                var prefixMatches = Bip39Words.Where(w => w.StartsWith(word, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (prefixMatches.Count == 1)
+                {
+                    corrections.Add(prefixMatches[0]);
+                    return corrections.ToList();
+                }
+                corrections.UnionWith(prefixMatches);
+            }
+
+            // 1c. Adjacent character transposition (e.g. "plnaet" -> "planet")
+            if (word.Length >= 3)
+            {
+                var chars = word.ToCharArray();
+                for (int i = 0; i < chars.Length - 1; i++)
+                {
+                    (chars[i], chars[i + 1]) = (chars[i + 1], chars[i]);
+                    var swapped = new string(chars);
+                    if (Bip39Words.Contains(swapped))
+                        corrections.Add(swapped);
+                    (chars[i], chars[i + 1]) = (chars[i + 1], chars[i]);
+                }
+            }
+
             // 2. Check common typos database
             if (CommonTypos.TryGetValue(word, out var commonMatches))
             {
@@ -325,10 +351,11 @@ namespace WalletRecoveryTool.Core
             var words = mnemonic.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var correctedWords = new List<string>();
             var corrections = new Dictionary<string, string>();
+            var positionCandidates = new Dictionary<int, List<string>>();
 
-            foreach (var word in words)
+            for (int idx = 0; idx < words.Length; idx++)
             {
-                var cleanWord = word.ToLower().Trim();
+                var cleanWord = words[idx].ToLower().Trim();
                 
                 if (Bip39Words.Contains(cleanWord))
                 {
@@ -339,6 +366,7 @@ namespace WalletRecoveryTool.Core
                     var suggestions = FindAllCorrections(cleanWord, maxDistance: 2);
                     if (suggestions.Any())
                     {
+                        positionCandidates[idx] = suggestions;
                         var bestMatch = suggestions.First();
                         correctedWords.Add(bestMatch);
                         corrections[cleanWord] = bestMatch;
@@ -354,7 +382,61 @@ namespace WalletRecoveryTool.Core
 
             result.CorrectedMnemonic = string.Join(" ", correctedWords);
             result.Corrections = corrections;
-            result.IsValid = CryptoWalletGenerator.IsValidMnemonic(result.CorrectedMnemonic);
+            result.IsValid = CryptoWalletGenerator.IsValidMnemonic(result.CorrectedMnemonic) &&
+                             !MnemonicTracker.IsRestrictedTrivialMnemonic(result.CorrectedMnemonic);
+
+            // Checksum-guided solver: if greedy top-1 pick didn't pass BIP39 checksum, try alternative candidates
+            if (!result.IsValid && result.UnfixableWords.Count == 0 && correctedWords.Count >= 12)
+            {
+                if (positionCandidates.Count > 0)
+                {
+                    foreach (var kvp in positionCandidates)
+                    {
+                        int pos = kvp.Key;
+                        string orig = correctedWords[pos];
+                        foreach (var alt in kvp.Value)
+                        {
+                            correctedWords[pos] = alt;
+                            var candidate = string.Join(" ", correctedWords);
+                            if (CryptoWalletGenerator.IsValidMnemonic(candidate) &&
+                                !MnemonicTracker.IsRestrictedTrivialMnemonic(candidate) &&
+                                !GlobalMnemonicTracker.Instance.WasScanned(candidate))
+                            {
+                                result.CorrectedMnemonic = candidate;
+                                result.Corrections[words[pos].ToLower().Trim()] = alt;
+                                result.IsValid = true;
+                                return result;
+                            }
+                        }
+                        correctedWords[pos] = orig;
+                    }
+                }
+                else
+                {
+                    // All words were in BIP39 list, but one word was mistyped into another valid BIP39 word
+                    for (int pos = 0; pos < correctedWords.Count; pos++)
+                    {
+                        string orig = correctedWords[pos];
+                        var nearWords = Bip39Words.Where(w => w != orig && LevenshteinDistance(orig, w) == 1);
+                        foreach (var alt in nearWords)
+                        {
+                            correctedWords[pos] = alt;
+                            var candidate = string.Join(" ", correctedWords);
+                            if (CryptoWalletGenerator.IsValidMnemonic(candidate) &&
+                                !MnemonicTracker.IsRestrictedTrivialMnemonic(candidate) &&
+                                !GlobalMnemonicTracker.Instance.WasScanned(candidate))
+                            {
+                                result.CorrectedMnemonic = candidate;
+                                result.Corrections[orig] = alt;
+                                result.CorrectionsMade++;
+                                result.IsValid = true;
+                                return result;
+                            }
+                        }
+                        correctedWords[pos] = orig;
+                    }
+                }
+            }
 
             return result;
         }

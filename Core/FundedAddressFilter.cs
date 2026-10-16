@@ -148,6 +148,12 @@ namespace WalletRecoveryTool.Core
         {
             if (!Directory.Exists(DataDir)) return new List<string>();
 
+            var fullChainName = string.Equals(crypto, "btc", StringComparison.OrdinalIgnoreCase)
+                ? "bitcoin"
+                : string.Equals(crypto, "eth", StringComparison.OrdinalIgnoreCase)
+                    ? "ethereum"
+                    : crypto;
+
             var patterns = new[]
             {
                 $"{crypto}_funded.txt",
@@ -159,8 +165,7 @@ namespace WalletRecoveryTool.Core
                 $"{crypto}*.tsv",
                 $"{crypto}*.csv",
                 $"blockchair_{crypto}*.tsv",
-                $"blockchair_bitcoin*.tsv",
-                $"blockchair_ethereum*.tsv"
+                $"blockchair_{fullChainName}*.tsv"
             };
 
             var files = new HashSet<string>();
@@ -545,10 +550,11 @@ namespace WalletRecoveryTool.Core
         /// <summary>
         /// Mark an address as confirmed empty (add to bloom filter).
         /// Called after API returns zero balance. Thread-safe.
+        /// Enforced strictly across all modes so confirmed-empty addresses never repeat.
         /// </summary>
         public void MarkAsEmpty(string address)
         {
-            if (string.IsNullOrEmpty(address) || !_isLoaded || _bitArray == null || AppSettings.Current.StrictScanMode) return;
+            if (string.IsNullOrEmpty(address) || !_isLoaded || _bitArray == null) return;
 
             // Warn if bloom filter is at/over capacity (false positive rate degrades sharply)
             if (_expectedCapacity > 0 && _addressCount >= _expectedCapacity)
@@ -598,7 +604,6 @@ namespace WalletRecoveryTool.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsKnownEmpty(string address)
         {
-            if (AppSettings.Current.StrictScanMode) return false;
             if (!_isLoaded || _bitArray == null || _addressCount == 0) return false;
 
             var hashes = GetHashes(address);
@@ -623,7 +628,6 @@ namespace WalletRecoveryTool.Core
         /// </summary>
         public List<string> FilterOutKnownEmpty(List<string> addresses)
         {
-            if (AppSettings.Current.StrictScanMode) return addresses;
             if (!_isLoaded || _addressCount == 0) return addresses;
             return addresses.Where(a => !IsKnownEmpty(a)).ToList();
         }
@@ -667,8 +671,15 @@ namespace WalletRecoveryTool.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private uint[] GetHashes(string item)
         {
+            // Normalize Ethereum (0x) addresses to lowercase so EIP-55 checksummed addresses
+            // match lowercase funded address lists and bloom filters.
+            if (item != null && item.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                item = item.ToLowerInvariant();
+            }
+
             // Use MurmurHash3-inspired double hashing for speed
-            var bytes = Encoding.UTF8.GetBytes(item);
+            var bytes = Encoding.UTF8.GetBytes(item ?? string.Empty);
             uint hash1 = MurmurHash3(bytes, 0);
             uint hash2 = MurmurHash3(bytes, hash1);
 

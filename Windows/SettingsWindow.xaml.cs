@@ -97,8 +97,26 @@ namespace WalletRecoveryTool
             EmailAlertsCheckBox.IsChecked = _settings.EnableEmailAlerts;
             EmailAddressTextBox.Text = _settings.AlertEmailAddress;
             
-            // SendGrid API key
-            SendGridApiKeyTextBox.Text = _settings.SendGridApiKey;
+            // SMTP & Email notification settings
+            if (SmtpServerTextBox != null)
+                SmtpServerTextBox.Text = _settings.SmtpServer ?? "";
+            if (SmtpPortTextBox != null)
+                SmtpPortTextBox.Text = (_settings.SmtpPort > 0 ? _settings.SmtpPort : 587).ToString();
+            if (SmtpUsernameTextBox != null)
+                SmtpUsernameTextBox.Text = _settings.SmtpUsername ?? "";
+            if (SmtpPasswordTextBox != null)
+                SmtpPasswordTextBox.Text = _settings.SmtpPassword ?? "";
+            SendGridApiKeyTextBox.Text = _settings.SendGridApiKey ?? "";
+            if (EmailMethodComboBox != null)
+            {
+                EmailMethodComboBox.SelectedIndex = (_settings.EmailMethod ?? "SMTP") switch
+                {
+                    "SendGrid" => 1,
+                    "Gmail API" => 2,
+                    "Webhook" => 3,
+                    _ => 0 // SMTP (Traditional)
+                };
+            }
             
             // Cache and performance settings (use cached references - much faster than FindName)
             if (_enableCacheCheckBox != null)
@@ -212,9 +230,25 @@ namespace WalletRecoveryTool
             _settings.EnableEmailAlerts = EmailAlertsCheckBox.IsChecked == true;
             _settings.AlertEmailAddress = EmailAddressTextBox.Text.Trim();
             
-            // SendGrid API key only
+            // SMTP, SendGrid & Webhook settings
+            if (SmtpServerTextBox != null)
+                _settings.SmtpServer = SmtpServerTextBox.Text.Trim();
+            if (SmtpPortTextBox != null && int.TryParse(SmtpPortTextBox.Text.Trim(), out int smtpPort) && smtpPort > 0)
+                _settings.SmtpPort = smtpPort;
+            else
+                _settings.SmtpPort = 587;
+            if (SmtpUsernameTextBox != null)
+                _settings.SmtpUsername = SmtpUsernameTextBox.Text.Trim();
+            if (SmtpPasswordTextBox != null)
+                _settings.SmtpPassword = SmtpPasswordTextBox.Text.Trim();
             _settings.SendGridApiKey = SendGridApiKeyTextBox.Text.Trim();
-            _settings.EmailMethod = "SendGrid";
+            _settings.EmailMethod = (EmailMethodComboBox?.SelectedIndex ?? 0) switch
+            {
+                1 => "SendGrid",
+                2 => "Gmail API",
+                3 => "Webhook",
+                _ => "SMTP"
+            };
             
             // Cache and performance settings (use cached references - much faster)
             if (_enableCacheCheckBox != null)
@@ -987,36 +1021,45 @@ namespace WalletRecoveryTool
                 
                 try
                 {
-                    LogMessage("Validating SendGrid configuration...");
-                    string apiKey = SendGridApiKeyTextBox.Text?.Trim();
-                    LogMessage($"API Key provided: {!string.IsNullOrEmpty(apiKey)}");
-                    LogMessage($"API Key length: {apiKey?.Length ?? 0}");
-                    
-                    if (string.IsNullOrEmpty(apiKey))
+                    LogMessage("Validating SMTP / Email configuration...");
+                    string smtpHost = SmtpServerTextBox?.Text?.Trim() ?? "";
+                    int smtpPort = 587;
+                    if (SmtpPortTextBox != null && int.TryParse(SmtpPortTextBox.Text.Trim(), out int parsedPort) && parsedPort > 0)
+                        smtpPort = parsedPort;
+                    string smtpUser = SmtpUsernameTextBox?.Text?.Trim() ?? "";
+                    string smtpPass = SmtpPasswordTextBox?.Text?.Trim() ?? "";
+                    string apiKey = SendGridApiKeyTextBox?.Text?.Trim() ?? "";
+                    string emailMethod = (EmailMethodComboBox?.SelectedIndex ?? 0) switch
                     {
-                        throw new InvalidOperationException("SendGrid API key is required. Get it from https://sendgrid.com → Settings → API Keys");
-                    }
-                    
-                    LogMessage("All validations passed. Creating test settings...");
-                    
+                        1 => "SendGrid",
+                        2 => "Gmail API",
+                        3 => "Webhook",
+                        _ => "SMTP"
+                    };
+
                     var testSettings = new AppSettings
                     {
                         EnableEmailAlerts = true,
                         AlertEmailAddress = emailAddress,
-                        EmailMethod = "SendGrid",
-                        SendGridApiKey = apiKey
+                        EmailMethod = emailMethod,
+                        SmtpServer = smtpHost,
+                        SmtpPort = smtpPort,
+                        SmtpUsername = smtpUser,
+                        SmtpPassword = smtpPass,
+                        SendGridApiKey = apiKey,
+                        WebhookUrl = emailAddress.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? emailAddress : ""
                     };
                     
-                    // Create test wallet
+                    // Create test wallet using a non-restricted valid BIP39 mnemonic
                     LogMessage("Creating test wallet with sample data...");
                     var testWallet = new CryptoWalletGenerator.WalletInfo
                     {
-                        Mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-                        BitcoinAddress = "1A1z7agoat7SFfq3UiPjC9CT9FC8j2mDe1",
+                        Mnemonic = "planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle",
+                        BitcoinAddress = "1FbeLoQ9s428xK2E9fR4fV2cR2X6n3L2sB",
                         BitcoinAddressSegWit = "3J98t1WpEZ73CNmYviecrnyiWrnqRhWNLy",
                         BitcoinAddressNativeSegWit = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
-                        EthereumAddress = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
-                        SolanaAddress = "11111111111111111111111111111111",
+                        EthereumAddress = "0x91D6E6B770e9F98e40C47D0156F20B4358989060",
+                        SolanaAddress = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
                         Balances = new System.Collections.Generic.Dictionary<string, decimal>
                         {
                             { "BTC", 0.00001m },
@@ -1026,8 +1069,8 @@ namespace WalletRecoveryTool
                         }
                     };
                     
-                    // Send test email
-                    LogMessage($"Sending test email to {emailAddress} via SendGrid...");
+                    // Send test email via SMTP / configured channel
+                    LogMessage($"Sending test email to {emailAddress} via {emailMethod} ({(string.IsNullOrEmpty(smtpHost) ? "auto-inferred host" : $"{smtpHost}:{smtpPort}")})...");
                     await EmailAlertService.SendWalletFoundAlertAsync(testWallet, testSettings);
                     
                     LogMessage("✅ Test email sent successfully!");

@@ -109,6 +109,9 @@ namespace WalletRecoveryTool
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
 
+            // Prevent dialog close from triggering OnLastWindowClose before MainWindow is shown
+            this.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
             // License check — admin machine skips, others need a valid license
             if (!LicenseManager.IsAdminMachine() && !LicenseManager.IsLicensed())
             {
@@ -143,9 +146,11 @@ namespace WalletRecoveryTool
                 // Create and show the main window directly
                 try { File.AppendAllText(logPath, $"[{DateTime.Now}] Creating MainWindow...\n"); } catch { }
                 var mainWindow = new MainWindow();
+                this.MainWindow = mainWindow;
                 try { File.AppendAllText(logPath, $"[{DateTime.Now}] Showing MainWindow...\n"); } catch { }
                 mainWindow.Show();
                 splash.Close();
+                this.ShutdownMode = ShutdownMode.OnMainWindowClose;
                 try { File.AppendAllText(logPath, $"[{DateTime.Now}] MainWindow shown successfully\n"); } catch { }
 
                 // First-run style install health check (non-fatal)

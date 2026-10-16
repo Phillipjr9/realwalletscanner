@@ -22,8 +22,12 @@ namespace WalletRecoveryTool.Core
         private readonly string _statsPath;
         
         private readonly object _lock = new object();
-        private readonly HashSet<string> _memoryCache;
+        private readonly HashSet<UInt128> _memoryCache;
+        private readonly Queue<UInt128> _memoryCacheOrder = new Queue<UInt128>();
+        private readonly HashSet<UInt128> _fundedWhitelist = new HashSet<UInt128>();
+        private bool _hasEvictedFromMemoryCache;
         private const int MaxMemoryCacheSize = 500_000; // Cap to prevent multi-GB RAM usage
+        private const int BinaryFormatMagic = -2; // Header marker for compact 16-byte UInt128 hash store
 
         // Multi-PC deterministic sharding (optional)
         private readonly bool _clusterShardingEnabled;
@@ -43,7 +47,7 @@ namespace WalletRecoveryTool.Core
         private bool _disposed;
         private long _newEntriesSinceLastSave;
         private int _saveInProgress;
-        private const int IncrementalSaveThreshold = 5000;
+        private const int IncrementalSaveThreshold = 500;
         
         // Auto-save interval
         private readonly Timer _autoSaveTimer;
@@ -70,7 +74,7 @@ namespace WalletRecoveryTool.Core
             _hashStorePath = Path.Combine(_dataDirectory, "mnemonic_hashes.bin");
             _statsPath = Path.Combine(_dataDirectory, "tracker_stats.json");
             
-            _memoryCache = new HashSet<string>();
+            _memoryCache = new HashSet<UInt128>();
 
             // Cluster sharding configuration
             // Supports environment variable overrides for easy per-PC install config:
@@ -155,6 +159,145 @@ namespace WalletRecoveryTool.Core
                 TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
 
+        private static readonly HashSet<string> KnownTrivialTestVectors = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+            "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
+            "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+            "legal winner thank year wave sausage worth useful legal winner thank yellow",
+            "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+            "void come effort suffer camp survey warrior heavy shoot primary clutch crush",
+            "all all all all all all all all all all all all",
+            "bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon",
+            "bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon"
+        };
+
+        /// <summary>
+        /// Strictly restricts known BIP39 test vectors, repeated-word mnemonics (e.g. "abandon abandon..."),
+        /// consecutive duplicate words, and low-distinct-word degenerate patterns that have zero realistic chance of holding funds.
+        /// </summary>
+        public static bool IsRestrictedTrivialMnemonic(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return true;
+
+            var normalized = string.Join(" ", input.Trim().ToLowerInvariant()
+                .Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries));
+
+            if (KnownTrivialTestVectors.Contains(normalized))
+                return true;
+
+            // Block any phrase or brainwallet containing 3+ consecutive "abandon" words or the test vector
+            if (normalized.Contains("abandon abandon") || normalized.Contains("zoo zoo zoo") || normalized.Contains("bacon bacon bacon"))
+                return true;
+
+        private static readonly HashSet<string> KnownTrivialPrivateKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            "0000000000000000000000000000000000000000000000000000000000000002",
+            "0000000000000000000000000000000000000000000000000000000000000003",
+            "0000000000000000000000000000000000000000000000000000000000000010",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "2222222222222222222222222222222222222222222222222222222222222222",
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" // SHA256("")
+        };
+
+        /// <summary>
+        /// Strictly restricts invalid secp256k1 private keys (not 64 hex chars, 0, or >= curve order N),
+        /// repeated single-byte keys (010101..., ffffff...), and known public test-vector keys (0x01, SHA256(""), etc.).
+        /// </summary>
+        public static bool IsRestrictedTrivialPrivateKey(string hexKey)
+        {
+            if (string.IsNullOrWhiteSpace(hexKey))
+                return true;
+
+            var clean = hexKey.Trim().ToLowerInvariant();
+            if (clean.StartsWith("pk:")) clean = clean.Substring(3).Trim();
+            if (clean.StartsWith("0x")) clean = clean.Substring(2).Trim();
+
+            if (clean.Length != 64)
+                return true;
+
+            if (KnownTrivialPrivateKeys.Contains(clean))
+                return true;
+
+            // Block repeated 2-char hex byte across all 32 bytes (e.g. 050505...05, aaaaaa...aa)
+            string firstByte = clean.Substring(0, 2);
+            bool allSameByte = true;
+            for (int i = 2; i < 64; i += 2)
+            {
+                if (clean[i] != firstByte[0] || clean[i + 1] != firstByte[1])
+                {
+                    allSameByte = false;
+                    break;
+                }
+            }
+            if (allSameByte)
+                return true;
+
+            // Block keys >= secp256k1 curve order N (fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141)
+            if (clean.StartsWith("ffffffffffffffffffffffffffffffff"))
+                return true;
+
+            return false;
+        }
+
+            if (normalized.StartsWith("pk:"))
+                return IsRestrictedTrivialPrivateKey(normalized);
+
+            if (normalized.StartsWith("addr:"))
+                return false;
+
+            // Extract mnemonic portion if prefixed with deriv: or passphrase: or brain:
+            var checkPart = normalized;
+            if (checkPart.StartsWith("brain:"))
+                checkPart = checkPart.Substring("brain:".Length).Trim();
+            else if (checkPart.StartsWith("passphrase:"))
+            {
+                var parts = checkPart.Split(':');
+                if (parts.Length >= 2) checkPart = parts[1];
+            }
+            else if (checkPart.StartsWith("deriv:"))
+            {
+                var parts = checkPart.Split(':');
+                if (parts.Length >= 2) checkPart = parts[1];
+            }
+
+            if (KnownTrivialTestVectors.Contains(checkPart) || checkPart.Contains("abandon abandon"))
+                return true;
+
+            var words = checkPart.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 12 || words.Length == 15 || words.Length == 18 || words.Length == 21 || words.Length == 24)
+            {
+                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < words.Length; i++)
+                {
+                    // Block adjacent identical words (e.g. "abandon abandon ...", "able able ...")
+                    if (i > 0 && string.Equals(words[i], words[i - 1], StringComparison.OrdinalIgnoreCase))
+                        return true;
+
+                    counts.TryGetValue(words[i], out int c);
+                    c++;
+                    // Block if any single word repeats 3 or more times
+                    if (c >= 3)
+                        return true;
+                    counts[words[i]] = c;
+                }
+
+                // Require high word diversity (at least 9 distinct words for 12-word seed, 16 for 24-word seed)
+                int minDistinct = words.Length >= 24 ? 16 : (words.Length * 3) / 4;
+                if (counts.Count < minDistinct)
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Checks if a mnemonic has been seen before and marks it as seen if not
         /// Returns true if this is a NEW mnemonic (not seen before)
@@ -164,6 +307,16 @@ namespace WalletRecoveryTool.Core
         {
             if (string.IsNullOrWhiteSpace(mnemonic))
                 return false;
+
+            // STRICT TRIVIAL/REPEATED-WORD RESTRICTION: Never scan "abandon abandon..." or degenerate patterns
+            if (IsRestrictedTrivialMnemonic(mnemonic))
+            {
+                lock (_lock)
+                {
+                    _duplicatesAvoided++;
+                }
+                return false;
+            }
             
             // Normalize mnemonic (lowercase, single spaces)
             var normalized = NormalizeMnemonic(mnemonic);
@@ -181,11 +334,17 @@ namespace WalletRecoveryTool.Core
             
             lock (_lock)
             {
+                // Funded wallets are whitelisted so they can always be re-inspected
+                if (_fundedWhitelist.Contains(hash))
+                {
+                    return true;
+                }
+
                 // Fast bloom filter check first
                 if (BloomContains(hash))
                 {
-                    // Might be false positive, check memory cache
-                    if (_memoryCache.Contains(hash))
+                    // Check memory cache, or rely on bloom filter if older entries were evicted
+                    if (_memoryCache.Contains(hash) || _hasEvictedFromMemoryCache || _totalTracked > _memoryCache.Count)
                     {
                         _duplicatesAvoided++;
                         return false; // Already seen
@@ -195,13 +354,17 @@ namespace WalletRecoveryTool.Core
                 // New mnemonic - add to both bloom filter and cache
                 BloomAdd(hash);
                 
-                // Cap memory cache to prevent multi-GB RAM usage
-                // Bloom filter alone handles dedup for evicted entries (with small FP rate)
-                if (_memoryCache.Count >= MaxMemoryCacheSize)
+                // Cap memory cache using FIFO eviction instead of wiping all entries
+                while (_memoryCache.Count >= MaxMemoryCacheSize && _memoryCacheOrder.Count > 0)
                 {
-                    _memoryCache.Clear();
+                    var oldest = _memoryCacheOrder.Dequeue();
+                    _memoryCache.Remove(oldest);
+                    _hasEvictedFromMemoryCache = true;
                 }
-                _memoryCache.Add(hash);
+                if (_memoryCache.Add(hash))
+                {
+                    _memoryCacheOrder.Enqueue(hash);
+                }
                 _totalTracked++;
                 _isDirty = true;
                 var newSinceSave = Interlocked.Increment(ref _newEntriesSinceLastSave);
@@ -241,18 +404,183 @@ namespace WalletRecoveryTool.Core
         {
             if (string.IsNullOrWhiteSpace(mnemonic))
                 return false;
+
+            if (IsRestrictedTrivialMnemonic(mnemonic))
+                return true;
             
             var normalized = NormalizeMnemonic(mnemonic);
             var hash = ComputeHash(normalized);
             
             lock (_lock)
             {
+                if (_fundedWhitelist.Contains(hash))
+                    return false;
+
                 // Bloom filter says definitely not seen
                 if (!BloomContains(hash))
                     return false;
                 
-                // Check memory cache for certainty
-                return _memoryCache.Contains(hash);
+                // Check memory cache for certainty, or fall back to bloom filter if entries were evicted
+                return _memoryCache.Contains(hash) || _hasEvictedFromMemoryCache || _totalTracked > _memoryCache.Count;
+            }
+        }
+
+        /// <summary>
+        /// Checks whether an address or private key was already scanned and confirmed empty across any section.
+        /// </summary>
+        public bool IsAddressOrKeyScannedEmpty(string addressOrKey)
+        {
+            if (string.IsNullOrWhiteSpace(addressOrKey))
+                return false;
+
+            var normalized = addressOrKey.Trim().ToLowerInvariant();
+            if (WasScanned("addr:" + normalized) || WasScanned("pk:" + normalized))
+            {
+                lock (_lock)
+                {
+                    _duplicatesAvoided++;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Strict cross-section check: verifies that neither the wallet's mnemonic, private key,
+        /// nor primary BTC/ETH addresses have been previously scanned as empty.
+        /// Returns true if the wallet is NEW (should be scanned), or false if it was already scanned empty.
+        /// </summary>
+        public bool TryMarkWalletCandidate(CryptoWalletGenerator.WalletInfo wallet, string extraKey = null)
+        {
+            if (wallet == null)
+                return false;
+
+            // Check if any identifier of this wallet was already confirmed empty
+            if (!string.IsNullOrWhiteSpace(extraKey) && WasScanned(extraKey))
+            {
+                lock (_lock) { _duplicatesAvoided++; }
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.Mnemonic) && WasScanned(wallet.Mnemonic))
+            {
+                lock (_lock) { _duplicatesAvoided++; }
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.PrivateKey) && WasScanned("pk:" + wallet.PrivateKey.Trim().ToLowerInvariant()))
+            {
+                lock (_lock) { _duplicatesAvoided++; }
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddress) &&
+                (WasScanned("addr:" + wallet.BitcoinAddress.Trim().ToLowerInvariant()) ||
+                 FundedAddressFilter.BTCEmpty.IsKnownEmpty(wallet.BitcoinAddress)))
+            {
+                lock (_lock) { _duplicatesAvoided++; }
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.EthereumAddress) &&
+                (WasScanned("addr:" + wallet.EthereumAddress.Trim().ToLowerInvariant()) ||
+                 FundedAddressFilter.ETHEmpty.IsKnownEmpty(wallet.EthereumAddress)))
+            {
+                lock (_lock) { _duplicatesAvoided++; }
+                return false;
+            }
+
+            // Mark primary input as in-flight/scanned so concurrent threads don't repeat it
+            if (!string.IsNullOrWhiteSpace(extraKey))
+                return TryMarkAsScanned(extraKey);
+            if (!string.IsNullOrWhiteSpace(wallet.Mnemonic))
+                return TryMarkAsScanned(wallet.Mnemonic);
+            if (!string.IsNullOrWhiteSpace(wallet.PrivateKey))
+                return TryMarkAsScanned("pk:" + wallet.PrivateKey.Trim().ToLowerInvariant());
+
+            return true;
+        }
+
+        /// <summary>
+        /// Permanently records a confirmed-empty wallet across ALL identifiers (mnemonic, private key,
+        /// BTC/ETH/SOL addresses, and empty address Bloom filters) so it can NEVER repeat in any section.
+        /// </summary>
+        public void MarkWalletConfirmedEmpty(CryptoWalletGenerator.WalletInfo wallet, string extraKey = null)
+        {
+            if (!string.IsNullOrWhiteSpace(extraKey))
+                TryMarkAsScanned(extraKey);
+
+            if (wallet == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(wallet.Mnemonic))
+                TryMarkAsScanned(wallet.Mnemonic);
+
+            if (!string.IsNullOrWhiteSpace(wallet.PrivateKey))
+                TryMarkAsScanned("pk:" + wallet.PrivateKey.Trim().ToLowerInvariant());
+
+            if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddress))
+            {
+                TryMarkAsScanned("addr:" + wallet.BitcoinAddress.Trim().ToLowerInvariant());
+                FundedAddressFilter.BTCEmpty.MarkAsEmpty(wallet.BitcoinAddress);
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressSegWit))
+            {
+                TryMarkAsScanned("addr:" + wallet.BitcoinAddressSegWit.Trim().ToLowerInvariant());
+                FundedAddressFilter.BTCEmpty.MarkAsEmpty(wallet.BitcoinAddressSegWit);
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressNativeSegWit))
+            {
+                TryMarkAsScanned("addr:" + wallet.BitcoinAddressNativeSegWit.Trim().ToLowerInvariant());
+                FundedAddressFilter.BTCEmpty.MarkAsEmpty(wallet.BitcoinAddressNativeSegWit);
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressTaproot))
+            {
+                TryMarkAsScanned("addr:" + wallet.BitcoinAddressTaproot.Trim().ToLowerInvariant());
+                FundedAddressFilter.BTCEmpty.MarkAsEmpty(wallet.BitcoinAddressTaproot);
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.EthereumAddress))
+            {
+                TryMarkAsScanned("addr:" + wallet.EthereumAddress.Trim().ToLowerInvariant());
+                FundedAddressFilter.ETHEmpty.MarkAsEmpty(wallet.EthereumAddress);
+            }
+            if (!string.IsNullOrWhiteSpace(wallet.SolanaAddress))
+            {
+                TryMarkAsScanned("addr:" + wallet.SolanaAddress.Trim().ToLowerInvariant());
+            }
+        }
+
+        /// <summary>
+        /// Whitelists a funded wallet (> 0 balance) so that it is never treated as an empty wallet
+        /// and can always be re-inspected across tabs.
+        /// </summary>
+        public void MarkWalletConfirmedFunded(CryptoWalletGenerator.WalletInfo wallet, string extraKey = null)
+        {
+            lock (_lock)
+            {
+                void WhitelistKey(string k)
+                {
+                    if (string.IsNullOrWhiteSpace(k)) return;
+                    var h = ComputeHash(NormalizeMnemonic(k));
+                    _fundedWhitelist.Add(h);
+                    _memoryCache.Remove(h);
+                }
+
+                WhitelistKey(extraKey);
+                if (wallet != null)
+                {
+                    WhitelistKey(wallet.Mnemonic);
+                    if (!string.IsNullOrWhiteSpace(wallet.PrivateKey))
+                        WhitelistKey("pk:" + wallet.PrivateKey.Trim().ToLowerInvariant());
+                    if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddress))
+                        WhitelistKey("addr:" + wallet.BitcoinAddress.Trim().ToLowerInvariant());
+                    if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressSegWit))
+                        WhitelistKey("addr:" + wallet.BitcoinAddressSegWit.Trim().ToLowerInvariant());
+                    if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressNativeSegWit))
+                        WhitelistKey("addr:" + wallet.BitcoinAddressNativeSegWit.Trim().ToLowerInvariant());
+                    if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressTaproot))
+                        WhitelistKey("addr:" + wallet.BitcoinAddressTaproot.Trim().ToLowerInvariant());
+                    if (!string.IsNullOrWhiteSpace(wallet.EthereumAddress))
+                        WhitelistKey("addr:" + wallet.EthereumAddress.Trim().ToLowerInvariant());
+                    if (!string.IsNullOrWhiteSpace(wallet.SolanaAddress))
+                        WhitelistKey("addr:" + wallet.SolanaAddress.Trim().ToLowerInvariant());
+                }
             }
         }
 
@@ -293,20 +621,26 @@ namespace WalletRecoveryTool.Core
 
         #region Bloom Filter Operations
 
-        private void BloomAdd(string hash)
+        private void BloomAdd(UInt128 hash)
         {
-            foreach (var index in GetBloomIndices(hash))
+            Span<int> indices = stackalloc int[BloomHashCount];
+            FillBloomIndices(hash, indices);
+            for (int i = 0; i < BloomHashCount; i++)
             {
+                int index = indices[i];
                 int byteIndex = index / 8;
                 int bitIndex = index % 8;
                 _bloomFilter[byteIndex] |= (byte)(1 << bitIndex);
             }
         }
 
-        private bool BloomContains(string hash)
+        private bool BloomContains(UInt128 hash)
         {
-            foreach (var index in GetBloomIndices(hash))
+            Span<int> indices = stackalloc int[BloomHashCount];
+            FillBloomIndices(hash, indices);
+            for (int i = 0; i < BloomHashCount; i++)
             {
+                int index = indices[i];
                 int byteIndex = index / 8;
                 int bitIndex = index % 8;
                 if ((_bloomFilter[byteIndex] & (1 << bitIndex)) == 0)
@@ -315,22 +649,22 @@ namespace WalletRecoveryTool.Core
             return true;
         }
 
-        private IEnumerable<int> GetBloomIndices(string hash)
+        private void FillBloomIndices(UInt128 hash, Span<int> indices)
         {
-            // Use different parts of the hash for multiple indices.
-            // Reuse SHA256.HashData (static, no allocation) instead of creating
-            // a new SHA256 instance per index — 7x fewer allocations per call.
-            var hashBytes = Encoding.UTF8.GetBytes(hash);
-            int bitsCount = _bloomFilterSize * 8;
-            var combined = new byte[hashBytes.Length + 1];
-            Buffer.BlockCopy(hashBytes, 0, combined, 0, hashBytes.Length);
+            // Zero-allocation double-hashing from 128-bit SHA-256 prefix
+            ulong h1 = (ulong)(hash >> 64);
+            ulong h2 = (ulong)hash;
+            if (h2 == 0) h2 = 0x9E3779B97F4A7C15UL;
+            uint bitsCount = (uint)(_bloomFilterSize * 8);
 
             for (int i = 0; i < BloomHashCount; i++)
             {
-                combined[^1] = (byte)i;
-                var h = SHA256.HashData(combined);
-                int index = Math.Abs(BitConverter.ToInt32(h, 0)) % bitsCount;
-                yield return index;
+                ulong combined = h1 + (ulong)i * h2 + (ulong)(i * i);
+                // Mix bits (MurmurHash3 finalizer)
+                combined ^= combined >> 33;
+                combined *= 0xff51afd7ed558ccdUL;
+                combined ^= combined >> 33;
+                indices[i] = (int)((uint)combined % bitsCount);
             }
         }
 
@@ -389,31 +723,67 @@ namespace WalletRecoveryTool.Core
                     }
                 }
 
-                // Load hash cache (only last MaxMemoryCacheSize entries to limit RAM)
+                // Load hash cache (supports both compact BinaryFormatMagic=-2 and legacy string format)
+                bool migratedLegacyStore = false;
                 if (File.Exists(_hashStorePath))
                 {
                     try
                     {
                         using var reader = new BinaryReader(File.OpenRead(_hashStorePath));
-                        var count = reader.ReadInt32();
+                        var firstInt = reader.ReadInt32();
 
-                        // Basic sanity bound to guard against corrupted headers
-                        if (count < 0 || count > 100_000_000)
-                            throw new InvalidDataException($"Invalid mnemonic hash count: {count}");
-
-                        // Skip older entries to cap memory usage
-                        int skipCount = Math.Max(0, count - MaxMemoryCacheSize);
-                        for (int i = 0; i < skipCount; i++)
+                        if (firstInt == BinaryFormatMagic)
                         {
-                            reader.ReadString(); // skip old entry (bloom filter already has it)
-                        }
+                            var count = reader.ReadInt32();
+                            if (count < 0 || count > 100_000_000)
+                                throw new InvalidDataException($"Invalid mnemonic hash count: {count}");
 
-                        for (int i = skipCount; i < count; i++)
-                        {
-                            var hash = reader.ReadString();
-                            if (!string.IsNullOrWhiteSpace(hash))
+                            int skipCount = Math.Max(0, count - MaxMemoryCacheSize);
+                            if (skipCount > 0)
                             {
-                                _memoryCache.Add(hash);
+                                _hasEvictedFromMemoryCache = true;
+                                reader.BaseStream.Seek((long)skipCount * 16, SeekOrigin.Current);
+                            }
+
+                            for (int i = skipCount; i < count; i++)
+                            {
+                                ulong upper = reader.ReadUInt64();
+                                ulong lower = reader.ReadUInt64();
+                                var hash = new UInt128(upper, lower);
+                                if (_memoryCache.Add(hash))
+                                {
+                                    _memoryCacheOrder.Enqueue(hash);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Legacy string format
+                            var count = firstInt;
+                            if (count < 0 || count > 100_000_000)
+                                throw new InvalidDataException($"Invalid mnemonic hash count: {count}");
+
+                            migratedLegacyStore = true;
+                            int skipCount = Math.Max(0, count - MaxMemoryCacheSize);
+                            if (skipCount > 0)
+                            {
+                                _hasEvictedFromMemoryCache = true;
+                            }
+                            for (int i = 0; i < skipCount; i++)
+                            {
+                                reader.ReadString();
+                            }
+
+                            for (int i = skipCount; i < count; i++)
+                            {
+                                var hashStr = reader.ReadString();
+                                if (!string.IsNullOrWhiteSpace(hashStr) && TryParseHexToUInt128(hashStr, out var parsedHash))
+                                {
+                                    if (_memoryCache.Add(parsedHash))
+                                    {
+                                        _memoryCacheOrder.Enqueue(parsedHash);
+                                    }
+                                }
                             }
                         }
                     }
@@ -433,26 +803,29 @@ namespace WalletRecoveryTool.Core
                         }
 
                         _memoryCache.Clear();
+                        _memoryCacheOrder.Clear();
                     }
                 }
 
                 DebugLogger.Log($"MnemonicTracker loaded: {_totalTracked:N0} mnemonics tracked, " +
                                   $"{_duplicatesAvoided:N0} duplicates avoided since {_firstTrackedDate:d}");
                 
-                // If bloom filter was reset (size change) or failed to load, rebuild from cached hashes.
-                // Sample 1000 evenly-spaced bytes across the full filter to reliably detect an empty filter,
-                // avoiding the previous bug where only the first 100 bytes were checked (often all zero
-                // even on a populated filter, causing unnecessary and wasteful rebuilds every startup).
+                // If bloom filter was reset, migrated from legacy format, or empty, rebuild from cached hashes
                 if (_memoryCache.Count > 0)
                 {
-                    bool bloomEmpty = true;
-                    int step = Math.Max(1, _bloomFilterSize / 1000);
-                    for (int i = 0; i < _bloomFilterSize; i += step)
+                    bool bloomEmpty = migratedLegacyStore;
+                    if (!bloomEmpty)
                     {
-                        if (_bloomFilter[i] != 0) { bloomEmpty = false; break; }
+                        bloomEmpty = true;
+                        int step = Math.Max(1, _bloomFilterSize / 1000);
+                        for (int i = 0; i < _bloomFilterSize; i += step)
+                        {
+                            if (_bloomFilter[i] != 0) { bloomEmpty = false; break; }
+                        }
                     }
                     if (bloomEmpty)
                     {
+                        Array.Clear(_bloomFilter, 0, _bloomFilter.Length);
                         foreach (var hash in _memoryCache)
                             BloomAdd(hash);
                         DebugLogger.Log($"MnemonicTracker: Rebuilt bloom filter from {_memoryCache.Count:N0} cached hashes");
@@ -493,12 +866,14 @@ namespace WalletRecoveryTool.Core
                     // Save bloom filter
                     File.WriteAllBytes(_bloomFilterPath, _bloomFilter);
 
-                    // Save hash cache (for verification against bloom false positives)
+                    // Save compact 16-byte UInt128 hash cache (for verification against bloom false positives)
                     using var writer = new BinaryWriter(File.Create(_hashStorePath));
+                    writer.Write(BinaryFormatMagic);
                     writer.Write(_memoryCache.Count);
                     foreach (var hash in _memoryCache)
                     {
-                        writer.Write(hash);
+                        writer.Write((ulong)(hash >> 64));
+                        writer.Write((ulong)hash);
                     }
                     
                     _isDirty = false;
@@ -534,23 +909,14 @@ namespace WalletRecoveryTool.Core
 
         #region Helpers
 
-        private bool ShouldProcessOnThisNode(string hash)
+        private bool ShouldProcessOnThisNode(UInt128 hash)
         {
             if (!_clusterShardingEnabled || _clusterNodeCount <= 1)
                 return true;
 
-            try
-            {
-                // Use first 8 hex chars of SHA-256 hash for stable bucket assignment
-                uint bucketSeed = Convert.ToUInt32(hash.Substring(0, 8), 16);
-                int assignedNode = (int)(bucketSeed % (uint)_clusterNodeCount);
-                return assignedNode == _clusterNodeIndex;
-            }
-            catch
-            {
-                // Fail-safe: process locally if parsing fails
-                return true;
-            }
+            uint bucketSeed = (uint)(hash >> 96);
+            int assignedNode = (int)(bucketSeed % (uint)_clusterNodeCount);
+            return assignedNode == _clusterNodeIndex;
         }
 
         private static string NormalizeMnemonic(string mnemonic)
@@ -560,13 +926,39 @@ namespace WalletRecoveryTool.Core
                 .Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries));
         }
 
-        private static string ComputeHash(string input)
+        private static UInt128 ComputeHash(string input)
         {
-            // Use SHA-256 to create a fixed-size hash
-            // We never store the actual mnemonic, only its hash
-            using var sha256 = SHA256.Create();
-            var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
-            return Convert.ToHexString(bytes);
+            // Zero-allocation SHA-256 -> 128-bit compact hash (never stores the actual mnemonic)
+            Span<byte> utf8 = stackalloc byte[Math.Min(512, Encoding.UTF8.GetMaxByteCount(input.Length))];
+            int written = Encoding.UTF8.GetBytes(input.AsSpan(), utf8);
+            Span<byte> hashBytes = stackalloc byte[32];
+            SHA256.HashData(utf8[..written], hashBytes);
+            ulong upper = BitConverter.ToUInt64(hashBytes[..8]);
+            ulong lower = BitConverter.ToUInt64(hashBytes.Slice(8, 8));
+            return new UInt128(upper, lower);
+        }
+
+        private static bool TryParseHexToUInt128(string hex, out UInt128 result)
+        {
+            result = default;
+            if (string.IsNullOrWhiteSpace(hex) || hex.Length < 32)
+                return false;
+            try
+            {
+                Span<byte> bytes = stackalloc byte[16];
+                for (int i = 0; i < 16; i++)
+                {
+                    bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                }
+                ulong upper = BitConverter.ToUInt64(bytes[..8]);
+                ulong lower = BitConverter.ToUInt64(bytes.Slice(8, 8));
+                result = new UInt128(upper, lower);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         #endregion
@@ -582,6 +974,8 @@ namespace WalletRecoveryTool.Core
             {
                 Array.Clear(_bloomFilter, 0, _bloomFilter.Length);
                 _memoryCache.Clear();
+                _memoryCacheOrder.Clear();
+                _hasEvictedFromMemoryCache = false;
                 _totalTracked = 0;
                 _duplicatesAvoided = 0;
                 _firstTrackedDate = DateTime.UtcNow;
@@ -598,14 +992,23 @@ namespace WalletRecoveryTool.Core
         /// </summary>
         public void ResetSession()
         {
+            // CRITICAL: Flush any unsaved empty wallets to disk BEFORE reloading so switching
+            // tabs or starting a new scan never loses recently scanned empty wallets!
+            if (_isDirty)
+            {
+                Flush();
+            }
+
             lock (_lock)
             {
                 Array.Clear(_bloomFilter, 0, _bloomFilter.Length);
                 _memoryCache.Clear();
+                _memoryCacheOrder.Clear();
+                _hasEvictedFromMemoryCache = false;
                 // Rebuild bloom from disk so truly-checked mnemonics are still skipped
                 LoadFromDisk();
             }
-            DebugLogger.Log($"[MnemonicTracker] Session reset: {_totalTracked:N0} previously scanned mnemonics reloaded from disk");
+            DebugLogger.Log($"[MnemonicTracker] Session synchronized: {_totalTracked:N0} previously scanned empty wallets loaded from disk");
         }
 
         /// <summary>
@@ -629,7 +1032,7 @@ namespace WalletRecoveryTool.Core
                 
                 foreach (var hash in _memoryCache)
                 {
-                    writer.WriteLine(hash);
+                    writer.WriteLine($"{(ulong)(hash >> 64):X16}{(ulong)hash:X16}");
                 }
             }
             

@@ -2,14 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-        Title="Settings" Height="780" Width="720"
+        Title="Workstation Configuration &amp; Node Settings" Height="820" Width="760"
         Background="{StaticResource SurfaceDark}"
         TextElement.Foreground="{DynamicResource MaterialDesignBody}"
         TextElement.FontWeight="Regular"
         TextElement.FontSize="13"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
-        MinHeight="600" MinWidth="700">
+        MinHeight="620" MinWidth="700">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -18,68 +18,89 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceMid}" Padding="20,14" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal">
-                <materialDesign:PackIcon Kind="CogOutline" Height="22" Width="22" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center"/>
-                <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
-            </StackPanel>
+        <!-- Executive Header -->
+        <Border Grid.Row="0" Background="{StaticResource HeaderGradient}" Padding="22,14" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Border Width="38" Height="38" CornerRadius="10" Background="#131C2E" BorderBrush="#2A3B54" BorderThickness="1" Margin="0,0,12,0">
+                        <materialDesign:PackIcon Kind="CogOutline" Height="20" Width="20"
+                                                 Foreground="{StaticResource AccentCyan}"
+                                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="WORKSTATION CONFIGURATION &amp; SYSTEM TUNING" FontSize="15" FontWeight="Bold" Foreground="#F8FAFC"/>
+                        <TextBlock Text="Manage multi-chain RPC endpoints, thread concurrency, offline Bloom filters, and vault alerts" FontSize="11" Foreground="{StaticResource TextDim}"/>
+                    </StackPanel>
+                </StackPanel>
+                <Border Background="#1438BDF8" BorderBrush="#3038BDF8" BorderThickness="1" CornerRadius="6" Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="AES-256 PROTECTED" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
+                </Border>
+            </DockPanel>
         </Border>
 
         <!-- Content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20">
             <StackPanel>
 
-                <!-- ═══ API KEYS ═══ -->
+                <!-- ═══ API KEYS & LOCAL NODES ═══ -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="API KEYS" Style="{StaticResource SectionHeader}"/>
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="BLOCKCHAIN EXPLORER API KEYS &amp; LOCAL RPC NODES" Style="{StaticResource SectionHeader}" Margin="0"/>
+                            <TextBlock Text="MULTI-PROVIDER FAILOVER" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" HorizontalAlignment="Right"/>
+                        </DockPanel>
 
-                        <TextBox x:Name="EtherscanApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="Etherscan API Key (Required for ETH/USDT)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="BlockCypherApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="BlockCypher API Key (Required for BTC)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="QuickNodeApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="QuickNode API Key (Optional — Solana)" Margin="0,0,0,10"/>
-                        <CheckBox x:Name="UseLocalNodeForBalancesCheckBox" Content="Use local node / self-hosted RPC for balances" Margin="0,0,0,10" Style="{StaticResource CryptoCheckBox}"/>
-                        <TextBox x:Name="LocalBitcoinRpcUrlTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="Bitcoin RPC URL (e.g. http://127.0.0.1:8332)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="LocalEthereumRpcUrlTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="Ethereum RPC URL (e.g. http://127.0.0.1:8545)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="LocalSolanaRpcUrlTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="Solana RPC URL (e.g. http://127.0.0.1:8899)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="AlchemyApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="Alchemy API Key (Optional — ETH fallback)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="TronGridApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="TronGrid API Key (Optional — TRON USDT)" Margin="0,0,0,10"/>
-                        <TextBox x:Name="PolygonscanApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="Polygonscan API Key (Optional — MATIC)" Margin="0,0,0,10"/>
+                        <UniformGrid Columns="2">
+                            <TextBox x:Name="EtherscanApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="Etherscan API Key (ETH / ERC-20)" Margin="0,0,6,10"/>
+                            <TextBox x:Name="BlockCypherApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="BlockCypher API Key (BTC)" Margin="6,0,0,10"/>
+                            <TextBox x:Name="QuickNodeApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="QuickNode API Key (Solana)" Margin="0,0,6,10"/>
+                            <TextBox x:Name="AlchemyApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="Alchemy API Key (ETH Fallback)" Margin="6,0,0,10"/>
+                            <TextBox x:Name="TronGridApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="TronGrid API Key (TRON USDT)" Margin="0,0,6,10"/>
+                            <TextBox x:Name="PolygonscanApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="Polygonscan API Key (MATIC)" Margin="6,0,0,10"/>
+                        </UniformGrid>
+
                         <TextBox x:Name="BscscanApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                 materialDesign:HintAssist.Hint="BscScan API Key (Optional — BNB)" Margin="0,0,0,10"/>
+                                 materialDesign:HintAssist.Hint="BscScan API Key (BNB Smart Chain)" Margin="0,0,0,12"/>
 
-                        <Button Content="TEST ALL API KEYS" Click="TestApiKeys_Click" Style="{StaticResource SecondaryActionButton}" HorizontalAlignment="Left"/>
+                        <Border Style="{StaticResource InnerCard}">
+                            <StackPanel>
+                                <CheckBox x:Name="UseLocalNodeForBalancesCheckBox" Content="Prioritize dedicated / self-hosted local RPC nodes for balance queries" Margin="0,0,0,10" Style="{StaticResource CryptoCheckBox}"/>
+                                <TextBox x:Name="LocalBitcoinRpcUrlTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         FontFamily="Consolas" materialDesign:HintAssist.Hint="Bitcoin Core RPC URL (e.g. http://127.0.0.1:8332)" Margin="0,0,0,8"/>
+                                <TextBox x:Name="LocalEthereumRpcUrlTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         FontFamily="Consolas" materialDesign:HintAssist.Hint="Ethereum Execution RPC URL (e.g. http://127.0.0.1:8545)" Margin="0,0,0,8"/>
+                                <TextBox x:Name="LocalSolanaRpcUrlTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         FontFamily="Consolas" materialDesign:HintAssist.Hint="Solana Validator RPC URL (e.g. http://127.0.0.1:8899)"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Button Content="TEST ALL API KEYS &amp; NODES" Click="TestApiKeys_Click" Style="{StaticResource SecondaryActionButton}" HorizontalAlignment="Left" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
 
                 <!-- ═══ PERFORMANCE ═══ -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="PERFORMANCE" Style="{StaticResource SectionHeader}"/>
+                        <TextBlock Text="CONCURRENCY &amp; PIPELINE THROUGHPUT" Style="{StaticResource SectionHeader}"/>
 
-                        <Border Style="{StaticResource InnerCard}" Margin="0,0,0,12">
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <CheckBox x:Name="TurboModeCheckBox" Content="Turbo Mode" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
-                                    <TextBlock Text="5-10x faster — may hit API limits" Foreground="{StaticResource AccentOrange}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                                </StackPanel>
+                        <Border Style="{StaticResource InnerCard}" Margin="0,0,0,12" BorderBrush="#3010B981">
+                            <StackPanel Orientation="Horizontal">
+                                <CheckBox x:Name="TurboModeCheckBox" Content="Turbo Pipeline Mode" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                <TextBlock Text="5–10× faster parallel execution — recommended with API keys or local filters" Foreground="{StaticResource AccentOrange}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </StackPanel>
                         </Border>
 
                         <Grid Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="190"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="48"/>
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -87,25 +108,25 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <TextBlock Text="API Check Delay (ms)" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                            <TextBlock Text="API Check Delay (ms)" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                             <Slider x:Name="CheckDelaySlider" Grid.Column="1" Minimum="1" Maximum="500" Value="5" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="{Binding ElementName=CheckDelaySlider, Path=Value}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="2" Text="{Binding ElementName=CheckDelaySlider, Path=Value}" FontFamily="Consolas" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="Bold"/>
 
-                            <TextBlock Grid.Row="1" Text="Thread Count" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12" Margin="0,8,0,0"/>
-                            <Slider x:Name="ThreadCountSlider" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="64" Value="16" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding ElementName=ThreadCountSlider, Path=Value}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="1" Text="CPU Worker Threads" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12" Margin="0,10,0,0"/>
+                            <Slider x:Name="ThreadCountSlider" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="64" Value="16" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding ElementName=ThreadCountSlider, Path=Value}" FontFamily="Consolas" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="Bold" Margin="0,10,0,0"/>
 
-                            <TextBlock Grid.Row="2" Text="Max API Calls" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12" Margin="0,8,0,0"/>
-                            <Slider x:Name="MaxApiCallsSlider" Grid.Row="2" Grid.Column="1" Minimum="10" Maximum="200" Value="100" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding ElementName=MaxApiCallsSlider, Path=Value}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="2" Text="Max API Calls / Window" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12" Margin="0,10,0,0"/>
+                            <Slider x:Name="MaxApiCallsSlider" Grid.Row="2" Grid.Column="1" Minimum="10" Maximum="200" Value="100" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding ElementName=MaxApiCallsSlider, Path=Value}" FontFamily="Consolas" Foreground="{StaticResource AccentOrange}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="Bold" Margin="0,10,0,0"/>
                         </Grid>
 
-                        <TextBlock x:Name="PerformanceInfoTextBlock" Text="" Foreground="{StaticResource AccentCyan}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <TextBlock x:Name="PerformanceInfoTextBlock" Text="" Foreground="{StaticResource AccentCyan}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
                         <StackPanel Orientation="Horizontal">
-                            <Button Content="OPTIMIZE" Click="OptimizeSettings_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                            <Button Content="MAX SPEED" Click="MaxSpeed_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                            <Button Content="CLEAR CACHE" Click="ClearCache_Click" Style="{StaticResource SecondaryActionButton}"/>
+                            <Button Content="AUTO-OPTIMIZE" Click="OptimizeSettings_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
+                            <Button Content="MAX SPEED PRESET" Click="MaxSpeed_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
+                            <Button Content="CLEAR BALANCE CACHE" Click="ClearCache_Click" Style="{StaticResource SecondaryActionButton}"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -113,47 +134,47 @@
                 <!-- ═══ ADVANCED OPTIMIZATION ═══ -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="OPTIMIZATION" Style="{StaticResource SectionHeader}"/>
+                        <TextBlock Text="ENGINE OPTIMIZATION &amp; SCAN MODES" Style="{StaticResource SectionHeader}"/>
 
-                        <CheckBox x:Name="EnableCacheCheckBox" Content="Enable balance cache" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="EnableCacheCheckBox" Content="Enable in-memory balance cache" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
 
                         <Grid Margin="0,8,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="190"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="48"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Cache Expiry (min)" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                            <TextBlock Text="Cache Expiry (min)" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                             <Slider x:Name="CacheExpirySlider" Grid.Column="1" Minimum="1" Maximum="60" Value="5" TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="{Binding ElementName=CacheExpirySlider, Path=Value}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="2" Text="{Binding ElementName=CacheExpirySlider, Path=Value}" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="Bold"/>
                         </Grid>
 
-                        <Grid Margin="0,0,0,8">
+                        <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="190"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="48"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Concurrent API Calls" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                            <TextBlock Text="Concurrent API Calls" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                             <Slider x:Name="MaxConcurrentApiCallsSlider" Grid.Column="1" Minimum="1" Maximum="50" Value="10" TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="{Binding ElementName=MaxConcurrentApiCallsSlider, Path=Value}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="2" Text="{Binding ElementName=MaxConcurrentApiCallsSlider, Path=Value}" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="Bold"/>
                         </Grid>
 
-                        <CheckBox x:Name="SkipEmptyCheckBox" Content="Skip SegWit if legacy empty (2-3x faster)" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="SkipEmptyCheckBox" Content="Skip SegWit if Legacy address has zero history (2–3× faster)" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
                         <CheckBox x:Name="QuickScanCheckBox" Content="Quick scan mode" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                        <CheckBox x:Name="StrictScanModeCheckBox" Content="Strict Scan Mode (Comprehensive - Disables all optimizations)" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource AccentCyan}" FontWeight="SemiBold"/>
-                        <TextBlock Text="⚠️ Strict mode ensures no funded wallets are missed by disabling speed optimizations. Slightly slower but MUCH safer." Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,8"/>
-                        <CheckBox x:Name="ValidateAddressesCheckBox" Content="Validate addresses before API calls" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                        <CheckBox x:Name="LogAllWalletsCheckBox" Content="Log ALL checked wallets (verbose)" IsChecked="False" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="StrictScanModeCheckBox" Content="Strict Comprehensive Mode (checks every address path without shortcuts)" IsChecked="True" Style="{StaticResource CryptoCheckBox}" Foreground="{StaticResource AccentCyan}" FontWeight="SemiBold"/>
+                        <TextBlock Text="Strict mode guarantees no funded derivation path is skipped by bypassing heuristic shortcuts." Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                        <CheckBox x:Name="ValidateAddressesCheckBox" Content="Validate address checksums before network requests" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="LogAllWalletsCheckBox" Content="Log ALL evaluated wallets to disk (verbose audit trail)" IsChecked="False" Style="{StaticResource CryptoCheckBox}"/>
 
-                        <Separator Margin="0,8" Background="{StaticResource BorderSubtle}"/>
+                        <Separator Margin="0,10" Background="{StaticResource BorderSubtle}"/>
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="190"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Export Format" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                            <TextBlock Text="Default Export Format" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                             <ComboBox x:Name="ExportFormatComboBox" Grid.Column="1" SelectedIndex="0" Style="{StaticResource MaterialDesignOutlinedComboBox}">
                                 <ComboBoxItem Content="CSV (Excel compatible)"/>
                                 <ComboBoxItem Content="JSON (Full details)"/>
@@ -162,41 +183,41 @@
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="190"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="48"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Auto-Export Threshold" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                            <TextBlock Text="Auto-Export Threshold" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                             <Slider x:Name="AutoExportThresholdSlider" Grid.Column="1" Minimum="1" Maximum="100" Value="10" TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="{Binding ElementName=AutoExportThresholdSlider, Path=Value}" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="2" Text="{Binding ElementName=AutoExportThresholdSlider, Path=Value}" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="Bold"/>
                         </Grid>
 
-                        <CheckBox x:Name="UseDarkThemeCheckBox" Content="Dark theme" IsChecked="False" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="UseDarkThemeCheckBox" Content="Dark Obsidian Theme" IsChecked="False" Style="{StaticResource CryptoCheckBox}"/>
                     </StackPanel>
                 </Border>
 
                 <!-- ═══ LOGGING & EXPORT ═══ -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="LOGGING &amp; DATA" Style="{StaticResource SectionHeader}"/>
+                        <TextBlock Text="VAULT LOGGING, PERSISTENCE &amp; ALERTS" Style="{StaticResource SectionHeader}"/>
 
-                        <CheckBox x:Name="EnableLoggingCheckBox" Content="Enable detailed logging" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                        <CheckBox x:Name="AutoExportCheckBox" Content="Auto-export found wallets" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                        <CheckBox x:Name="SaveToDatabase" Content="Save found wallets to database" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
-                        <CheckBox x:Name="CheckForUpdatesCheckBox" Content="Check for updates on startup" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="EnableLoggingCheckBox" Content="Enable detailed session logging" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="AutoExportCheckBox" Content="Auto-export discovered wallets" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="SaveToDatabase" Content="Save discovered wallets to encrypted vault database" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="CheckForUpdatesCheckBox" Content="Check for software updates on startup" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
 
-                        <Separator Margin="0,8" Background="{StaticResource BorderSubtle}"/>
+                        <Separator Margin="0,10" Background="{StaticResource BorderSubtle}"/>
 
                         <!-- Email Alerts -->
-                        <CheckBox x:Name="EmailAlertsCheckBox" Content="Email alerts when wallet found" IsChecked="False" Style="{StaticResource CryptoCheckBox}"
+                        <CheckBox x:Name="EmailAlertsCheckBox" Content="Send real-time alert when a funded wallet is discovered" IsChecked="True" Style="{StaticResource CryptoCheckBox}"
                                   Checked="EmailAlertsCheckBox_Changed" Unchecked="EmailAlertsCheckBox_Changed"/>
 
                         <Grid Margin="0,8,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="190"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Email Method" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                            <TextBlock Text="Notification Channel" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                             <ComboBox x:Name="EmailMethodComboBox" Grid.Column="1" SelectedIndex="0" Style="{StaticResource MaterialDesignOutlinedComboBox}">
                                 <ComboBoxItem Content="SMTP (Traditional)"/>
                                 <ComboBoxItem Content="SendGrid API"/>
@@ -206,11 +227,36 @@
                         </Grid>
 
                         <StackPanel x:Name="EmailSettingsPanel" Visibility="Visible">
-                            <TextBox x:Name="EmailAddressTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                     materialDesign:HintAssist.Hint="Alert email address" Margin="0,0,0,8"/>
+                            <TextBox x:Name="EmailAddressTextBox" Text="smokie1969@atlanticbb.net" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="Recipient Alert Email (e.g. you@gmail.com) or Webhook URL" Margin="0,0,0,8"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="1*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="SmtpServerTextBox" Grid.Column="0" Text="smtp.atlanticbb.net" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         materialDesign:HintAssist.Hint="SMTP Host (e.g. smtp.atlanticbb.net, smtp.gmail.com)"/>
+                                <TextBox x:Name="SmtpPortTextBox" Grid.Column="2" Text="587" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         materialDesign:HintAssist.Hint="SMTP Port (587/465)"/>
+                            </Grid>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="SmtpUsernameTextBox" Grid.Column="0" Text="smokie1969@atlanticbb.net" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         materialDesign:HintAssist.Hint="SMTP Username / Sender Email"/>
+                                <TextBox x:Name="SmtpPasswordTextBox" Grid.Column="2" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         materialDesign:HintAssist.Hint="SMTP App Password / Password (or host|port|user|pass)"/>
+                            </Grid>
+
                             <TextBox x:Name="SendGridApiKeyTextBox" Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                     materialDesign:HintAssist.Hint="SendGrid API Key" Margin="0,0,0,8"/>
-                            <Button Content="TEST EMAIL" Click="TestEmailConfiguration_Click" Style="{StaticResource SecondaryActionButton}" HorizontalAlignment="Left"/>
+                                     materialDesign:HintAssist.Hint="SendGrid API Key (Optional fallback if using SendGrid)" Margin="0,0,0,8"/>
+                            <Button Content="SEND TEST SMTP / EMAIL ALERT" Click="TestEmailConfiguration_Click" Style="{StaticResource SecondaryActionButton}" HorizontalAlignment="Left"/>
                         </StackPanel>
 
                         <Separator Margin="0,10" Background="{StaticResource BorderSubtle}"/>
@@ -218,7 +264,7 @@
                         <StackPanel Orientation="Horizontal">
                             <Button Content="OPEN LOGS" Click="OpenLogFolder_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
                             <Button Content="CHECK UPDATES" Click="CheckForUpdates_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                            <Button Content="CHANGE PASSWORD" Click="ChangePassword_Click" Style="{StaticResource SecondaryActionButton}"/>
+                            <Button Content="CHANGE MASTER PASSWORD" Click="ChangePassword_Click" Style="{StaticResource SecondaryActionButton}"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -226,40 +272,47 @@
                 <!-- ═══ FUNDED ADDRESS FILTERS ═══ -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="FUNDED ADDRESS FILTERS" Style="{StaticResource SectionHeader}"/>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="OFFLINE FUNDED ADDRESS BLOOM FILTERS" Style="{StaticResource SectionHeader}" Margin="0"/>
+                            <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="6" Padding="8,2" HorizontalAlignment="Right">
+                                <TextBlock Text="50,000+ CHECKS/SEC LOCAL" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                            </Border>
+                        </DockPanel>
 
-                        <TextBlock Text="Import funded address lists to enable offline pre-filtering (50,000+ checks/sec locally). Supports .txt files with one address per line, or .tsv/.csv from Blockchair dumps." 
-                                   Foreground="{StaticResource TextDim}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <TextBlock Text="Import funded address lists (.txt, .csv, or Blockchair .tsv/.tsv.gz dumps) for high-speed offline pre-screening."
+                                   Foreground="{StaticResource TextDim}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
                         <!-- BTC Filter Status + Import -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="BTC:" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12" FontWeight="Bold" Margin="0,0,8,0"/>
-                            <TextBlock x:Name="BTCFilterStatusText" Grid.Column="1" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"
-                                       Text="No filter loaded"/>
-                            <Button Grid.Column="2" Content="IMPORT BTC ADDRESSES" Click="ImportBTCAddresses_Click" Style="{StaticResource SecondaryActionButton}"/>
-                        </Grid>
+                        <Border Style="{StaticResource InnerCard}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="BTC" VerticalAlignment="Center" Foreground="{StaticResource BtcColor}" FontSize="12" FontWeight="Bold"/>
+                                <TextBlock x:Name="BTCFilterStatusText" Grid.Column="1" VerticalAlignment="Center" Foreground="#CBD5E1" FontFamily="Consolas" FontSize="12" Text="No filter loaded"/>
+                                <Button Grid.Column="2" Content="IMPORT BTC LIST" Click="ImportBTCAddresses_Click" Style="{StaticResource SecondaryActionButton}"/>
+                            </Grid>
+                        </Border>
 
                         <!-- ETH Filter Status + Import -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="ETH:" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12" FontWeight="Bold" Margin="0,0,8,0"/>
-                            <TextBlock x:Name="ETHFilterStatusText" Grid.Column="1" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"
-                                       Text="No filter loaded"/>
-                            <Button Grid.Column="2" Content="IMPORT ETH ADDRESSES" Click="ImportETHAddresses_Click" Style="{StaticResource SecondaryActionButton}"/>
-                        </Grid>
+                        <Border Style="{StaticResource InnerCard}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="ETH" VerticalAlignment="Center" Foreground="{StaticResource EthColor}" FontSize="12" FontWeight="Bold"/>
+                                <TextBlock x:Name="ETHFilterStatusText" Grid.Column="1" VerticalAlignment="Center" Foreground="#CBD5E1" FontFamily="Consolas" FontSize="12" Text="No filter loaded"/>
+                                <Button Grid.Column="2" Content="IMPORT ETH LIST" Click="ImportETHAddresses_Click" Style="{StaticResource SecondaryActionButton}"/>
+                            </Grid>
+                        </Border>
 
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <Button Content="OPEN FILTER FOLDER" Click="OpenFilterFolder_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
-                            <Button Content="REBUILD FILTERS" Click="RebuildFilters_Click" Style="{StaticResource SecondaryActionButton}"/>
+                            <Button Content="OPEN FILTER DIRECTORY" Click="OpenFilterFolder_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,8,0"/>
+                            <Button Content="REBUILD BLOOM FILTERS" Click="RebuildFilters_Click" Style="{StaticResource SecondaryActionButton}"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -267,33 +320,33 @@
                 <!-- ═══ BACKUP & NOTIFICATIONS ═══ -->
                 <Border Style="{StaticResource DashCard}">
                     <StackPanel>
-                        <TextBlock Text="BACKUP &amp; NOTIFICATIONS" Style="{StaticResource SectionHeader}"/>
+                        <TextBlock Text="ENCRYPTED BACKUPS &amp; ACOUSTIC ALERTS" Style="{StaticResource SectionHeader}"/>
 
-                        <CheckBox x:Name="EnableAutoBackupCheckBox" Content="Automatic encrypted backups" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="EnableAutoBackupCheckBox" Content="Automatic AES-256 encrypted backups" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,8,0,8">
-                            <TextBox x:Name="BackupLocationTextBox" IsReadOnly="True" Width="400"
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,10">
+                            <TextBox x:Name="BackupLocationTextBox" IsReadOnly="True" Width="430"
                                      Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                     materialDesign:HintAssist.Hint="Backup location" Margin="0,0,8,0"/>
+                                     FontFamily="Consolas" materialDesign:HintAssist.Hint="Backup directory path" Margin="0,0,8,0"/>
                             <Button Content="BROWSE" Click="BrowseBackupLocation_Click" Style="{StaticResource SecondaryActionButton}"/>
                         </StackPanel>
 
-                        <Separator Margin="0,4" Background="{StaticResource BorderSubtle}"/>
+                        <Separator Margin="0,6" Background="{StaticResource BorderSubtle}"/>
 
-                        <CheckBox x:Name="EnableSoundNotificationCheckBox" Content="Sound on wallet found" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="EnableSoundNotificationCheckBox" Content="Play acoustic alert when a funded wallet is discovered" IsChecked="True" Style="{StaticResource CryptoCheckBox}"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,6,0,8">
-                            <ComboBox x:Name="NotificationSoundComboBox" SelectedIndex="0" Width="200" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,8,0">
+                            <ComboBox x:Name="NotificationSoundComboBox" SelectedIndex="0" Width="220" Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,8,0">
                                 <ComboBoxItem Content="Default (System Sound)"/>
                                 <ComboBoxItem Content="Beep (Double Tone)"/>
                                 <ComboBoxItem Content="Chime (Musical)"/>
                                 <ComboBoxItem Content="Alert (Triple Beep)"/>
                                 <ComboBoxItem Content="Custom (WAV file)"/>
                             </ComboBox>
-                            <Button Content="TEST" Click="TestSound_Click" Style="{StaticResource SecondaryActionButton}"/>
+                            <Button Content="TEST SOUND" Click="TestSound_Click" Style="{StaticResource SecondaryActionButton}"/>
                         </StackPanel>
 
-                        <CheckBox x:Name="EnableModeSpecificSoundsCheckBox" Content="Different sounds per mode" Checked="ModeSoundToggleChanged" Unchecked="ModeSoundToggleChanged" Style="{StaticResource CryptoCheckBox}"/>
+                        <CheckBox x:Name="EnableModeSpecificSoundsCheckBox" Content="Configure distinct alert tones per recovery engine" Checked="ModeSoundToggleChanged" Unchecked="ModeSoundToggleChanged" Style="{StaticResource CryptoCheckBox}"/>
 
                         <StackPanel x:Name="ModeSoundPanel" Visibility="Collapsed" Margin="0,8,0,0">
                             <Grid>
@@ -309,25 +362,25 @@
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
-                                <TextBlock Text="Mnemonic" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                                <TextBlock Text="Mnemonic" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                                 <ComboBox x:Name="PartialMnemonicSoundCombo" Grid.Column="1" SelectedIndex="0" Margin="0,0,6,4" Style="{StaticResource MaterialDesignOutlinedComboBox}">
                                     <ComboBoxItem Content="Default"/><ComboBoxItem Content="Beep"/><ComboBoxItem Content="Chime"/><ComboBoxItem Content="Alert"/><ComboBoxItem Content="Custom"/>
                                 </ComboBox>
                                 <Button Grid.Column="2" Content="TEST" Tag="PartialMnemonic" Click="TestModeSound_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,4"/>
 
-                                <TextBlock Grid.Row="1" Text="Random" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                                <TextBlock Grid.Row="1" Text="Random" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                                 <ComboBox x:Name="RandomGenerationSoundCombo" Grid.Row="1" Grid.Column="1" SelectedIndex="0" Margin="0,0,6,4" Style="{StaticResource MaterialDesignOutlinedComboBox}">
                                     <ComboBoxItem Content="Default"/><ComboBoxItem Content="Beep"/><ComboBoxItem Content="Chime"/><ComboBoxItem Content="Alert"/><ComboBoxItem Content="Custom"/>
                                 </ComboBox>
                                 <Button Grid.Row="1" Grid.Column="2" Content="TEST" Tag="RandomGeneration" Click="TestModeSound_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,4"/>
 
-                                <TextBlock Grid.Row="2" Text="Private Key" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                                <TextBlock Grid.Row="2" Text="Private Key" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                                 <ComboBox x:Name="PrivateKeySoundCombo" Grid.Row="2" Grid.Column="1" SelectedIndex="0" Margin="0,0,6,4" Style="{StaticResource MaterialDesignOutlinedComboBox}">
                                     <ComboBoxItem Content="Default"/><ComboBoxItem Content="Beep"/><ComboBoxItem Content="Chime"/><ComboBoxItem Content="Alert"/><ComboBoxItem Content="Custom"/>
                                 </ComboBox>
                                 <Button Grid.Row="2" Grid.Column="2" Content="TEST" Tag="PrivateKeyBruteForce" Click="TestModeSound_Click" Style="{StaticResource SecondaryActionButton}" Margin="0,0,0,4"/>
 
-                                <TextBlock Grid.Row="3" Text="Smart Hunting" VerticalAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                                <TextBlock Grid.Row="3" Text="Smart Hunting" VerticalAlignment="Center" Foreground="#CBD5E1" FontSize="12"/>
                                 <ComboBox x:Name="SmartHuntingSoundCombo" Grid.Row="3" Grid.Column="1" SelectedIndex="0" Margin="0,0,6,0" Style="{StaticResource MaterialDesignOutlinedComboBox}">
                                     <ComboBoxItem Content="Default"/><ComboBoxItem Content="Beep"/><ComboBoxItem Content="Chime"/><ComboBoxItem Content="Alert"/><ComboBoxItem Content="Custom"/>
                                 </ComboBox>
@@ -335,7 +388,7 @@
                             </Grid>
                         </StackPanel>
 
-                        <Button Content="OPEN BACKUP FOLDER" Click="OpenBackupFolder_Click" Style="{StaticResource SecondaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                        <Button Content="OPEN BACKUP VAULT" Click="OpenBackupFolder_Click" Style="{StaticResource SecondaryActionButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
                     </StackPanel>
                 </Border>
 
@@ -345,8 +398,8 @@
         <!-- Footer buttons -->
         <Border Grid.Row="2" Background="{StaticResource SurfaceMid}" Padding="20,12" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="SAVE" Click="Save_Click" Style="{StaticResource PrimaryActionButton}" Width="100" Margin="0,0,10,0"/>
-                <Button Content="CANCEL" Click="Cancel_Click" Style="{StaticResource SecondaryActionButton}" Width="100"/>
+                <Button Content="CANCEL" Click="Cancel_Click" Style="{StaticResource SecondaryActionButton}" Width="110" Margin="0,0,10,0"/>
+                <Button Content="SAVE CONFIGURATION" Click="Save_Click" Style="{StaticResource PrimaryActionButton}" Height="38"/>
             </StackPanel>
         </Border>
     </Grid>

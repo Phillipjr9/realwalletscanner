@@ -525,23 +525,43 @@ namespace WalletRecoveryTool.Core
 
         private string ExtractMnemonicFromText(string text)
         {
-            // Try to find 12/15/18/21/24 word mnemonic
-            var words = text.Split(new[] { ' ', '\n', '\r', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries)
-                           .Select(w => w.ToLower().Trim())
-                           .Where(w => w.All(char.IsLetter))
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            // Extract clean alphabetic words
+            var words = System.Text.RegularExpressions.Regex.Matches(text, @"\b[a-zA-Z]{3,8}\b")
+                           .Cast<System.Text.RegularExpressions.Match>()
+                           .Select(m => m.Value.ToLowerInvariant())
                            .ToList();
 
-            var wordlist = Wordlist.English.GetWords();
-            var validWords = words.Where(w => wordlist.Contains(w)).ToList();
+            var wordlist = Wordlist.English.GetWords().ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var validLengths = new[] { 24, 21, 18, 15, 12 };
 
-            // Try different mnemonic lengths
-            foreach (var length in new[] { 24, 21, 18, 15, 12 })
+            // Sliding-window search for contiguous valid BIP39 mnemonic (excluding trivial/empty seeds)
+            for (int i = 0; i <= words.Count - 12; i++)
             {
-                if (validWords.Count >= length)
+                if (!wordlist.Contains(words[i])) continue;
+                foreach (var length in validLengths)
                 {
-                    var candidate = string.Join(" ", validWords.Take(length));
-                    if (ValidateMnemonic(candidate))
+                    if (i + length > words.Count) continue;
+                    bool allValid = true;
+                    for (int k = 0; k < length; k++)
+                    {
+                        if (!wordlist.Contains(words[i + k]))
+                        {
+                            allValid = false;
+                            break;
+                        }
+                    }
+                    if (!allValid) continue;
+
+                    var candidate = string.Join(" ", words.Skip(i).Take(length));
+                    if (ValidateMnemonic(candidate) &&
+                        !MnemonicTracker.IsRestrictedTrivialMnemonic(candidate) &&
+                        !GlobalMnemonicTracker.Instance.WasScanned(candidate))
+                    {
                         return candidate;
+                    }
                 }
             }
 
@@ -552,6 +572,8 @@ namespace WalletRecoveryTool.Core
         {
             try
             {
+                if (MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic))
+                    return false;
                 var mnemonicObj = new Mnemonic(mnemonic);
                 return mnemonicObj.IsValidChecksum;
             }
@@ -637,13 +659,63 @@ namespace WalletRecoveryTool.Core
 
         private byte[] RecoverSecret(List<ShamirShare> shares)
         {
-            // Simplified Lagrange interpolation
-            // Real implementation needs GF(256) arithmetic
-            
+            // Real GF(256) Lagrange interpolation at x = 0 (irreducible polynomial x^8 + x^4 + x^3 + x + 1 = 0x11B)
             var result = new byte[32];
-            for (int i = 0; i < 32; i++)
+            int k = shares.Count;
+
+            for (int byteIdx = 0; byteIdx < 32; byteIdx++)
             {
-                result[i] = (byte)(shares.Sum(s => s.ShareValue[i]) % 256);
+                byte acc = 0;
+                for (int i = 0; i < k; i++)
+                {
+                    byte xi = (byte)((shares[i].MemberIndex & 0xFF) == 0 ? i + 1 : (shares[i].MemberIndex & 0xFF));
+                    byte yi = shares[i].ShareValue[byteIdx];
+                    byte num = 1;
+                    byte den = 1;
+
+                    for (int j = 0; j < k; j++)
+                    {
+                        if (i == j) continue;
+                        byte xj = (byte)((shares[j].MemberIndex & 0xFF) == 0 ? j + 1 : (shares[j].MemberIndex & 0xFF));
+                        if (xi == xj) xj = (byte)(xj ^ (j + 1));
+                        num = Gf256Mul(num, xj);
+                        den = Gf256Mul(den, (byte)(xi ^ xj));
+                    }
+
+                    byte lagrangeBasis = Gf256Mul(num, Gf256Inv(den));
+                    acc ^= Gf256Mul(yi, lagrangeBasis);
+                }
+                result[byteIdx] = acc;
+            }
+            return result;
+        }
+
+        private static byte Gf256Mul(byte a, byte b)
+        {
+            byte p = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                if ((b & 1) != 0) p ^= a;
+                bool hiBit = (a & 0x80) != 0;
+                a <<= 1;
+                if (hiBit) a ^= 0x1B;
+                b >>= 1;
+            }
+            return p;
+        }
+
+        private static byte Gf256Inv(byte a)
+        {
+            if (a == 0) return 0;
+            // Fermat's Little Theorem in GF(2^8): a^(254) = a^(-1)
+            byte result = 1;
+            byte baseVal = a;
+            int exp = 254;
+            while (exp > 0)
+            {
+                if ((exp & 1) != 0) result = Gf256Mul(result, baseVal);
+                baseVal = Gf256Mul(baseVal, baseVal);
+                exp >>= 1;
             }
             return result;
         }

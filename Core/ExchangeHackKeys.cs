@@ -36,86 +36,74 @@ namespace WalletRecoveryTool.Core
         public static List<(string privateKeyHex, string source, int year, decimal estimatedValue)> GetKnownLeakedKeys()
         {
             var keys = new List<(string, string, int, decimal)>();
+            var seenHex = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var tracker = GlobalMnemonicTracker.Instance;
+
+            void AddValidKey(string hex, string source, int year, decimal estValue)
+            {
+                if (string.IsNullOrWhiteSpace(hex)) return;
+                var clean = hex.Trim().ToLowerInvariant();
+                if (clean.Length != 64) return;
+                if (MnemonicTracker.IsRestrictedTrivialPrivateKey(clean)) return;
+                if (tracker.WasScanned("pk:" + clean)) return;
+                if (seenHex.Add(clean))
+                {
+                    keys.Add((clean, source, year, estValue));
+                }
+            }
             
             // First load custom keys from file (if exists)
-            keys.AddRange(LoadCustomKeysFromFile());
+            foreach (var custom in LoadCustomKeysFromFile())
+            {
+                AddValidKey(custom.Item1, custom.Item2, custom.Item3, custom.Item4);
+            }
 
             // ===== BLOCKCHAIN BANDIT PATTERNS =====
-            // Low-value key patterns (keys 1-100000 that have been proven to work)
-            for (int i = 1; i <= 10000; i++)
+            // Hashed low-integer seeds (starting after trivial 1..16 test keys)
+            for (int i = 17; i <= 10000; i++)
             {
                 var keyBytes = new byte[32];
                 var iBytes = BitConverter.GetBytes(i);
                 if (BitConverter.IsLittleEndian) Array.Reverse(iBytes);
                 Array.Copy(iBytes, 0, keyBytes, 28, 4);
                 
-                keys.Add((BitConverter.ToString(keyBytes).Replace("-", "").ToLower(), 
-                    $"LowValueKey-{i}", 2014, 0.0001m));
-            }
-            
-            // Repeated byte patterns
-            for (byte b = 0; b <= 50; b++)
-            {
-                var keyBytes = new byte[32];
-                Array.Fill(keyBytes, b);
-                keys.Add((BitConverter.ToString(keyBytes).Replace("-", "").ToLower(),
-                    $"RepeatedByte-{b}", 2013, 0.0001m));
+                AddValidKey(Convert.ToHexString(keyBytes).ToLowerInvariant(), 
+                    $"LowValueKey-{i}", 2014, 0.0001m);
             }
             
             // Sequence patterns (0x01020304..., 0xAABBCCDD...)
-            for (int start = 0; start < 256; start += 10)
+            for (int start = 1; start < 256; start += 10)
             {
                 var seq = new byte[32];
                 for (int i = 0; i < 32; i++)
-                    seq[i] = (byte)((start + i) % 256);
-                keys.Add((BitConverter.ToString(seq).Replace("-", "").ToLower(),
-                    $"Sequential-{start}", 2013, 0.0001m));
+                    seq[i] = (byte)((start + i * 7) % 256);
+                AddValidKey(Convert.ToHexString(seq).ToLowerInvariant(),
+                    $"Sequential-{start}", 2013, 0.0001m);
             }
             
-            // ===== MT.GOX RELATED (2014) =====
-            // Early Bitcoin genesis patterns
-            var mtgoxPatterns = new[]
+            // ===== MT.GOX & QUADRIGACX HISTORICAL PATTERNS (valid 32-byte non-trivial keys) =====
+            var historicalPatterns = new[]
             {
-                "0000000000000000000000000000000000000000000000000000000000000001",
-                "0000000000000000000000000000000000000000000000000000000000000002",
-                "0000000000000000000000000000000000000000000000000000000000000010",
                 "0000000000000000000000000000000001000000000000000000000000000000",
                 "0000000000000000000000000000010000000000000000000000000000000000",
+                "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
             };
             
-            foreach (var hex in mtgoxPatterns)
+            foreach (var hex in historicalPatterns)
             {
-                keys.Add((hex, "MtGox-Pattern", 2014, 0.0001m));
+                AddValidKey(hex, "Historical-Pattern", 2014, 0.0001m);
             }
             
-            // ===== QUADRIGACX (2019) =====
-            var quadrigaPatterns = new[]
-            {
-                "0000000000000000000000000000000000000000000000000000000000000001",
-                "0000000000000000000000000000000000000000000000000000000000000002",
-                "0000000000000000000000000000000000000000000000000000000000000010",
-                "0000000000000000000000000000000001000000000000000000000000000000",
-                "1111111111111111111111111111111111111111111111111111111111111111",
-                "2222222222222222222222222222222222222222222222222222222222222222",
-                "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef",
-            };
-            
-            foreach (var hex in quadrigaPatterns)
-            {
-                keys.Add((hex, "QuadrigaCX-Pattern", 2018, 0.0001m));
-            }
-            
-            // ===== ANDROID SECURE RANDOM BUG (2013-2014) =====
-            // Peak bug period timestamps - expanded
+            // ===== ANDROID SECURE RANDOM BUG (2013-2014) — full 32-byte SHA-256 keys =====
             for (int month = 1; month <= 12; month++)
             {
                 for (int day = 1; day <= 28; day += 2)
                 {
                     var timestamp = new DateTime(2013, month, day, 12, 0, 0).Ticks / 10000000; // seconds
                     var tsBytes = BitConverter.GetBytes(timestamp);
-                    var entropy = SHA256.HashData(tsBytes).Take(16).ToArray();
-                    keys.Add((BitConverter.ToString(entropy).Replace("-", "").ToLower(),
-                        $"AndroidBug-2013-{month:D2}-{day:D2}", 2013, 0.0001m));
+                    var keyHash = SHA256.HashData(tsBytes);
+                    AddValidKey(Convert.ToHexString(keyHash).ToLowerInvariant(),
+                        $"AndroidBug-2013-{month:D2}-{day:D2}", 2013, 0.0001m);
                 }
             }
             
@@ -126,9 +114,9 @@ namespace WalletRecoveryTool.Core
                 {
                     var timestamp = new DateTime(2014, month, day, 12, 0, 0).Ticks / 10000000;
                     var tsBytes = BitConverter.GetBytes(timestamp);
-                    var entropy = SHA256.HashData(tsBytes).Take(16).ToArray();
-                    keys.Add((BitConverter.ToString(entropy).Replace("-", "").ToLower(),
-                        $"AndroidBug-2014-{month:D2}-{day:D2}", 2014, 0.0001m));
+                    var keyHash = SHA256.HashData(tsBytes);
+                    AddValidKey(Convert.ToHexString(keyHash).ToLowerInvariant(),
+                        $"AndroidBug-2014-{month:D2}-{day:D2}", 2014, 0.0001m);
                 }
             }
             
@@ -144,8 +132,8 @@ namespace WalletRecoveryTool.Core
             foreach (var seed in bitcoinjsSeeds)
             {
                 var hash = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
-                keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                    $"BitcoinJS-{seed}", 2014, 0.0001m));
+                AddValidKey(Convert.ToHexString(hash).ToLowerInvariant(),
+                    $"BitcoinJS-{seed}", 2014, 0.0001m);
             }
             
             // ===== ELECTRUM OLD VERSION VULNERABILITY =====
@@ -158,111 +146,25 @@ namespace WalletRecoveryTool.Core
             foreach (var pattern in electrumPatterns)
             {
                 var hash = SHA256.HashData(Encoding.UTF8.GetBytes(pattern));
-                keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                    $"Electrum-{pattern}", 2014, 0.0001m));
+                AddValidKey(Convert.ToHexString(hash).ToLowerInvariant(),
+                    $"Electrum-{pattern}", 2014, 0.0001m);
             }
             
-            // ===== COMMON BRAIN WALLET PHRASES =====
-            var brainWalletPhrases = new[]
+            // ===== INCREMENTAL/HASHED 32-BYTE KEYS (fixed 16-byte invalid key bug) =====
+            for (int i = 1; i < 50000; i++)
             {
-                // Top brain wallet phrases
-                "correct horse battery staple", "satoshi nakamoto", "password", "1234567890",
-                "123456789", "bitcoin", "blockchain", "hello world", "dont panic",
-                "hitchhiker's guide", "bitcoin is the future", "blockchain technology",
-                " decentralization", "peer to peer", "digital currency",
-                
-                // Movie/TV references
-                "may the force be with you", "may the fourth be with you", 
-                "live long and prosper", "infinity war", "endgame", "game of thrones",
-                "winter is coming", "valar morghulis", "bond james bond",
-                "i am groot", "till infinity", "avengers assemble",
-                
-                // Famous quotes
-                "to be or not to be", "i think therefore i am", "the only thing we fear",
-                "ask not what your country", "one small step", "i have a dream",
-                "et tu brute", "eureka", "knowledge is power",
-                
-                // Crypto culture
-                "not your keys not your coins", "be your own bank", "code is law",
-                "proof of work", "hodl", "to the moon", "diamond hands",
-                "stack sats", "buy the dip", "cryptocurrency", "bitcoin max",
-                "satoshin", "vitalik", "crypto family", "blockchain gang",
-                
-                // Sports/Events
-                "super bowl", "world cup", "olympics", "world series",
-                "champions league", "fa cup", "wimbledon",
-                
-                // Common passwords/brain wallets
-                "letmein", "qwerty", "abc123", "monkey", "master", "sunshine",
-                "shadow", "superman", "trustno1", "iloveyou",
-                
-                // Phrases with numbers
-                "bitcoin2010", "bitcoin2011", "bitcoin2012", "bitcoin2013", "bitcoin2014",
-                "bitcoin2015", "bitcoin2016", "bitcoin2017", "bitcoin2018", "bitcoin2019",
-                "blockchain2017", "blockchain2018", "blockchain2019",
-            };
-            
-            foreach (var phrase in brainWalletPhrases)
-            {
-                var hash = SHA256.HashData(Encoding.UTF8.GetBytes(phrase));
-                var shortName = phrase.Length > 20 ? phrase.Substring(0, 20) : phrase;
-                keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                    $"BrainWallet-{shortName.Replace(" ", "-")}", 2017, 0.001m));
-            }
-            
-            // ===== DATE-BASED ENTROPY =====
-            // Users who used dates as entropy
-            for (int year = 2009; year <= 2022; year++)
-            {
-                // Full date combinations
-                for (int month = 1; month <= 12; month++)
-                {
-                    for (int day = 1; day <= 28; day++)
-                    {
-                        // Format: MM/DD/YYYY
-                        var dateStr = $"{month:D2}/{day:D2}/{year}";
-                        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(dateStr));
-                        keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                            $"Date-MM-DD-YYYY-{dateStr.Replace("/", "")}", year, 0.0001m));
-                        
-                        // Format: YYYY-MM-DD
-                        dateStr = $"{year}-{month:D2}-{day:D2}";
-                        hash = SHA256.HashData(Encoding.UTF8.GetBytes(dateStr));
-                        keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                            $"Date-YYYY-MM-DD-{dateStr.Replace("-", "")}", year, 0.0001m));
-                        
-                        // Format: DD-MM-YYYY
-                        dateStr = $"{day:D2}-{month:D2}-{year}";
-                        hash = SHA256.HashData(Encoding.UTF8.GetBytes(dateStr));
-                        keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                            $"Date-DD-MM-YYYY-{dateStr.Replace("-", "")}", year, 0.0001m));
-                    }
-                }
-            }
-            
-            // ===== INCREMENTAL/MNEMONIC-BASED KEYS =====
-            for (int i = 0; i < 50000; i++)
-            {
-                var entropy = BitConverter.GetBytes(i);
-                var fullEntropy = new byte[16];
-                for (int j = 0; j < 16; j++)
-                    fullEntropy[j] = entropy[j % 4];
-                
-                keys.Add((BitConverter.ToString(fullEntropy).Replace("-", "").ToLower(),
-                    $"Sequential-{i}", 2015, 0.0001m));
+                var hash = SHA256.HashData(BitConverter.GetBytes(i));
+                AddValidKey(Convert.ToHexString(hash).ToLowerInvariant(),
+                    $"SequentialHash-{i}", 2015, 0.0001m);
             }
             
             // ===== HEX STRING PATTERNS =====
-            // Only valid 32-byte (64 hex char) patterns
+            // Only valid 32-byte (64 hex char) non-trivial secp256k1 patterns
             var hexPatterns = new[]
             {
                 "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-                "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
-                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "0000000000000000ffffffffffffffffffffffffffffffffffffffffffffffff",
-                "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-                "1111222233334444555566667777888899aabbccccddeeffff0011223344556677",
+                "1111222233334444555566667777888899aabbccccddeeffff00112233445566",
                 "aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011",
                 "0011223344556677001122334455667700112233445566770011223344556677",
                 "feedfacebeef0000feedfacebeef0000feedfacebeef0000feedfacebeef0000",
@@ -273,10 +175,10 @@ namespace WalletRecoveryTool.Core
             {
                 try {
                     var bytes = Convert.FromHexString(hex);
-                    if (bytes.Length == 32) // Only valid 32-byte keys
+                    if (bytes.Length == 32)
                     {
-                        keys.Add((BitConverter.ToString(bytes).Replace("-", "").ToLower(),
-                            $"HexPattern-{hex.Substring(0, 16)}", 2013, 0.0001m));
+                        AddValidKey(Convert.ToHexString(bytes).ToLowerInvariant(),
+                            $"HexPattern-{hex.Substring(0, 16)}", 2013, 0.0001m);
                     }
                 } catch { }
             }
@@ -293,15 +195,15 @@ namespace WalletRecoveryTool.Core
             foreach (var word in commonWords)
             {
                 var hash = SHA256.HashData(Encoding.UTF8.GetBytes(word));
-                keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                    $"CommonWord-{word}", 2013, 0.0001m));
+                AddValidKey(Convert.ToHexString(hash).ToLowerInvariant(),
+                    $"CommonWord-{word}", 2013, 0.0001m);
                 
                 // With numbers
                 for (int i = 0; i <= 99; i++)
                 {
                     hash = SHA256.HashData(Encoding.UTF8.GetBytes(word + i));
-                    keys.Add((BitConverter.ToString(hash).Replace("-", "").ToLower(),
-                        $"CommonWord-{word}{i}", 2013, 0.0001m));
+                    AddValidKey(Convert.ToHexString(hash).ToLowerInvariant(),
+                        $"CommonWord-{word}{i}", 2013, 0.0001m);
                 }
             }
 
