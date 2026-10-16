@@ -173,25 +173,6 @@ namespace WalletRecoveryTool.Core
             "bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon"
         };
 
-        /// <summary>
-        /// Strictly restricts known BIP39 test vectors, repeated-word mnemonics (e.g. "abandon abandon..."),
-        /// consecutive duplicate words, and low-distinct-word degenerate patterns that have zero realistic chance of holding funds.
-        /// </summary>
-        public static bool IsRestrictedTrivialMnemonic(string input)
-        {
-            if (string.IsNullOrWhiteSpace(input))
-                return true;
-
-            var normalized = string.Join(" ", input.Trim().ToLowerInvariant()
-                .Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries));
-
-            if (KnownTrivialTestVectors.Contains(normalized))
-                return true;
-
-            // Block any phrase or brainwallet containing 3+ consecutive "abandon" words or the test vector
-            if (normalized.Contains("abandon abandon") || normalized.Contains("zoo zoo zoo") || normalized.Contains("bacon bacon bacon"))
-                return true;
-
         private static readonly HashSet<string> KnownTrivialPrivateKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "0000000000000000000000000000000000000000000000000000000000000000",
@@ -246,6 +227,25 @@ namespace WalletRecoveryTool.Core
 
             return false;
         }
+
+        /// <summary>
+        /// Strictly restricts known BIP39 test vectors, repeated-word mnemonics (e.g. "abandon abandon..."),
+        /// consecutive duplicate words, and low-distinct-word degenerate patterns that have zero realistic chance of holding funds.
+        /// </summary>
+        public static bool IsRestrictedTrivialMnemonic(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return true;
+
+            var normalized = string.Join(" ", input.Trim().ToLowerInvariant()
+                .Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries));
+
+            if (KnownTrivialTestVectors.Contains(normalized))
+                return true;
+
+            // Block any phrase or brainwallet containing 3+ consecutive "abandon" words or the test vector
+            if (normalized.Contains("abandon abandon") || normalized.Contains("zoo zoo zoo") || normalized.Contains("bacon bacon bacon"))
+                return true;
 
             if (normalized.StartsWith("pk:"))
                 return IsRestrictedTrivialPrivateKey(normalized);
