@@ -2793,7 +2793,7 @@ public class BalanceChecker
 							id = idx + 1
 						}).ToArray();
 
-						var client = HttpClientPool.GetRestClient(rpcUrl);
+						var client = HttpClientPool.Instance.GetRestClient(rpcUrl);
 						var rpcReq = new RestRequest("", Method.Post);
 						rpcReq.AddStringBody(JsonConvert.SerializeObject(batchPayload), DataFormat.Json);
 						var rpcResp = await client.ExecuteAsync(rpcReq, _globalCancellationToken);
@@ -2909,7 +2909,7 @@ public class BalanceChecker
 						}
 					};
 
-					var client = HttpClientPool.GetRestClient(rpcUrl);
+					var client = HttpClientPool.Instance.GetRestClient(rpcUrl);
 					var req = new RestRequest("", Method.Post);
 					req.AddStringBody(JsonConvert.SerializeObject(payload), DataFormat.Json);
 					var resp = await client.ExecuteAsync(req, _globalCancellationToken);
@@ -3007,7 +3007,7 @@ public class BalanceChecker
 						id = idx + 1
 					}).ToArray();
 
-					var client = HttpClientPool.GetRestClient(rpcUrl);
+					var client = HttpClientPool.Instance.GetRestClient(rpcUrl);
 					var req = new RestRequest("", Method.Post);
 					req.AddStringBody(JsonConvert.SerializeObject(batchPayload), DataFormat.Json);
 					var resp = await client.ExecuteAsync(req, _globalCancellationToken);

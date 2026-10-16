@@ -603,9 +603,9 @@ namespace WalletRecoveryTool.Core
                         {
                             try
                             {
-                                var solBal = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
-                                wallet.Balances["SOL"] = solBal;
-                                if (solBal > 0.00000001m) hasBalance = true;
+                                var solBalSingle = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
+                                wallet.Balances["SOL"] = solBalSingle;
+                                if (solBalSingle > 0.00000001m) hasBalance = true;
                             }
                             catch (Exception ex) { DebugLogger.Log($"[SOL] balance check failed for {wallet.SolanaAddress}: {ex.Message}"); }
                         }
@@ -664,9 +664,9 @@ namespace WalletRecoveryTool.Core
                         {
                             try
                             {
-                                var maticBal = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
-                                wallet.Balances["MATIC"] = maticBal;
-                                if (maticBal > 0.00000001m) hasBalance = true;
+                                var maticBalSingle = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
+                                wallet.Balances["MATIC"] = maticBalSingle;
+                                if (maticBalSingle > 0.00000001m) hasBalance = true;
                             }
                             catch (Exception ex) { DebugLogger.Log($"[MATIC] balance check failed for {wallet.PolygonAddress}: {ex.Message}"); }
                         }
@@ -684,9 +684,9 @@ namespace WalletRecoveryTool.Core
                         {
                             try
                             {
-                                var bnbBal = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
-                                wallet.Balances["BNB"] = bnbBal;
-                                if (bnbBal > 0.00000001m) hasBalance = true;
+                                var bnbBalSingle = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
+                                wallet.Balances["BNB"] = bnbBalSingle;
+                                if (bnbBalSingle > 0.00000001m) hasBalance = true;
                             }
                             catch (Exception ex) { DebugLogger.Log($"[BNB] balance check failed for {wallet.BnbAddress}: {ex.Message}"); }
                         }

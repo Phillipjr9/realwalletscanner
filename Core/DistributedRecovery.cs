@@ -528,8 +528,8 @@ namespace WalletRecoveryTool.Core
                             }
                             else
                             {
-                                match = (!string.IsNullOrEmpty(btcAddress) && FundedAddressFilter.Instance.BTC.MightBeFunded(btcAddress)) ||
-                                        (!string.IsNullOrEmpty(ethAddress) && FundedAddressFilter.Instance.ETH.MightBeFunded(ethAddress));
+                                match = (!string.IsNullOrEmpty(btcAddress) && FundedAddressFilter.BTC.MightBeFunded(btcAddress)) ||
+                                        (!string.IsNullOrEmpty(ethAddress) && FundedAddressFilter.ETH.MightBeFunded(ethAddress));
                             }
 
                             if (match)

@@ -58,7 +58,7 @@ namespace WalletRecoveryTool.Core
 
                 // Auto-provision valid owner license for private one-click installation
                 var autoKey = GenerateKey();
-                return ActivateLicense(autoKey, Environment.UserName ?? "Owner");
+                return ActivateLicense(autoKey).Success;
             }
             catch
             {

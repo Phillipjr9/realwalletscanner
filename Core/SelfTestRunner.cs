@@ -137,7 +137,7 @@ namespace WalletRecoveryTool.Core
             var fixedResult = AdvancedTypoCorrection.AutoCorrectMnemonic(corrupted);
             bool ok = fixedResult != null && fixedResult.IsValid &&
                       string.Equals(fixedResult.CorrectedMnemonic, validSeed, StringComparison.OrdinalIgnoreCase);
-            return (ok, $"Repaired '{corrupted[..28]}...' -> valid={fixedResult?.IsValid} ({fixedResult?.CorrectionsMade.Count} fixes)");
+            return (ok, $"Repaired '{corrupted[..28]}...' -> valid={fixedResult?.IsValid} ({fixedResult?.CorrectionsMade} fixes)");
         }
 
         private static (bool passed, string details) TestForensicVaultDecryption()

@@ -49,7 +49,68 @@ namespace WalletRecoveryTool.Core
         // Singleton instances for BTC and ETH
         private static FundedAddressFilter _btcInstance;
         private static FundedAddressFilter _ethInstance;
+        private static readonly FundedAddressFilterFacade _facadeInstance = new FundedAddressFilterFacade();
         private static readonly object _initLock = new object();
+
+        public static FundedAddressFilterFacade Instance => _facadeInstance;
+
+        public sealed class FundedAddressFilterFacade
+        {
+            public FundedAddressFilter BTC => FundedAddressFilter.BTC;
+            public FundedAddressFilter ETH => FundedAddressFilter.ETH;
+
+            public bool IsAddressOrKeyScannedEmpty(string addressOrKey)
+            {
+                if (string.IsNullOrWhiteSpace(addressOrKey))
+                    return false;
+
+                var trimmed = addressOrKey.Trim();
+                if (trimmed.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (ETHEmpty.IsKnownEmpty(trimmed.ToLowerInvariant()))
+                        return true;
+                }
+                else
+                {
+                    if (BTCEmpty.IsKnownEmpty(trimmed))
+                        return true;
+                }
+
+                return GlobalMnemonicTracker.Instance.WasScanned($"addr:{trimmed}");
+            }
+
+            public void MarkWalletConfirmedEmpty(
+                string mnemonic,
+                string privateKeyHex = null,
+                string btcAddress = null,
+                string ethAddress = null)
+            {
+                if (!string.IsNullOrWhiteSpace(mnemonic))
+                    GlobalMnemonicTracker.Instance.TryMarkAsScanned(mnemonic);
+                if (!string.IsNullOrWhiteSpace(privateKeyHex))
+                    GlobalMnemonicTracker.Instance.TryMarkAsScanned($"pk:{privateKeyHex.Trim().ToLowerInvariant()}");
+                if (!string.IsNullOrWhiteSpace(btcAddress))
+                {
+                    BTCEmpty.MarkAsEmpty(btcAddress.Trim());
+                    GlobalMnemonicTracker.Instance.TryMarkAsScanned($"addr:{btcAddress.Trim()}");
+                }
+                if (!string.IsNullOrWhiteSpace(ethAddress))
+                {
+                    var normEth = ethAddress.Trim().ToLowerInvariant();
+                    ETHEmpty.MarkAsEmpty(normEth);
+                    GlobalMnemonicTracker.Instance.TryMarkAsScanned($"addr:{normEth}");
+                }
+            }
+
+            public void MarkWalletConfirmedFunded(
+                string mnemonic,
+                string privateKeyHex = null,
+                string btcAddress = null,
+                string ethAddress = null)
+            {
+                DebugLogger.Log($"[FundedFilter] Confirmed funded wallet recorded ({btcAddress ?? ethAddress ?? "unknown"})");
+            }
+        }
 
         public bool IsLoaded => _isLoaded;
         public long AddressCount => _addressCount;

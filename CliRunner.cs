@@ -64,12 +64,13 @@ namespace WalletRecoveryTool
             Console.ResetColor();
             Console.WriteLine();
 
+            using var cts = new CancellationTokenSource();
             var engine = new WalletRecoveryEngine();
             Console.CancelKeyPress += (s, e) =>
             {
                 e.Cancel = true;
                 Console.WriteLine("\n\n[!] Stopping scan (Ctrl+C)...");
-                cts.Cancel();
+                try { cts.Cancel(); } catch { }
                 engine.StopRecovery();
             };
 

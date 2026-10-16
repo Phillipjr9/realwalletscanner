@@ -591,6 +591,22 @@ namespace WalletRecoveryTool.Core
         /// Recovers seed from Shamir Backup (SLIP-39) shares
         /// Used by Trezor Model T and newer devices
         /// </summary>
+        public sealed class ShamirRecoveryResult
+        {
+            public bool Success { get; set; }
+            public string RecoveredMnemonic { get; set; }
+        }
+
+        public ShamirRecoveryResult RecoverFromShamirBackup(List<string> shares, int requiredShares = 2, string passphrase = "")
+        {
+            var mnemonic = RecoverFromShamirShares(shares, passphrase);
+            return new ShamirRecoveryResult
+            {
+                Success = !string.IsNullOrEmpty(mnemonic),
+                RecoveredMnemonic = mnemonic
+            };
+        }
+
         public string RecoverFromShamirShares(List<string> shares, string passphrase = "")
         {
             // SLIP-39 implementation
