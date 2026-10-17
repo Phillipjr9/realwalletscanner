@@ -21,5 +21,8 @@ WebWorkstation/target_addresses.json
 WebWorkstation/scan_checkpoint.json
 WebWorkstation/FOUND_WALLETS_VAULT.json
 WebWorkstation/FOUND_WALLETS.txt
+WebWorkstation/api_keys_config.json
+WebWorkstation/found_wallets_vault.json
+WebWorkstation/FOUND_WALLETS_VAULT.txt
 
 
