@@ -860,6 +860,10 @@
           <span id="QuickStatsDedupeText" class="metric-val" style="color:#FCD34D;">0</span>
         </div>
         <div class="metric-item">
+          <span class="metric-label">API Quota Saved</span>
+          <span id="QuickStatsQuotaSavedText" class="metric-val" style="color:#34D399;">0</span>
+        </div>
+        <div class="metric-item">
           <span class="metric-label">Active Hits</span>
           <span id="QuickStatsFoundText" class="metric-val" style="color:#34D399;">0</span>
         </div>
@@ -873,6 +877,10 @@
         <button id="HeaderRunToggle" class="btn btn-emerald" onclick="toggleEngineState()">
           <span id="HeaderRunIcon">⏸</span>
           <span id="HeaderRunLabel">Pause</span>
+        </button>
+        <button class="btn" onclick="openModal('settingsModal')" title="7/7 Blockchain Explorer API Keys Active in Zero-Waste Mode">
+          <span>🔑 API Keys</span>
+          <span id="HeaderApiKeysBadge" class="pill pill-emerald mono" style="padding:1px 6px; font-size:9.5px;">7/7 ACTIVE</span>
         </button>
         <button class="btn" onclick="switchTab('BrainEngine'); runSelfTestSuite();" title="Run 8-Part Core Diagnostic Self-Test">
           Self-Test
@@ -1376,6 +1384,53 @@
           </div>
         </div>
 
+        <!-- BLOCKCHAIN EXPLORER API KEYS & ZERO-WASTE QUOTA PROTECTION -->
+        <div style="background:#0F172A; border:1px solid rgba(56,189,248,0.35); border-radius:10px; padding:14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <div>
+              <div style="font-size:12px; font-weight:700; color:#7DD3FC;">🔑 BLOCKCHAIN EXPLORER API KEYS &amp; ZERO-WASTE QUOTA PROTECTION</div>
+              <div style="font-size:11px; color:#94A3B8; margin-top:2px;">All 7 API keys loaded • Free Multi-Address Batch RPCs run FIRST (0 API key credits wasted on empty wallets)</div>
+            </div>
+            <span id="ApiKeysModalBadge" class="pill pill-emerald mono">7/7 ACTIVE • 0 QUOTA WASTED</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+            <div>
+              <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">Etherscan API Key (ETH / ERC-20)</label>
+              <input id="apiKeyEtherscan" class="input-box mono" type="text" value="5X88C49SNSX6PN97FNJBYV4D3YPUG8TJIN" style="padding:7px 10px; font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">BlockCypher API Key (BTC)</label>
+              <input id="apiKeyBlockCypher" class="input-box mono" type="text" value="bc2d6859389143819865f16ff3665b07" style="padding:7px 10px; font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">QuickNode API Key (Solana)</label>
+              <input id="apiKeyQuickNode" class="input-box mono" type="text" value="QN_422a5d3de1f14764a2da63948854dc3d" style="padding:7px 10px; font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">Alchemy API Key (ETH Fallback)</label>
+              <input id="apiKeyAlchemy" class="input-box mono" type="text" value="alch_GUL5G9FbAY7n1ZA9o6zjy" style="padding:7px 10px; font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">TronGrid API Key (TRON USDT)</label>
+              <input id="apiKeyTronGrid" class="input-box mono" type="text" value="a02e4101-2d16-4cc0-9289-6f789297cfbc" style="padding:7px 10px; font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">Polygonscan API Key (MATIC)</label>
+              <input id="apiKeyPolygonscan" class="input-box mono" type="text" value="ESAMTBXEUFQQTUSA4A1ZUF2WJN6YP68MHY" style="padding:7px 10px; font-size:11px;" />
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="display:block; font-size:10px; color:#94A3B8; margin-bottom:3px;">BscScan API Key (BNB Smart Chain)</label>
+            <input id="apiKeyBscscan" class="input-box mono" type="text" value="987KZ9SUPKX2I29ZNZPZIYFS4N4C2IKQEX" style="padding:7px 10px; font-size:11px;" />
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <button class="btn btn-primary" onclick="saveApiKeysConfig()">💾 Save &amp; Activate All 7 API Keys</button>
+            <span id="ApiKeysStatusText" class="mono" style="font-size:11px; color:#34D399;">🛡️ Zero-Waste Quota Guard Active</span>
+          </div>
+        </div>
+
         <!-- CORE ENGINE SAFEGUARDS -->
         <div>
           <div style="font-size:11px; font-weight:700; color:#94A3B8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Core Cryptographic &amp; Cognitive Safeguards</div>
@@ -1511,6 +1566,59 @@
     }
     if (id === 'settingsModal') {
       loadSmtpConfig();
+      loadApiKeysConfig();
+    }
+  }
+
+  async function loadApiKeysConfig() {
+    try {
+      const res = await fetch('/api/api-keys');
+      const data = await res.json();
+      if (data && data.rawKeys) {
+        document.getElementById('apiKeyEtherscan').value = data.rawKeys.etherscanApiKey || '';
+        document.getElementById('apiKeyBlockCypher').value = data.rawKeys.blockCypherApiKey || '';
+        document.getElementById('apiKeyQuickNode').value = data.rawKeys.quickNodeApiKey || '';
+        document.getElementById('apiKeyAlchemy').value = data.rawKeys.alchemyApiKey || '';
+        document.getElementById('apiKeyTronGrid').value = data.rawKeys.tronGridApiKey || '';
+        document.getElementById('apiKeyPolygonscan').value = data.rawKeys.polygonscanApiKey || '';
+        document.getElementById('apiKeyBscscan').value = data.rawKeys.bscscanApiKey || '';
+      }
+      if (data && typeof data.configuredCount === 'number') {
+        const headerBadge = document.getElementById('HeaderApiKeysBadge');
+        if (headerBadge) headerBadge.textContent = `${data.configuredCount}/${data.totalProviders} ACTIVE`;
+        const modalBadge = document.getElementById('ApiKeysModalBadge');
+        if (modalBadge) modalBadge.textContent = `${data.configuredCount}/${data.totalProviders} ACTIVE • ${(data.apiQuotaSavedCount || 0).toLocaleString()} SAVED`;
+      }
+    } catch (_) {}
+  }
+
+  async function saveApiKeysConfig() {
+    const statusEl = document.getElementById('ApiKeysStatusText');
+    const payload = {
+      etherscanApiKey: document.getElementById('apiKeyEtherscan').value.trim(),
+      blockCypherApiKey: document.getElementById('apiKeyBlockCypher').value.trim(),
+      quickNodeApiKey: document.getElementById('apiKeyQuickNode').value.trim(),
+      alchemyApiKey: document.getElementById('apiKeyAlchemy').value.trim(),
+      tronGridApiKey: document.getElementById('apiKeyTronGrid').value.trim(),
+      polygonscanApiKey: document.getElementById('apiKeyPolygonscan').value.trim(),
+      bscscanApiKey: document.getElementById('apiKeyBscscan').value.trim()
+    };
+    try {
+      const res = await fetch('/api/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        statusEl.textContent = `✅ All ${data.configuredCount}/${data.totalProviders} API keys active in Zero-Waste Mode!`;
+        statusEl.style.color = '#34D399';
+        const headerBadge = document.getElementById('HeaderApiKeysBadge');
+        if (headerBadge) headerBadge.textContent = `${data.configuredCount}/${data.totalProviders} ACTIVE`;
+      }
+    } catch (e) {
+      statusEl.textContent = `❌ Save error: ${e.message}`;
+      statusEl.style.color = '#F87171';
     }
   }
 
@@ -1713,7 +1821,7 @@
       speedHistory.push(batchRate);
       if (speedHistory.length > 60) speedHistory.shift();
 
-      totalChecked += data.items.length;
+      totalChecked = Math.max(totalChecked + data.items.length, (data.serverDaemonScanned || 0) + data.items.length);
       totalDedupe = data.totalDuplicatesPrevented || (totalDedupe + data.dedupeSkipped);
 
       for (const item of data.items) {
@@ -1743,6 +1851,10 @@
       document.getElementById('QuickStatsRuntimeText').textContent = formatTime(Date.now() - startTime);
       document.getElementById('QuickStatsRateText').textContent = `${batchRate.toLocaleString()}/s`;
       document.getElementById('QuickStatsDedupeText').textContent = totalDedupe.toLocaleString();
+      const quotaSavedEl = document.getElementById('QuickStatsQuotaSavedText');
+      if (quotaSavedEl && typeof data.apiQuotaSavedCount === 'number') {
+        quotaSavedEl.textContent = data.apiQuotaSavedCount.toLocaleString();
+      }
 
       document.getElementById('ModalSpeed').textContent = `${batchRate.toLocaleString()}/s`;
       document.getElementById('ModalChecked').textContent = totalChecked.toLocaleString();

@@ -600,31 +600,14 @@ public class BalanceChecker
 					return default(decimal);
 				}
 				await EnforceRateLimit();
-				if (IsProviderAvailableWithReset(_blockcypherCooldownUntil, ref _blockcypherBackoffLevel) && !string.IsNullOrEmpty(_settings.BlockCypherApiKey))
-				{
-					try
-					{
-						decimal result = await GetBitcoinBalanceBlockCypher(address, startTime);
-						ResetProviderBackoff(ref _blockcypherBackoffLevel);
-						return result;
-					}
-					catch (InvalidOperationException ex) when (ex.Message.Contains("rate limit"))
-					{
-						SetProviderCooldown(ref _blockcypherCooldownUntil, ref _blockcypherBackoffLevel, "BlockCypher");
-						BalanceChecker.ApiCallMade?.Invoke(null, "?\ufe0f BTC: BlockCypher rate limited, trying Blockstream...");
-					}
-					catch (Exception ex2)
-					{
-						DebugLogger.Log("BlockCypher error: " + ex2.Message + ", trying backup...");
-					}
-				}
-				// Mempool is primary BTC provider (Blockstream is often network-blocked)
+				// ZERO-WASTE QUOTA PROTECTION: Query Free Mempool / Blockstream / Blockchain.info FIRST (0 API key credits used)
 				if (IsProviderAvailableWithReset(_mempoolCooldownUntil, ref _mempoolBackoffLevel))
 				{
 					try
 					{
 						decimal result3 = await GetBitcoinBalanceMempool(address, startTime);
 						ResetProviderBackoff(ref _mempoolBackoffLevel);
+						RecordQuotaSaved(1);
 						return result3;
 					}
 					catch (InvalidOperationException ex5) when (ex5.Message.Contains("rate limit"))
@@ -638,13 +621,13 @@ public class BalanceChecker
 						DebugLogger.Log("Mempool error: " + ex6.Message + ", trying Blockstream...");
 					}
 				}
-				// Blockstream as fallback (2s timeout for fast-fail when network-blocked)
 				if (IsProviderAvailableWithReset(_blockstreamCooldownUntil, ref _blockstreamBackoffLevel))
 				{
 					try
 					{
 						decimal result2 = await GetBitcoinBalanceBlockstream(address, startTime);
 						ResetProviderBackoff(ref _blockstreamBackoffLevel);
+						RecordQuotaSaved(1);
 						return result2;
 					}
 					catch (InvalidOperationException ex3) when (ex3.Message.Contains("rate limit"))
@@ -664,17 +647,39 @@ public class BalanceChecker
 					{
 						decimal result4 = await GetBitcoinBalanceBlockchainInfo(address, startTime);
 						ResetProviderBackoff(ref _blockchainInfoBackoffLevel);
+						RecordQuotaSaved(1);
 						return result4;
 					}
 					catch (InvalidOperationException ex7) when (ex7.Message.Contains("rate limit"))
 					{
 						SetProviderCooldown(ref _blockchainInfoCooldownUntil, ref _blockchainInfoBackoffLevel, "Blockchain.info");
-						BalanceChecker.ApiCallMade?.Invoke(null, "⚠️ BTC: Blockchain.info rate limited, trying Blockchair...");
+						BalanceChecker.ApiCallMade?.Invoke(null, "⚠️ BTC: Blockchain.info rate limited, trying BlockCypher...");
 					}
 					catch (Exception ex8)
 					{
 						SetProviderCooldown(ref _blockchainInfoCooldownUntil, ref _blockchainInfoBackoffLevel, "Blockchain.info");
-						DebugLogger.Log("Blockchain.info error: " + ex8.Message + ", trying Blockchair...");
+						DebugLogger.Log("Blockchain.info error: " + ex8.Message + ", trying BlockCypher...");
+					}
+				}
+				// PROTECTED FALLBACK: Use keyed BlockCypher only if free providers failed
+				if (IsProviderAvailableWithReset(_blockcypherCooldownUntil, ref _blockcypherBackoffLevel) &&
+				    !string.IsNullOrEmpty(_settings.BlockCypherApiKey) &&
+				    ApiUsageTracker.CanMakeApiCall("BlockCypher"))
+				{
+					try
+					{
+						decimal result = await GetBitcoinBalanceBlockCypher(address, startTime);
+						ResetProviderBackoff(ref _blockcypherBackoffLevel);
+						return result;
+					}
+					catch (InvalidOperationException ex) when (ex.Message.Contains("rate limit"))
+					{
+						SetProviderCooldown(ref _blockcypherCooldownUntil, ref _blockcypherBackoffLevel, "BlockCypher");
+						BalanceChecker.ApiCallMade?.Invoke(null, "⚠️ BTC: BlockCypher rate limited, trying Blockchair...");
+					}
+					catch (Exception ex2)
+					{
+						DebugLogger.Log("BlockCypher error: " + ex2.Message + ", trying backup...");
 					}
 				}
 				if (IsProviderAvailableWithReset(_blockchairCooldownUntil, ref _blockchairBackoffLevel))

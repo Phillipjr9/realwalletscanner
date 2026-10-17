@@ -15,6 +15,17 @@ set "APPDATA_CONFIG_DIR=%APPDATA%\WalletRecoveryTool"
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 if not exist "%APPDATA_CONFIG_DIR%" mkdir "%APPDATA_CONFIG_DIR%"
 
+REM Close any running instance so Windows does not lock WalletRecoveryTool.exe during build
+taskkill /F /IM WalletRecoveryTool.exe >nul 2>&1
+
+REM Automatically pull latest updates from master if git is available
+where git >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    pushd "%REPO_DIR%"
+    git pull origin master >nul 2>&1
+    popd
+)
+
 REM ----------------------------------------------------------------------------
 REM STEP 1: Configure AtlanticBB SMTP Profile (smtp.atlanticbb.net:587)
 REM ----------------------------------------------------------------------------
