@@ -10,28 +10,27 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyTitle>Wallet Recovery Tool</AssemblyTitle>
     <AssemblyDescription>Professional cryptocurrency wallet recovery utility</AssemblyDescription>
-    <AssemblyVersion>2.2.0.0</AssemblyVersion>
-    <FileVersion>2.2.0.0</FileVersion>
+    <Version>2.5.0.0</Version>
+    <AssemblyVersion>2.5.0.0</AssemblyVersion>
+    <FileVersion>2.5.0.0</FileVersion>
     <Company>CodeHaven</Company>
     <Product>Wallet Recovery Tool by CodeHaven</Product>
     <Copyright>Copyright © 2025-2026 CodeHaven. All rights reserved.</Copyright>
     <NeutralLanguage>en</NeutralLanguage>
     <AssemblyTrademark>CodeHaven™</AssemblyTrademark>
-    <!-- Anti-reverse-engineering: pre-compile to native code -->
-    <PublishReadyToRun>true</PublishReadyToRun>
-    <!-- Strip unused code to reduce size and attack surface -->
+    <PublishReadyToRun>false</PublishReadyToRun>
     <PublishTrimmed>false</PublishTrimmed>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="WebWorkstation\crypto_engine.js" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="WebWorkstation\server.js" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="WebWorkstation\index.html" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="WebWorkstation\package.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\crypto_engine.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\server.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="WebWorkstation\package.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
     <PackageReference Include="NBitcoin" Version="7.0.37" />
     <PackageReference Include="Nethereum.Web3" Version="4.19.0" />
