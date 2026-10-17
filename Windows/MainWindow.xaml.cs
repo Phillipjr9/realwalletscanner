@@ -3272,6 +3272,18 @@ namespace WalletRecoveryTool
             try
             {
                 TryStartEmbeddedWebWorkstation();
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "msedge",
+                        Arguments = "--app=http://localhost:3000 --window-size=1580,920",
+                        UseShellExecute = true
+                    });
+                    return;
+                }
+                catch { }
+
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = "http://localhost:3000",
