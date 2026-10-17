@@ -159,6 +159,9 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Full-Window Native WebView2 Host (Option 1: 100% Pixel-Identical localhost:3000 UI inside WalletRecoveryTool.exe) -->
+        <Border x:Name="NativeWebViewHostBorder" Grid.Row="0" Grid.RowSpan="5" Panel.ZIndex="999" Background="#080B10" Visibility="Collapsed"/>
+
         <!-- ═══════════════════════ SINGLE MINIMALIST TOP COMMAND HEADER (54PX) ═══════════════════════ -->
         <Border Grid.Row="0" Background="#0D121C" BorderBrush="#1E293B" BorderThickness="0,0,0,1" Padding="18,0">
             <Grid>
