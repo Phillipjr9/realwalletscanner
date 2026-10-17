@@ -38,13 +38,13 @@ public class SmartWalletHunter : IDisposable
         private readonly MnemonicTracker _mnemonicTracker;
         private static readonly List<string> Bip39Words = Wordlist.English.GetWords().ToList();
         
-        // OPTIMIZED: Full CPU utilization - use all cores for phases, more threads per batch
-        private static readonly int PhaseParallelism = Math.Max(8, Environment.ProcessorCount * 2);
+        // OPTIMIZED: Balanced phase parallelism so concurrent phases never starve ThreadPool consumers
+        private static readonly int PhaseParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
         
-        // OPTIMIZED: Bounded Channel for zero-spin backpressure and instant consumer wakeups
+        // OPTIMIZED: Bounded Channel for backpressure and instant consumer wakeups
         private readonly Channel<(string mnemonic, string source, CancellationToken token)> _batchChannel =
             Channel.CreateBounded<(string mnemonic, string source, CancellationToken token)>(
-                new BoundedChannelOptions(10000)
+                new BoundedChannelOptions(2000)
                 {
                     FullMode = BoundedChannelFullMode.Wait,
                     SingleReader = false,
@@ -54,8 +54,8 @@ public class SmartWalletHunter : IDisposable
         #pragma warning disable CS0414
         private readonly int _batchSizeLegacy = 200; // Original batch size (kept for reference)
         #pragma warning restore CS0414
-        private readonly int _batchSize = 2000; // Increased for higher throughput
-        private readonly int _batchProcessorCount = Math.Max(8, Environment.ProcessorCount * 2); // Scale with CPU cores
+        private readonly int _batchSize = 40; // Fast 40-wallet batches for instant UI telemetry & multi-address RPC batching
+        private readonly int _batchProcessorCount = Math.Clamp(Environment.ProcessorCount, 4, 12); // Dedicated consumer workers
         private Task[] _batchProcessors; // All active batch processor tasks
         private readonly CancellationTokenSource _stoppingCts = new();
         public CancellationToken StoppingToken => _stoppingCts.Token;
@@ -221,12 +221,16 @@ public SmartWalletHunter()
                 DebugLogger.Log($"[SmartHunter] EmptyFilter init failed (non-critical): {ex.Message}");
             }
             
-            // OPTIMIZED: Start multiple batch processors for maximum throughput
+            // OPTIMIZED: Start dedicated long-running batch processors so producer tasks can never starve consumers
             _batchProcessors = new Task[_batchProcessorCount];
             for (int i = 0; i < _batchProcessorCount; i++)
             {
                 int workerId = i;
-                _batchProcessors[i] = Task.Run(() => ProcessBatchQueueAsync(workerId));
+                _batchProcessors[i] = Task.Factory.StartNew(
+                    () => ProcessBatchQueueAsync(workerId),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).Unwrap();
             }
         }
         
@@ -738,9 +742,9 @@ public SmartWalletHunter()
             int apiCallCount = 0;
             int totalPhrases = phrases.Count;
             
-            // SPEED BOOST: Process brain wallet phrases in parallel (was sequential foreach - 10x slower)
+            // SPEED BOOST: Process brain wallet phrases with balanced parallelism
             var settings = AppSettings.Current;
-            int parallelism = Math.Clamp(settings.ThreadCount / 2, 8, 32); // Brain wallet parallelism
+            int parallelism = Math.Clamp(settings.ThreadCount / 4, 2, 6);
             
             await Parallel.ForEachAsync(phrases, 
                 new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = token },
@@ -783,6 +787,13 @@ public SmartWalletHunter()
                     var segwitAddress = key.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
                     var nativeSegwitAddress = key.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
                     var taprootAddress = key.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
+                    string brainEthAddress = null;
+                    if (ScanEthereum)
+                    {
+                        var uncompressed = key.PubKey.Decompress().ToBytes();
+                        var keccak = SimdHasher.Keccak256(uncompressed.AsSpan(1));
+                        brainEthAddress = "0x" + Convert.ToHexString(keccak, 12, 20).ToLowerInvariant();
+                    }
 
                     if (_mnemonicTracker.IsAddressOrKeyScannedEmpty(legacyAddress))
                     {
@@ -799,7 +810,9 @@ public SmartWalletHunter()
                     {
                         Source = "Brain Wallet",
                         Phrase = variant,
+                        Mnemonic = variant,
                         Address = legacyAddress,
+                        EthAddress = brainEthAddress,
                         CheckNumber = currentCount,
                         TotalToCheck = totalPhrases,
                         BtcBalance = 0,
@@ -2172,22 +2185,20 @@ public SmartWalletHunter()
                 return;
             }
 
-            if (token.IsCancellationRequested)
+            if (token.IsCancellationRequested || StoppingToken.IsCancellationRequested)
             {
                 _pendingMnemonicKeys.TryRemove(pendingKey, out _);
                 return;
             }
 
-            if (!_batchChannel.Writer.TryWrite((mnemonic, source, token)))
+            while (!_batchChannel.Writer.TryWrite((mnemonic, source, token)))
             {
-                try
-                {
-                    _batchChannel.Writer.WriteAsync((mnemonic, source, token), token).AsTask().GetAwaiter().GetResult();
-                }
-                catch
+                if (token.IsCancellationRequested || StoppingToken.IsCancellationRequested)
                 {
                     _pendingMnemonicKeys.TryRemove(pendingKey, out _);
+                    return;
                 }
+                Thread.Sleep(5);
             }
         }
 
@@ -2282,9 +2293,12 @@ public SmartWalletHunter()
                     ReportProgressThrottled($"Checking: {source}");
                     FireWalletCheckingThrottled(new WalletCheckingEventArgs
                     {
-                        Source = source, Mnemonic = mnemonic,
-                        Address = ScanBitcoin ? wallet.BitcoinAddress : wallet.EthereumAddress,
-                        CheckNumber = checkNum, TotalToCheck = 1000000
+                        Source = source,
+                        Mnemonic = mnemonic,
+                        Address = wallet.BitcoinAddress ?? wallet.EthereumAddress,
+                        EthAddress = wallet.EthereumAddress,
+                        CheckNumber = checkNum,
+                        TotalToCheck = 1000000
                     });
 
                     // BTC: Collect addresses with bloom filter pre-filtering
@@ -3233,22 +3247,27 @@ public SmartWalletHunter()
         /// </summary>
         private void ReportProgressThrottled(string message)
         {
+            if (Interlocked.Read(ref _totalChecked) <= 5)
+            {
+                ReportProgress(message);
+                return;
+            }
             var nowTicks = DateTime.UtcNow.Ticks;
             var lastTicks = Interlocked.Read(ref _lastReportTicks);
-            if (nowTicks - lastTicks < TimeSpan.TicksPerMillisecond * 250) return; // 250ms throttle for smooth counter without UI saturation
+            if (nowTicks - lastTicks < TimeSpan.TicksPerMillisecond * 120) return;
             if (Interlocked.CompareExchange(ref _lastReportTicks, nowTicks, lastTicks) != lastTicks) return;
             ReportProgress(message);
         }
         
         /// <summary>
-        /// Fire WalletChecking event at most every 100ms to keep "Last 20" list in sync with scan speed.
-        /// Wallets with balance ALWAYS fire immediately (bypass throttle).
+        /// Fire WalletChecking event at ~12.5 FPS to keep Live Preview responsive.
+        /// Wallets with balance and the first 5 wallets ALWAYS fire immediately.
         /// </summary>
         private void FireWalletCheckingThrottled(WalletCheckingEventArgs args)
         {
-            // Always fire immediately if wallet has balance
+            // Always fire immediately if wallet has balance or during initial startup
             bool hasBalance = args.BtcBalance > 0 || args.EthBalance > 0 || args.SolBalance > 0 || args.UsdtBalance > 0;
-            if (hasBalance)
+            if (hasBalance || args.CheckNumber <= 5)
             {
                 WalletChecking?.Invoke(this, args);
                 return;
@@ -3256,7 +3275,7 @@ public SmartWalletHunter()
             
             var nowTicks = DateTime.UtcNow.Ticks;
             var lastTicks = Interlocked.Read(ref _lastWalletCheckingTicks);
-            if (nowTicks - lastTicks < TimeSpan.TicksPerMillisecond * 500) return; // 500ms throttle (2 events/sec — reduces UI thread saturation)
+            if (nowTicks - lastTicks < TimeSpan.TicksPerMillisecond * 80) return; // 80ms throttle (~12.5 events/sec)
             if (Interlocked.CompareExchange(ref _lastWalletCheckingTicks, nowTicks, lastTicks) != lastTicks) return;
             WalletChecking?.Invoke(this, args);
         }

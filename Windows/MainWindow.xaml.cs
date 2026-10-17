@@ -468,26 +468,16 @@ namespace WalletRecoveryTool
         /// </summary>
         private bool CheckApiKeysBeforeStart()
         {
+            AppSettings.InvalidateCache();
             var settings = AppSettings.Load();
-            if (!string.IsNullOrWhiteSpace(settings.EtherscanApiKey) && 
-                !string.IsNullOrWhiteSpace(settings.BlockCypherApiKey))
-                return false; // Keys OK
+            if (!string.IsNullOrWhiteSpace(settings.EtherscanApiKey) || 
+                !string.IsNullOrWhiteSpace(settings.BlockCypherApiKey) ||
+                !string.IsNullOrWhiteSpace(settings.AlchemyApiKey) ||
+                !string.IsNullOrWhiteSpace(settings.QuickNodeApiKey))
+                return false; // Keys configured — Zero-Waste Protected Mode active
 
-            var result = MessageBox.Show(
-                "⚠️ Required API keys are not configured!\n\n" +
-                "You need at least Etherscan and BlockCypher API keys to check wallet balances.\n" +
-                "Each user must register their own free keys.\n\n" +
-                "Open Settings to configure API keys?",
-                "Cannot Start - API Keys Missing",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                var settingsWindow = new SettingsWindow();
-                settingsWindow.Owner = this;
-                settingsWindow.ShowDialog();
-            }
-            return true; // Keys missing, block start
+            // Even without API keys, Free Multi-Address Batch RPCs (Blockchain.info / PublicNode / LlamaRPC) work automatically
+            return false;
         }
 
         /// <summary>
@@ -1037,12 +1027,24 @@ namespace WalletRecoveryTool
                     }
                     
                     // UPDATE GLOBAL LIVE PREVIEW PANEL (right side) - used by ALL tabs
+                    var seedDisplay = !string.IsNullOrEmpty(e.Phrase) ? e.Phrase : (e.Mnemonic ?? "Generating...");
                     LivePreviewSourceText.Text = e.Source ?? "Random";
-                    SetLiveMnemonicPreview(e.Mnemonic ?? "Generating...", e.Source ?? "Global");
+                    SetLiveMnemonicPreview(seedDisplay, e.Source ?? "Global");
                     PreviewBtcAddressTextBox.Text = e.Address ?? "N/A";
                     PreviewEthAddressTextBox.Text = e.EthAddress ?? "N/A";
                     PreviewTotalTextBlock.Text = $"Scanned: {e.CheckNumber:N0}";
                     PreviewStatusTextBlock.Text = "⚡ SCANNING...";
+
+                    // Also update In-Tab Live Preview cards (Smart Hunter & Random tabs)
+                    if (RandomLiveSeedText != null) RandomLiveSeedText.Text = seedDisplay;
+                    if (RandomLiveBtcText != null) RandomLiveBtcText.Text = e.Address ?? "---";
+                    if (RandomLiveEthText != null) RandomLiveEthText.Text = e.EthAddress ?? "---";
+                    if (RandomLiveApiSavedText != null) RandomLiveApiSavedText.Text = $"🛡️ API QUOTA SAVED: {BalanceChecker.ApiQuotaSavedCount:N0} calls";
+                    if (SmartLiveSeedText != null) SmartLiveSeedText.Text = seedDisplay;
+                    if (SmartLiveBtcText != null) SmartLiveBtcText.Text = e.Address ?? "---";
+                    if (SmartLiveEthText != null) SmartLiveEthText.Text = e.EthAddress ?? "---";
+                    if (SmartLiveSourceBadge != null) SmartLiveSourceBadge.Text = e.Source ?? "LIVE";
+                    if (SmartLiveApiSavedText != null) SmartLiveApiSavedText.Text = $"🛡️ API QUOTA SAVED: {BalanceChecker.ApiQuotaSavedCount:N0} calls (Zero-Waste RPC-First Active)";
                     
                     // Update balance displays in the live preview panel
                     PreviewBtcBalanceTextBlock.Text = e.BtcBalance.ToString("0.00000000");
@@ -1251,13 +1253,14 @@ namespace WalletRecoveryTool
             PreviewStatusTextBlock.Text = "⚡ SCANNING...";
             PreviewStatusBorder.Background = _brushStatusGreen;
             
-            // Start timer for live updates
+            // Start timer for live updates (250ms for smooth real-time counters)
             _smartHuntingTimer = new System.Windows.Threading.DispatcherTimer();
-            _smartHuntingTimer.Interval = TimeSpan.FromMilliseconds(2000);
+            _smartHuntingTimer.Interval = TimeSpan.FromMilliseconds(250);
             _smartHuntingTimer.Tick += SmartHuntingTimer_Tick;
             _smartHuntingTimer.Start();
             
             // Update settings based on UI
+            AppSettings.InvalidateCache();
             var settings = AppSettings.Load();
             settings.EnableSmartHunting = true;
             settings.ScanBrainWallets = brainWallets;
@@ -1302,26 +1305,9 @@ namespace WalletRecoveryTool
             };
 
             string cryptoList = string.Join(", ", selectedCryptos);
-            StatusTextBlock.Text = $"🎯 SMART HUNTING - Scanning {cryptoList}...";
-            
-            // Show info
-            MessageBox.Show(
-                $"🎯 SMART HUNTING MODE\n\n" +
-                $"This is the BEST method to find funded wallets!\n\n" +
-                $"Strategies Enabled:\n" +
-                (brainWallets ? "✅ Brain Wallets (100,000+ phrases)\n" : "") +
-                (weakRng ? "✅ Weak RNG (sequential/timestamp seeds)\n" : "") +
-                (humanPatterns ? "✅ Human Patterns (predictable combinations)\n" : "") +
-                (vulnerable ? "✅ Vulnerable Software (Android/JS/Python bugs)\n" : "") +
-                (timestamp ? "✅ Timestamp Seeds (finite search space)\n" : "") +
-                $"\nScanning: {cryptoList}\n\n" +
-                "Wallets WITH balance will be:\n" +
-                "• Shown in the results grid\n" +
-                "• Saved to FOUND_WALLETS.txt\n" +
-                "• Stored in the database",
-                "Starting Smart Hunting",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            StatusTextBlock.Text = $"🎯 SMART HUNTING - Scanning {cryptoList} (Zero-Waste API Mode Active)...";
+            if (SmartLiveSeedText != null) SmartLiveSeedText.Text = $"Initializing Smart Hunter phases for {cryptoList}...";
+            if (SmartLiveSourceBadge != null) SmartLiveSourceBadge.Text = "STARTING";
             
             try
             {
@@ -1382,11 +1368,17 @@ namespace WalletRecoveryTool
                 bool isBrainWallet = source.Contains("Brain", StringComparison.OrdinalIgnoreCase);
                 PhraseTypeLabel.Text = isBrainWallet ? "🔑 BRAIN WALLET PHRASE (short)" : "📝 12-WORD MNEMONIC";
                 
-                // Update the UNIFIED LIVE PREVIEW panel on the right side
+                // Update the UNIFIED LIVE PREVIEW panel and In-Tab Live Preview Card
+                var seedDisplay = !string.IsNullOrEmpty(e.Phrase) ? e.Phrase : (e.Mnemonic ?? "---");
                 LivePreviewSourceText.Text = source;
-                SetLiveMnemonicPreview(!string.IsNullOrEmpty(e.Phrase) ? e.Phrase : (e.Mnemonic ?? "---"), source);
+                SetLiveMnemonicPreview(seedDisplay, source);
                 PreviewBtcAddressTextBox.Text = e.Address ?? "---";
                 PreviewEthAddressTextBox.Text = e.EthAddress ?? "---";
+                if (SmartLiveSeedText != null) SmartLiveSeedText.Text = seedDisplay;
+                if (SmartLiveBtcText != null) SmartLiveBtcText.Text = e.Address ?? "---";
+                if (SmartLiveEthText != null) SmartLiveEthText.Text = e.EthAddress ?? "---";
+                if (SmartLiveSourceBadge != null) SmartLiveSourceBadge.Text = source.ToUpperInvariant();
+                if (SmartLiveApiSavedText != null) SmartLiveApiSavedText.Text = $"🛡️ API QUOTA SAVED: {BalanceChecker.ApiQuotaSavedCount:N0} calls (Zero-Waste RPC-First Active)";
                 PreviewBtcBalanceTextBlock.Text = e.BtcBalance.ToString("0.00000000");
                 PreviewEthBalanceTextBlock.Text = e.EthBalance.ToString("0.00000000");
                 PreviewSolBalanceTextBlock.Text = e.SolBalance.ToString("0.00000000");
@@ -1730,42 +1722,9 @@ namespace WalletRecoveryTool
             };
 
             string cryptoList = string.Join(", ", selectedCryptos);
-            StatusTextBlock.Text = $"🔍 Random Recovery - Scanning {cryptoList} continuously (press Stop to end)...";
-
-            // ⚡ BLOOM FILTER CHECK: Warn if no funded address data loaded (100x speed penalty)
-            if (!FundedAddressFilter.HasBloomData())
-            {
-                var bloomResult = MessageBox.Show(
-                    "⚠️ NO FUNDED ADDRESS BLOOM FILTER LOADED\n\n" +
-                    "Without a bloom filter, EVERY wallet requires an API call (~600/sec max).\n" +
-                    "With a bloom filter, 99.99% are skipped locally (~10,000+/sec).\n\n" +
-                    "To set up the bloom filter:\n" +
-                    "1. Run download_funded_addresses.ps1 from the project folder\n" +
-                    "   OR manually download from https://gz.blockchair.com/bitcoin/addresses/\n" +
-                    "2. Extract the .tsv file to:\n" +
-                    $"   {FundedAddressFilter.GetDataDirectory()}\n\n" +
-                    "Continue scanning WITHOUT bloom filter (slow)?",
-                    "Speed Warning — Bloom Filter Missing",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning);
-
-                if (bloomResult == MessageBoxResult.No)
-                {
-                    SetRecoveryState(false);
-                    return;
-                }
-            }
-
-            MessageBox.Show(
-                $"🔍 CONTINUOUS RANDOM MNEMONIC RECOVERY\n\n" +
-                $"• Will scan random 12-word mnemonics CONTINUOUSLY until you click Stop\n" +
-                $"• Batch size: {maxAttempts:N0} per cycle\n" +
-                $"• Balance checking ENABLED for: {cryptoList}\n" +
-                $"• Wallets with balance saved to FOUND_WALLETS.txt\n\n" +
-                "Press Stop when you want to end the scan.",
-                "Starting Continuous Recovery",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            StatusTextBlock.Text = $"🔍 Random Recovery - Scanning {cryptoList} continuously (Zero-Waste API Mode Active)...";
+            if (RandomLiveSeedText != null) RandomLiveSeedText.Text = $"Starting high-speed scan for {cryptoList}...";
+            AppSettings.InvalidateCache();
             
             try
             {
@@ -3207,24 +3166,24 @@ namespace WalletRecoveryTool
                 _recentScannedMnemonics.Dequeue();
             }
 
-            if (RecentScansRichTextBox != null && (DateTime.Now - _lastFlowDocRebuild).TotalMilliseconds >= 1000)
-            {
-                _lastFlowDocRebuild = DateTime.Now;
-                var doc = RecentScansRichTextBox.Document;
-                doc.Blocks.Clear();
-                foreach (var item in _recentScannedMnemonics)
+                if (RecentScansRichTextBox != null && (DateTime.Now - _lastFlowDocRebuild).TotalMilliseconds >= 150)
                 {
-                    var run = new Run(item.Text)
+                    _lastFlowDocRebuild = DateTime.Now;
+                    var doc = RecentScansRichTextBox.Document;
+                    doc.Blocks.Clear();
+                    foreach (var item in _recentScannedMnemonics)
                     {
-                        Foreground = GetScanSourceBrush(item.Source)
-                    };
-                    doc.Blocks.Add(new Paragraph(run)
-                    {
-                        Margin = new Thickness(0)
-                    });
+                        var run = new Run(item.Text)
+                        {
+                            Foreground = GetScanSourceBrush(item.Source)
+                        };
+                        doc.Blocks.Add(new Paragraph(run)
+                        {
+                            Margin = new Thickness(0)
+                        });
+                    }
+                    RecentScansRichTextBox.ScrollToEnd();
                 }
-                RecentScansRichTextBox.ScrollToEnd();
-            }
         }
 
         private Brush GetScanSourceBrush(string source)
@@ -3336,6 +3295,8 @@ namespace WalletRecoveryTool
                 Owner = this
             };
             settingsWindow.ShowDialog();
+            AppSettings.InvalidateCache();
+            ValidateApiKeysOnStartup();
         }
         
         private void ApiUsage_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

@@ -352,6 +352,49 @@
                                 <ProgressBar x:Name="SmartHuntingProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
                             </StackPanel>
 
+                            <!-- Live Scanning Preview Card (Directly Visible in Smart Hunter Tab) -->
+                            <Border Grid.Row="2" Style="{StaticResource DashCard}" Padding="14,10" Margin="0,0,0,10" BorderBrush="#2838BDF8">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,6">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="8" Height="8" Fill="{StaticResource AccentGreen}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBlock Text="LIVE SCANNING PREVIEW — ACTIVE SEED &amp; DERIVED ADDRESSES" FontSize="11" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                                            <Border Background="#1438BDF8" BorderBrush="#3538BDF8" BorderThickness="1" CornerRadius="4" Padding="6,1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock x:Name="SmartLiveSourceBadge" Text="READY" FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentCyan}"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="4" Padding="8,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock x:Name="SmartLiveApiSavedText" Text="🛡️ API QUOTA SAVED: 0 calls (Zero-Waste RPC-First Active)" FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                        </Border>
+                                    </DockPanel>
+
+                                    <Border Background="#060910" BorderBrush="#1C2536" BorderThickness="1" CornerRadius="5" Padding="10,6" Margin="0,0,0,6">
+                                        <DockPanel>
+                                            <TextBlock Text="ACTIVE SEED / PHRASE:" FontFamily="Consolas" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                            <TextBox x:Name="SmartLiveSeedText" Text="Click 'LAUNCH SMART HUNTER' to start real-time scanning..." IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                                     FontFamily="Consolas" FontSize="11.5" FontWeight="SemiBold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                                        </DockPanel>
+                                    </Border>
+
+                                    <UniformGrid Columns="2">
+                                        <Border Background="#060910" BorderBrush="#1C2536" BorderThickness="1" CornerRadius="5" Padding="8,4" Margin="0,0,6,0">
+                                            <DockPanel>
+                                                <TextBlock Text="BTC:" FontFamily="Consolas" FontSize="10" FontWeight="Bold" Foreground="{StaticResource BtcColor}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBox x:Name="SmartLiveBtcText" Text="---" IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                                         FontFamily="Consolas" FontSize="11" Foreground="{StaticResource BtcColor}" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </Border>
+                                        <Border Background="#060910" BorderBrush="#1C2536" BorderThickness="1" CornerRadius="5" Padding="8,4" Margin="6,0,0,0">
+                                            <DockPanel>
+                                                <TextBlock Text="ETH:" FontFamily="Consolas" FontSize="10" FontWeight="Bold" Foreground="{StaticResource EthColor}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBox x:Name="SmartLiveEthText" Text="---" IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                                         FontFamily="Consolas" FontSize="11" Foreground="{StaticResource EthColor}" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </Border>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Results DataGrid -->
                             <Border Grid.Row="3" Style="{StaticResource DashCard}" Padding="14" Margin="0">
                                 <DockPanel>
@@ -471,10 +514,47 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Progress -->
+                            <!-- Progress + In-Tab Live Preview -->
                             <StackPanel Grid.Row="1" Margin="0,0,0,10">
                                 <TextBlock x:Name="ProgressTextBlock" Text="Ready" Foreground="{StaticResource TextDim}" FontSize="11.5" Margin="0,0,0,4"/>
-                                <ProgressBar x:Name="RandomProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True"/>
+                                <ProgressBar x:Name="RandomProgressBar" Height="5" Foreground="{StaticResource AccentGreen}" Background="#1E293B" BorderThickness="0" materialDesign:TransitionAssist.DisableTransitions="True" Margin="0,0,0,8"/>
+
+                                <Border Style="{StaticResource DashCard}" Padding="14,10" BorderBrush="#2838BDF8">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,6">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Ellipse Width="8" Height="8" Fill="{StaticResource AccentGreen}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock Text="LIVE SCANNING PREVIEW — ACTIVE SEED &amp; DERIVED ADDRESSES" FontSize="11" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <Border Background="#1410B981" BorderBrush="#3510B981" BorderThickness="1" CornerRadius="4" Padding="8,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                <TextBlock x:Name="RandomLiveApiSavedText" Text="🛡️ API QUOTA SAVED: 0 calls" FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}"/>
+                                            </Border>
+                                        </DockPanel>
+                                        <Border Background="#060910" BorderBrush="#1C2536" BorderThickness="1" CornerRadius="5" Padding="10,6" Margin="0,0,0,6">
+                                            <DockPanel>
+                                                <TextBlock Text="ACTIVE 12-WORD SEED:" FontFamily="Consolas" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentCyan}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                                <TextBox x:Name="RandomLiveSeedText" Text="Click 'START RANDOM SCAN' to begin..." IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                                         FontFamily="Consolas" FontSize="11.5" FontWeight="SemiBold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </Border>
+                                        <UniformGrid Columns="2">
+                                            <Border Background="#060910" BorderBrush="#1C2536" BorderThickness="1" CornerRadius="5" Padding="8,4" Margin="0,0,6,0">
+                                                <DockPanel>
+                                                    <TextBlock Text="BTC:" FontFamily="Consolas" FontSize="10" FontWeight="Bold" Foreground="{StaticResource BtcColor}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBox x:Name="RandomLiveBtcText" Text="---" IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                                             FontFamily="Consolas" FontSize="11" Foreground="{StaticResource BtcColor}" VerticalAlignment="Center"/>
+                                                </DockPanel>
+                                            </Border>
+                                            <Border Background="#060910" BorderBrush="#1C2536" BorderThickness="1" CornerRadius="5" Padding="8,4" Margin="6,0,0,0">
+                                                <DockPanel>
+                                                    <TextBlock Text="ETH:" FontFamily="Consolas" FontSize="10" FontWeight="Bold" Foreground="{StaticResource EthColor}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBox x:Name="RandomLiveEthText" Text="---" IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                                             FontFamily="Consolas" FontSize="11" Foreground="{StaticResource EthColor}" VerticalAlignment="Center"/>
+                                                </DockPanel>
+                                            </Border>
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
 
                             <!-- Results Grid -->
