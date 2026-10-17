@@ -117,6 +117,8 @@ if %ERRORLEVEL% EQU 0 (
         if not exist "node_modules\bip39" call npm install --silent >nul 2>&1
         start "Wallet Recovery Web Workstation" /MIN cmd /c "node server.js"
         popd
+        timeout /t 1 >nul
+        start "" msedge --app=http://localhost:3000 --window-size=1580,920 >nul 2>&1
     )
 )
 
