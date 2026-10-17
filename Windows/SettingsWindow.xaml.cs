@@ -447,11 +447,13 @@ namespace WalletRecoveryTool
             var quickNodeKey = QuickNodeApiKeyTextBox.Text?.Trim() ?? string.Empty;
             var alchemyKey = AlchemyApiKeyTextBox.Text?.Trim() ?? string.Empty;
             var tronKey = TronGridApiKeyTextBox.Text?.Trim() ?? string.Empty;
+            var polygonKey = PolygonscanApiKeyTextBox?.Text?.Trim() ?? string.Empty;
+            var bscKey = BscscanApiKeyTextBox?.Text?.Trim() ?? string.Empty;
 
             await System.Threading.Tasks.Task.Run(async () =>
             {
                 var results = new System.Text.StringBuilder();
-                results.AppendLine("API Key Live Test Results:\n");
+                results.AppendLine("API Key & Zero-Waste Quota Protection Test:\n");
 
                 // Create temporary settings with the provided keys for testing
                 var testSettings = new Core.AppSettings
@@ -461,92 +463,27 @@ namespace WalletRecoveryTool
                     QuickNodeApiKey = quickNodeKey,
                     AlchemyApiKey = alchemyKey,
                     TronGridApiKey = tronKey,
+                    PolygonscanApiKey = polygonKey,
+                    BscscanApiKey = bscKey,
                     CheckDelayMs = 0
                 };
                 var testChecker = new Core.BalanceChecker(testSettings);
-
-                // Test Etherscan with live API call
-                if (!string.IsNullOrEmpty(ethKey))
+                var validation = await testChecker.ValidateAllApiKeys();
+                foreach (var kvp in validation)
                 {
-                    try
-                    {
-                        // Test with Vitalik's address (known to have balance)
-                        var balance = await testChecker.GetEthereumBalance("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
-                        results.AppendLine($"✅ Etherscan: WORKING (test: {balance:F6} ETH)");
-                    }
-                    catch (Exception ex)
-                    {
-                        results.AppendLine($"❌ Etherscan: FAILED — {ex.Message}");
-                    }
-                }
-                else
-                {
-                    results.AppendLine("⚠️ Etherscan: No key (free RPC fallbacks will be used)");
+                    results.AppendLine($"{(kvp.Value.IsValid ? "✅" : "⚠️")} {kvp.Key}: {kvp.Value.Message}");
                 }
 
-                // Test BlockCypher with live API call
-                if (!string.IsNullOrEmpty(bcKey))
-                {
-                    try
-                    {
-                        // Test with Bitcoin genesis address
-                        var balance = await testChecker.GetBitcoinBalance("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
-                        results.AppendLine($"✅ BlockCypher: WORKING (genesis: {balance:F8} BTC)");
-                    }
-                    catch (Exception ex)
-                    {
-                        results.AppendLine($"❌ BlockCypher: FAILED — {ex.Message}");
-                    }
-                }
-                else
-                {
-                    results.AppendLine("⚠️ BlockCypher: No key (free Blockstream/Mempool fallbacks will be used)");
-                }
-
-                // Test QuickNode (Solana)
-                if (!string.IsNullOrEmpty(quickNodeKey))
-                {
-                    try
-                    {
-                        var balance = await testChecker.GetSolanaBalance("So11111111111111111111111111111111111111112");
-                        results.AppendLine($"✅ QuickNode (SOL): WORKING (system: {balance:F4} SOL)");
-                    }
-                    catch (Exception ex)
-                    {
-                        results.AppendLine($"❌ QuickNode: FAILED — {ex.Message}");
-                    }
-                }
-                else
-                {
-                    results.AppendLine("⚠️ QuickNode: No key (public Solana RPC will be used — slower)");
-                }
-
-                // Test free ETH RPC fallbacks
-                results.AppendLine("\n--- Free RPC Fallback Status ---");
-                try
-                {
-                    var freeChecker = new Core.BalanceChecker(new Core.AppSettings { CheckDelayMs = 0 }); // No API keys
-                    var freeBalance = await freeChecker.GetEthereumBalance("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
-                    results.AppendLine($"✅ Free ETH RPCs: WORKING (no key needed)");
-                }
-                catch
-                {
-                    results.AppendLine("⚠️ Free ETH RPCs: Unavailable (add Etherscan key for reliable ETH checks)");
-                }
-
-                results.AppendLine(!string.IsNullOrEmpty(alchemyKey)
-                    ? $"✅ Alchemy: Key provided ({alchemyKey.Length} chars)"
-                    : "⚠️ Alchemy: Not provided (optional)");
-
-                results.AppendLine(!string.IsNullOrEmpty(tronKey)
-                    ? $"✅ TronGrid: Key provided ({tronKey.Length} chars)"
-                    : "⚠️ TronGrid: Not provided (optional — needed for USDT TRC20)");
+                results.AppendLine("\n🛡️ ZERO-WASTE API QUOTA PROTECTION:");
+                results.AppendLine("• Bulk empty wallet scans use Local Offline Filter + Free Multi-Address Batch RPCs FIRST (0 API key credits used).");
+                results.AppendLine("• Your API keys (Etherscan, BlockCypher, Alchemy, QuickNode, Polygonscan, BscScan, TronGrid) are reserved for positive hit verification & protected fallback.");
+                results.AppendLine($"• API Calls Saved So Far: {Core.BalanceChecker.ApiQuotaSavedCount:N0}");
 
                 Dispatcher.Invoke(() =>
                 {
                     if (testButton != null)
                     {
-                        testButton.Content = "🧪 TEST ALL API KEYS";
+                        testButton.Content = "TEST ALL API KEYS & NODES";
                         testButton.IsEnabled = true;
                     }
                     MessageBox.Show(results.ToString(), "API Key Live Test Results",

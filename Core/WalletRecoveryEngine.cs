@@ -775,13 +775,13 @@ namespace WalletRecoveryTool.Core
                 batchSize: settings.HashcatBatchSize,
                 threadCount: settings.ThreadCount);
 
+            CryptoWalletGenerator.WalletInfo lastSampleWallet = null;
+            long lastPreviewTicks = 0;
+
             // Callback: wallet passed bloom filter — needs API verification
             void OnWalletPassedBloom(CryptoWalletGenerator.WalletInfo wallet)
             {
                 if (token.IsCancellationRequested) return;
-
-                var checkNumber = Interlocked.Increment(ref processed);
-                _statistics.IncrementAttempts();
 
                 // STRICT NON-REPETITION RULE: Skip if already scanned in any section (persistent deduplication)
                 if (!_mnemonicTracker.TryMarkWalletCandidate(wallet))
@@ -790,9 +790,37 @@ namespace WalletRecoveryTool.Core
                     return;
                 }
 
-                // Enqueue for batch API checking (same as existing flow)
+                var checkNumber = Interlocked.Increment(ref processed);
+                _statistics.IncrementAttempts();
+                Volatile.Write(ref lastSampleWallet, wallet);
+
+                // Update Live Preview with actual mnemonic + BTC/ETH addresses
+                var nowPreviewTicks = DateTime.UtcNow.Ticks;
+                var prevPreview = Interlocked.Read(ref lastPreviewTicks);
+                if (checkNumber <= 5 || (nowPreviewTicks - prevPreview) > TimeSpan.TicksPerMillisecond * 80)
+                {
+                    if (checkNumber <= 5 || Interlocked.CompareExchange(ref lastPreviewTicks, nowPreviewTicks, prevPreview) == prevPreview)
+                    {
+                        WalletChecking?.Invoke(this, new WalletCheckingEventArgs
+                        {
+                            Source = "Hashcat Pipeline",
+                            Mnemonic = wallet.Mnemonic,
+                            Address = wallet.BitcoinAddress,
+                            EthAddress = wallet.EthereumAddress,
+                            CheckNumber = checkNumber,
+                            TotalToCheck = options.MaxAttempts
+                        });
+                    }
+                }
+
+                // Enqueue for batch API checking without blocking ThreadPool worker threads
                 if (options.CheckBalancesRealTime)
                 {
+                    while (_randomBatchBuffer.Count > RandomBatchSize * 4 && !token.IsCancellationRequested)
+                    {
+                        Thread.Sleep(5);
+                    }
+
                     _randomBatchBuffer.Enqueue((wallet, checkNumber));
 
                     var nowFlushTicks = DateTime.UtcNow.Ticks;
@@ -800,19 +828,33 @@ namespace WalletRecoveryTool.Core
                         (FundedAddressFilter.BTC.IsLoaded || FundedAddressFilter.ETH.IsLoaded);
                     bool shouldFlush = _randomBatchBuffer.Count >= RandomBatchSize ||
                         bloomFilterActive ||
-                        (nowFlushTicks - Interlocked.Read(ref _lastBatchFlushTicks) > TimeSpan.TicksPerSecond * 2);
+                        (nowFlushTicks - Interlocked.Read(ref _lastBatchFlushTicks) > TimeSpan.TicksPerSecond * 1);
 
                     if (shouldFlush &&
                         Interlocked.CompareExchange(ref _batchProcessorRunning, 1, 0) == 0)
                     {
-                        try
+                        _ = Task.Run(async () =>
                         {
-                            ProcessRandomBatchAsync(options, token).GetAwaiter().GetResult();
-                        }
-                        finally
-                        {
-                            Interlocked.Exchange(ref _batchProcessorRunning, 0);
-                        }
+                            try
+                            {
+                                while (_randomBatchBuffer.Count >= RandomBatchSize && !token.IsCancellationRequested)
+                                {
+                                    await ProcessRandomBatchAsync(options, token).ConfigureAwait(false);
+                                }
+                                if (!_randomBatchBuffer.IsEmpty && !token.IsCancellationRequested)
+                                {
+                                    await ProcessRandomBatchAsync(options, token).ConfigureAwait(false);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.Log($"[HASHCAT] Batch flush error: {ex.Message}");
+                            }
+                            finally
+                            {
+                                Interlocked.Exchange(ref _batchProcessorRunning, 0);
+                            }
+                        });
                     }
                 }
             }
@@ -822,13 +864,19 @@ namespace WalletRecoveryTool.Core
             {
                 if (token.IsCancellationRequested) return;
 
-                // Update the CLI "Checked" counter via WalletChecking event
-                WalletChecking?.Invoke(this, new WalletCheckingEventArgs
+                var sample = Volatile.Read(ref lastSampleWallet);
+                if (sample != null)
                 {
-                    Source = "Hashcat Pipeline",
-                    CheckNumber = (int)Math.Min(totalProcessed, int.MaxValue),
-                    TotalToCheck = options.MaxAttempts
-                });
+                    WalletChecking?.Invoke(this, new WalletCheckingEventArgs
+                    {
+                        Source = "Hashcat Pipeline",
+                        Mnemonic = sample.Mnemonic,
+                        Address = sample.BitcoinAddress,
+                        EthAddress = sample.EthereumAddress,
+                        CheckNumber = (int)Math.Min(totalProcessed, int.MaxValue),
+                        TotalToCheck = options.MaxAttempts
+                    });
+                }
 
                 var nowTicks = DateTime.UtcNow.Ticks;
 
