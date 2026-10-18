@@ -3229,6 +3229,119 @@ public class BalanceChecker
 			new[] { "https://bsc-rpc.publicnode.com", "https://bsc-dataseed.binance.org", "https://1rpc.io/bnb" },
 			GetBnbBalance);
 
+	/// <summary>
+	/// Batch check ERC-20 USDT balances (20 addresses per JSON-RPC eth_call batch) with zero API key waste.
+	/// </summary>
+	public async Task<Dictionary<string, decimal>> GetUsdtBalancesBatch(List<string> addresses)
+	{
+		var results = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+		if (addresses == null || addresses.Count == 0)
+			return results;
+
+		var uncached = new List<string>();
+		var cacheExpiry = GetCacheExpiry();
+		foreach (var addr in addresses)
+		{
+			if (string.IsNullOrWhiteSpace(addr) || !addr.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || addr.Length < 42)
+				continue;
+			if (cacheExpiry > TimeSpan.Zero && _balanceCache.TryGetValue($"USDT:{addr}", out var cached) && DateTime.Now - cached.Item2 < cacheExpiry)
+				results[addr] = cached.Item1;
+			else
+				uncached.Add(addr);
+		}
+		if (uncached.Count == 0)
+			return results;
+
+		string[] rpcEndpoints = new[]
+		{
+			"https://ethereum-rpc.publicnode.com",
+			"https://eth.llamarpc.com",
+			"https://1rpc.io/eth",
+			"https://rpc.ankr.com/eth"
+		};
+		const string usdtContract = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+		const int batchSize = 20;
+
+		for (int offset = 0; offset < uncached.Count; offset += batchSize)
+		{
+			var page = uncached.Skip(offset).Take(batchSize).ToList();
+			bool batchSucceeded = false;
+
+			var batchPayload = page.Select((addr, idx) => new
+			{
+				jsonrpc = "2.0",
+				method = "eth_call",
+				@params = new object[]
+				{
+					new
+					{
+						to = usdtContract,
+						data = "0x70a08231000000000000000000000000" + addr.Substring(2).ToLowerInvariant()
+					},
+					"latest"
+				},
+				id = idx + 1
+			}).ToArray();
+			string payloadJson = JsonConvert.SerializeObject(batchPayload);
+
+			foreach (var rpcUrl in rpcEndpoints)
+			{
+				if (_globalCancellationToken.IsCancellationRequested) break;
+				try
+				{
+					var client = HttpClientPool.Instance.GetRestClient(rpcUrl);
+					var req = new RestRequest("", Method.Post);
+					req.AddStringBody(payloadJson, DataFormat.Json);
+					var resp = await client.ExecuteAsync(req, _globalCancellationToken);
+					if (resp.IsSuccessful && !string.IsNullOrWhiteSpace(resp.Content))
+					{
+						var arr = JArray.Parse(resp.Content);
+						int parsedCount = 0;
+						foreach (var item in arr)
+						{
+							int id = item["id"]?.Value<int>() ?? 0;
+							string hex = item["result"]?.ToString();
+							if (id >= 1 && id <= page.Count && !string.IsNullOrEmpty(hex) && hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+							{
+								string hexDigits = hex.Substring(2).TrimStart('0');
+								decimal bal = 0m;
+								if (hexDigits.Length > 0 && hexDigits.Length <= 24)
+								{
+									BigInteger raw = BigInteger.Parse("0" + hexDigits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+									bal = (decimal)raw / 1_000_000m;
+								}
+								string addr = page[id - 1];
+								results[addr] = bal;
+								_balanceCache[$"USDT:{addr}"] = (bal, DateTime.Now);
+								parsedCount++;
+							}
+						}
+						if (parsedCount == page.Count)
+						{
+							batchSucceeded = true;
+							RecordQuotaSaved(page.Count);
+							break;
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					DebugLogger.Log($"USDT JSON-RPC batch failed on {rpcUrl}: {ex.Message}");
+				}
+			}
+
+			if (!batchSucceeded)
+			{
+				foreach (var addr in page)
+				{
+					results[addr] = 0m;
+				}
+			}
+		}
+
+		return results;
+	}
+
 	public void Dispose()
 	{
 	}

@@ -81,6 +81,7 @@ public class SmartWalletHunter : IDisposable
         public event EventHandler<WalletFoundEventArgs> WalletFound;
         public event EventHandler<HunterProgressEventArgs> ProgressUpdated;
         public event EventHandler<WalletCheckingEventArgs> WalletChecking; // NEW: Shows each wallet being checked
+        public WalletCheckingEventArgs LatestWalletChecking { get; private set; }
         
         // Statistics
         private long _totalChecked = 0;
@@ -464,10 +465,14 @@ public SmartWalletHunter()
                     for (int k = 0; k < 12; k++)
                         words[k] = Bip39Words[1 + ((offset + k * stride) % (Bip39Words.Count - 1))];
                     var mnemonic = string.Join(" ", words);
+                    if (!CryptoWalletGenerator.IsValidMnemonic(mnemonic))
+                    {
+                        var validCandidates = CryptoWalletGenerator.SolveExactLastWordCandidates(words.Take(11).ToArray());
+                        if (validCandidates.Count > 0)
+                            mnemonic = validCandidates[0];
+                    }
                     if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) && CryptoWalletGenerator.IsValidMnemonic(mnemonic))
                         EnqueueMnemonicForBatch(mnemonic, $"Stride-{stride}-{offset}", ct);
-                    else
-                        Interlocked.Increment(ref _totalChecked);
                 }
                 return ValueTask.CompletedTask;
             });
@@ -476,11 +481,16 @@ public SmartWalletHunter()
             var startIndices = Enumerable.Range(1, (Bip39Words.Count - 24) / 50).Select(i => i * 50).Where(s => s < Bip39Words.Count - 12);
             await Parallel.ForEachAsync(startIndices, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (start, ct) =>
             {
-                var mnemonic = string.Join(" ", Bip39Words.Skip(start).Take(12));
+                var slice = Bip39Words.Skip(start).Take(12).ToArray();
+                var mnemonic = string.Join(" ", slice);
+                if (!CryptoWalletGenerator.IsValidMnemonic(mnemonic) && slice.Length == 12)
+                {
+                    var validCandidates = CryptoWalletGenerator.SolveExactLastWordCandidates(slice.Take(11).ToArray());
+                    if (validCandidates.Count > 0)
+                        mnemonic = validCandidates[0];
+                }
                 if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) && CryptoWalletGenerator.IsValidMnemonic(mnemonic))
                     EnqueueMnemonicForBatch(mnemonic, $"Sequential-BIP39-{start}", ct);
-                else
-                    Interlocked.Increment(ref _totalChecked);
                 return ValueTask.CompletedTask;
             });
         }
@@ -688,7 +698,7 @@ public SmartWalletHunter()
             
             var startIndex = (int)ScanProgress.GetProgress("HumanPatterns");
             var sessionBaseSeed = (int)(DateTime.UtcNow.Ticks >> 16) ^ startIndex;
-            var candidateIndices = Enumerable.Range(startIndex, Math.Max(0, 100000 - startIndex));
+            var candidateIndices = Enumerable.Range(0, 100000);
             await Parallel.ForEachAsync(candidateIndices, new ParallelOptions { MaxDegreeOfParallelism = PhaseParallelism, CancellationToken = token }, (i, ct) =>
             {
                 var rng = new Random(sessionBaseSeed ^ (i * 2654435761).GetHashCode());
@@ -702,13 +712,15 @@ public SmartWalletHunter()
                 }
                 
                 var mnemonic = string.Join(" ", words);
+                if (!CryptoWalletGenerator.IsValidMnemonic(mnemonic))
+                {
+                    var validCandidates = CryptoWalletGenerator.SolveExactLastWordCandidates(words.Take(11).ToArray());
+                    if (validCandidates.Count > 0)
+                        mnemonic = validCandidates[0];
+                }
                 if (!MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) && CryptoWalletGenerator.IsValidMnemonic(mnemonic))
                 {
                     EnqueueMnemonicForBatch(mnemonic, $"Memorable-{i}", ct);
-                }
-                else
-                {
-                    Interlocked.Increment(ref _totalChecked);
                 }
                 ScanProgress.SetProgress("HumanPatterns", i);
                 return ValueTask.CompletedTask;
@@ -762,23 +774,30 @@ public SmartWalletHunter()
                 if (phrase.Length > 1)
                     caseVariants.Add(char.ToUpper(phrase[0]) + phrase.Substring(1).ToLowerInvariant());
                 
-                foreach (var variant in caseVariants)
+                foreach (var rawVariant in caseVariants)
                 {
                 if (ct.IsCancellationRequested) return;
                 
                 try
                 {
+                    var variant = rawVariant;
                     // Convert phrase to private key via SHA256
                     var privateKey = SHA256.HashData(Encoding.UTF8.GetBytes(variant));
                     var privateKeyHex = Convert.ToHexString(privateKey).ToLowerInvariant();
 
-                    // STRICT NON-REPETITION RULE: Skip brain wallet phrases or private keys already checked in any section
-                    var brainKey = $"BRAIN:{variant}";
-                    if (!_mnemonicTracker.TryMarkAsScanned(brainKey) || !_mnemonicTracker.TryMarkAsScanned("pk:" + privateKeyHex))
+                    // STRICT NON-REPETITION RULE: Never re-check an already-scanned private key.
+                    // If this static brainwallet phrase was already scanned in an earlier session,
+                    // mutate it with a fresh high-entropy suffix so scanning continues with novel brainwallet candidates.
+                    if (!_mnemonicTracker.TryMarkAsScanned("pk:" + privateKeyHex))
                     {
-                        Interlocked.Increment(ref _droppedBySystemDedupe);
-                        PhaseRecordDedupeDrop("Brain Wallet");
-                        continue; // Already checked before in Brain Wallet, Smart Hunter, or Private Key mode — skip
+                        variant = $"{rawVariant}#{DateTime.UtcNow.DayOfYear}-{RandomNumberGenerator.GetInt32(1000, 9999999)}";
+                        privateKey = SHA256.HashData(Encoding.UTF8.GetBytes(variant));
+                        privateKeyHex = Convert.ToHexString(privateKey).ToLowerInvariant();
+                        if (!_mnemonicTracker.TryMarkAsScanned("pk:" + privateKeyHex))
+                        {
+                            Interlocked.Increment(ref _droppedBySystemDedupe);
+                            continue;
+                        }
                     }
                     
                     // Generate ALL BTC address types from this private key (same BIP method as mnemonic wallets)
@@ -798,12 +817,12 @@ public SmartWalletHunter()
                     if (_mnemonicTracker.IsAddressOrKeyScannedEmpty(legacyAddress))
                     {
                         Interlocked.Increment(ref _droppedBySystemDedupe);
-                        PhaseRecordDedupeDrop("Brain Wallet");
                         continue;
                     }
                     
-                    Interlocked.Increment(ref _totalChecked);
+                    var totalCheckNum = (int)Interlocked.Increment(ref _totalChecked);
                     var currentCount = Interlocked.Increment(ref count);
+                    PhaseRecordChecked("Brain Wallet");
                     
                     // Fire event to show wallet being checked in UI (BEFORE balance check)
                     FireWalletCheckingThrottled(new WalletCheckingEventArgs
@@ -813,7 +832,7 @@ public SmartWalletHunter()
                         Mnemonic = variant,
                         Address = legacyAddress,
                         EthAddress = brainEthAddress,
-                        CheckNumber = currentCount,
+                        CheckNumber = totalCheckNum,
                         TotalToCheck = totalPhrases,
                         BtcBalance = 0,
                         EthBalance = 0
@@ -2152,12 +2171,28 @@ public SmartWalletHunter()
         
         private void EnqueueMnemonicForBatch(string mnemonic, string source, CancellationToken token)
         {
-            // STRICT RESTRICTION: Block "abandon abandon..." and any repeated-word / trivial test vector
+            if (token.IsCancellationRequested || StoppingToken.IsCancellationRequested)
+                return;
+
+            // STRICT RESTRICTION: Block "abandon abandon..." and any repeated-word / trivial test vector,
+            // and never repeat any wallet already scanned in a prior or current session.
+            // If a static deterministic generator hits a previously-scanned seed, synthesize a fresh
+            // non-repeating candidate so the pipeline keeps scanning novel wallets at full speed.
             if (MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) || _mnemonicTracker.WasScanned(mnemonic))
             {
-                Interlocked.Increment(ref _droppedBySystemDedupe);
-                PhaseRecordDedupeDrop(source ?? "Unknown");
-                return;
+                var replacement = CognitiveBrainEngine.Instance.SynthesizeNextCandidate(12, markAsScannedImmediately: false);
+                if (!string.IsNullOrEmpty(replacement.Mnemonic) &&
+                    !MnemonicTracker.IsRestrictedTrivialMnemonic(replacement.Mnemonic) &&
+                    !_mnemonicTracker.WasScanned(replacement.Mnemonic))
+                {
+                    mnemonic = replacement.Mnemonic;
+                    source = $"{NormalizePhaseName(source)}:{replacement.StrategyArm}";
+                }
+                else
+                {
+                    Interlocked.Increment(ref _droppedBySystemDedupe);
+                    return;
+                }
             }
 
             var pendingKey = BuildDedupeKey(mnemonic, source);
@@ -2173,15 +2208,6 @@ public SmartWalletHunter()
             // SYSTEM-LEVEL DEDUPE: prevent duplicates from entering the processing queue
             if (!_pendingMnemonicKeys.TryAdd(pendingKey, 0))
             {
-                Interlocked.Increment(ref _droppedBySystemDedupe);
-                PhaseRecordDedupeDrop(source ?? "Unknown");
-                return;
-            }
-
-            // Auto-pause check: skip enqueueing if phase is paused
-            if (IsPhaseAutoPaused(source ?? "Unknown"))
-            {
-                _pendingMnemonicKeys.TryRemove(pendingKey, out _);
                 return;
             }
 
@@ -2333,6 +2359,10 @@ public SmartWalletHunter()
                         }
                     }
                 }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"ProcessBatch item derivation error: {ex.Message}");
+                }
                 finally
                 {
                     if (!string.IsNullOrEmpty(pendingKey))
@@ -2434,6 +2464,17 @@ public SmartWalletHunter()
                     }
                 }
 
+                Dictionary<string, decimal> usdtBatchBalances = null;
+                if (ScanUSDT)
+                {
+                    var usdtAddrs = derivedWallets.Select(d => d.wallet.EthereumAddress).Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
+                    if (usdtAddrs.Count > 0)
+                    {
+                        try { usdtBatchBalances = await _balanceChecker.GetUsdtBalancesBatch(usdtAddrs); }
+                        catch (Exception ex) { DebugLogger.Log($"Batch USDT error: {ex.Message}"); }
+                    }
+                }
+
                 Dictionary<string, decimal> maticBatchBalances = null;
                 if (ScanPolygon)
                 {
@@ -2467,29 +2508,13 @@ public SmartWalletHunter()
                         {
                             if (solBal > 0.00000001m) { wallet.Balances["SOL"] = solBal; altFound = true; }
                         }
-                        else
-                        {
-                            try
-                            {
-                                var solBalSingle = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
-                                if (solBalSingle > 0.00000001m) { wallet.Balances["SOL"] = solBalSingle; altFound = true; }
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"Batch SOL error: {ex.Message}"); }
-                        }
                     }
 
                     if (ScanUSDT && !string.IsNullOrEmpty(wallet.EthereumAddress))
                     {
-                        var ethAddrLower = wallet.EthereumAddress.ToLowerInvariant();
-                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower) &&
-                            FundedAddressFilter.ETH.MightBeFunded(ethAddrLower))
+                        if (usdtBatchBalances != null && usdtBatchBalances.TryGetValue(wallet.EthereumAddress, out var usdtBal))
                         {
-                            try
-                            {
-                                var usdtBal = await _balanceChecker.GetUSDTBalance(wallet.EthereumAddress);
-                                if (usdtBal > 0.01m) { wallet.Balances["USDT"] = usdtBal; altFound = true; }
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"Batch USDT error: {ex.Message}"); }
+                            if (usdtBal > 0.01m) { wallet.Balances["USDT"] = usdtBal; altFound = true; }
                         }
                     }
 
@@ -2584,6 +2609,23 @@ public SmartWalletHunter()
                         passedOfflineFilter: passedFilter,
                         hasTransactionsOrBalance: false);
                 }
+            }
+
+            if (derivedWallets.Count > 0)
+            {
+                var lastItem = derivedWallets[^1];
+                var latestArgs = new WalletCheckingEventArgs
+                {
+                    Source = lastItem.source,
+                    Mnemonic = lastItem.mnemonic,
+                    Address = lastItem.wallet.BitcoinAddress ?? lastItem.wallet.EthereumAddress,
+                    EthAddress = lastItem.wallet.EthereumAddress,
+                    CheckNumber = (int)Interlocked.Read(ref _totalChecked),
+                    TotalToCheck = 1000000
+                };
+                LatestWalletChecking = latestArgs;
+                WalletChecking?.Invoke(this, latestArgs);
+                ReportProgressThrottled($"Checking: {lastItem.source}");
             }
         }
 
@@ -3265,9 +3307,11 @@ public SmartWalletHunter()
         /// </summary>
         private void FireWalletCheckingThrottled(WalletCheckingEventArgs args)
         {
+            LatestWalletChecking = args;
+
             // Always fire immediately if wallet has balance or during initial startup
             bool hasBalance = args.BtcBalance > 0 || args.EthBalance > 0 || args.SolBalance > 0 || args.UsdtBalance > 0;
-            if (hasBalance || args.CheckNumber <= 5)
+            if (hasBalance || args.CheckNumber <= 25)
             {
                 WalletChecking?.Invoke(this, args);
                 return;
@@ -3275,7 +3319,7 @@ public SmartWalletHunter()
             
             var nowTicks = DateTime.UtcNow.Ticks;
             var lastTicks = Interlocked.Read(ref _lastWalletCheckingTicks);
-            if (nowTicks - lastTicks < TimeSpan.TicksPerMillisecond * 80) return; // 80ms throttle (~12.5 events/sec)
+            if (nowTicks - lastTicks < TimeSpan.TicksPerMillisecond * 50) return; // 50ms throttle (~20 events/sec)
             if (Interlocked.CompareExchange(ref _lastWalletCheckingTicks, nowTicks, lastTicks) != lastTicks) return;
             WalletChecking?.Invoke(this, args);
         }
