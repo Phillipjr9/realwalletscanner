@@ -149,6 +149,15 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
+        /// Check if API call is permitted under daily quota limits
+        /// </summary>
+        public static bool CanMakeApiCall(string apiName, int callCount = 1)
+        {
+            var (used, limit, _) = GetUsage(apiName);
+            return (used + callCount) <= limit;
+        }
+
+        /// <summary>
         /// Get remaining calls for an API
         /// </summary>
         public static int GetRemainingCalls(string apiName)

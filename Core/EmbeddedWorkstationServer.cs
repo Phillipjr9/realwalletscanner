@@ -305,7 +305,7 @@ namespace WalletRecoveryTool.Core
                             method = "SMTP",
                             smtpHost = s.SmtpServer ?? "smtp.atlanticbb.net",
                             smtpPort = s.SmtpPort > 0 ? s.SmtpPort : 587,
-                            smtpSecure = s.SmtpUseSsl,
+                            smtpSecure = s.SmtpPort != 25,
                             smtpUser = s.SmtpUsername ?? "smokie1969@atlanticbb.net",
                             smtpPass = !string.IsNullOrEmpty(s.SmtpPassword) ? "••••••••••••" : "",
                             recipientEmail = s.AlertEmailAddress ?? "smokie1969@atlanticbb.net"
@@ -342,7 +342,7 @@ namespace WalletRecoveryTool.Core
                             method = "SMTP",
                             smtpHost = s.SmtpServer,
                             smtpPort = s.SmtpPort,
-                            smtpSecure = s.SmtpUseSsl,
+                            smtpSecure = s.SmtpPort != 25,
                             smtpUser = s.SmtpUsername,
                             smtpPass = !string.IsNullOrEmpty(s.SmtpPassword) ? "••••••••••••" : "",
                             recipientEmail = s.AlertEmailAddress
@@ -357,9 +357,9 @@ namespace WalletRecoveryTool.Core
                     s.EnableEmailAlerts = true;
                     string testMnemonic = "planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle";
                     var sampleWallet = CryptoWalletGenerator.GenerateWalletSelective(testMnemonic, true, true, true, true);
-                    sampleWallet.HasBalance = true;
-                    sampleWallet.BitcoinBalance = 0.015m;
-                    sampleWallet.EthereumBalance = 0.12m;
+                    sampleWallet.Balances["BTC"] = 0.015m;
+                    sampleWallet.Balances["ETH"] = 0.12m;
+                    sampleWallet.TotalUsdValue = 1425.50m;
 
                     bool delivered = false;
                     string statusMsg = "250 2.0.0 OK — Delivered via Native C# EmailAlertService";
