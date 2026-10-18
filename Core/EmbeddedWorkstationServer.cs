@@ -277,13 +277,13 @@ namespace WalletRecoveryTool.Core
                     await WriteJsonAsync(res, new
                     {
                         cores,
-                        singleCore: new
+                        singleCore = new
                         {
                             checksumSolverCandidatesPerSec = 985000,
                             bip39Pbkdf2WalletsPerSec = 14500,
                             secp256k1PrivKeyAddressesPerSec = 42000
                         },
-                        multiCoreEstimated: new
+                        multiCoreEstimated = new
                         {
                             checksumSolverCandidatesPerSec = 985000 * cores,
                             bip39Pbkdf2WalletsPerSec = 14500 * cores,
