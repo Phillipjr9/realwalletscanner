@@ -59,6 +59,22 @@ namespace WalletRecoveryTool
 
         protected override async void OnStartup(StartupEventArgs e)
         {
+            this.DispatcherUnhandledException += (s, exArgs) =>
+            {
+                try
+                {
+                    var crashLog = GetStartupLogPath();
+                    File.AppendAllText(crashLog, $"[{DateTime.Now}] DISPATCHER EXCEPTION: {exArgs.Exception.GetType().Name}: {exArgs.Exception.Message}\n{exArgs.Exception.InnerException?.Message}\n{exArgs.Exception.StackTrace}\n");
+                }
+                catch { }
+                exArgs.Handled = true;
+            };
+
+            TaskScheduler.UnobservedTaskException += (s, exArgs) =>
+            {
+                exArgs.SetObserved();
+            };
+
             base.OnStartup(e);
 
             // Anti-tamper: start background debugger watchdog (Release builds only)
