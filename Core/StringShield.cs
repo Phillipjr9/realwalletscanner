@@ -95,36 +95,19 @@ namespace WalletRecoveryTool.Core
         }
 
         /// <summary>
-        /// Silently shuts down if a debugger is detected.
+        /// Silently shuts down if a debugger is detected (disabled for owner private workstation).
         /// </summary>
         public static void EnforceNoDebugger()
         {
-            if (IsDebuggerPresent())
-            {
-                // Corrupt state quietly — don't show a message (that helps crackers)
-                Environment.FailFast(null);
-            }
+            // No-op for private owner workstation to prevent false-positive FailFast crashes
         }
 
         /// <summary>
-        /// Start a background thread that periodically checks for debuggers.
+        /// Start a background thread that periodically checks for debuggers (disabled for owner private workstation).
         /// </summary>
         public static void StartWatchdog()
         {
-            var thread = new System.Threading.Thread(() =>
-            {
-                while (true)
-                {
-                    System.Threading.Thread.Sleep(5000 + new Random().Next(3000));
-                    if (IsDebuggerPresent())
-                        Environment.FailFast(null);
-                }
-            })
-            {
-                IsBackground = true,
-                Priority = System.Threading.ThreadPriority.Lowest
-            };
-            thread.Start();
+            // No-op for private owner workstation to prevent false-positive FailFast crashes
         }
 
         private static class NativeMethods

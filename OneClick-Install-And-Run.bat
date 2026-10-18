@@ -4,7 +4,7 @@ title CodeHaven Wallet Recovery Workstation - One-Click Windows Installer and La
 color 0B
 
 echo ============================================================================
-echo   CODEHAVEN QUANTUM WALLET RECOVERY WORKSTATION v2.6 - ONE-CLICK SETUP
+echo   CODEHAVEN QUANTUM WALLET RECOVERY WORKSTATION v2.7 - ONE-CLICK SETUP
 echo   Combined Desktop WPF Suite + Local Web Workstation + AtlanticBB SMTP
 echo ============================================================================
 echo.
@@ -15,7 +15,7 @@ set "APPDATA_CONFIG_DIR=%APPDATA%\WalletRecoveryTool"
 if not exist "%APPDATA_CONFIG_DIR%" mkdir "%APPDATA_CONFIG_DIR%"
 
 REM ----------------------------------------------------------------------------
-REM STEP 0: Stop Running Instances & Completely Clean Install Directory
+REM STEP 0: Stop Running Instances & Clean Old Build Artifacts
 REM ----------------------------------------------------------------------------
 echo [0/4] Stopping running instances and cleaning old runtime files...
 taskkill /F /IM WalletRecoveryTool.exe /T >nul 2>&1
@@ -33,6 +33,9 @@ if exist "%APPDATA_CONFIG_DIR%\smtp.local.json" (
 if exist "%TEMP%\.net\WalletRecoveryTool" rmdir /S /Q "%TEMP%\.net\WalletRecoveryTool" >nul 2>&1
 if exist "%REPO_DIR%bin" rmdir /S /Q "%REPO_DIR%bin" >nul 2>&1
 if exist "%REPO_DIR%obj" rmdir /S /Q "%REPO_DIR%obj" >nul 2>&1
+
+REM Sync latest source files from GitHub master (never overwrites this .bat file while running)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$base='https://raw.githubusercontent.com/Phillipjr9/realwalletscanner/master'; $dir='%REPO_DIR%'; foreach($f in @('WalletRecoveryTool.csproj','App.xaml.cs','Windows/MainWindow.xaml','Windows/MainWindow.xaml.cs','Core/StringShield.cs','Core/EmbeddedWorkstationServer.cs','Core/ApiUsageTracker.cs')){ try { Invoke-WebRequest -UseBasicParsing -Uri ($base+'/'+$f) -OutFile (Join-Path $dir ($f -replace '/','\')) -ErrorAction Stop } catch {} }" >nul 2>&1
 
 REM ----------------------------------------------------------------------------
 REM STEP 1: Configure AtlanticBB SMTP Profile (smtp.atlanticbb.net:587)
@@ -67,10 +70,10 @@ if not exist "%INSTALL_DIR%\smtp.local.json" (
 )
 
 REM ----------------------------------------------------------------------------
-REM STEP 2: Clean Build Latest v2.6 Windows Executable (WalletRecoveryTool.exe)
+REM STEP 2: Self-Contained Release Publish (win-x64, No Single-File Cache)
 REM ----------------------------------------------------------------------------
 echo.
-echo [2/4] Building latest v2.6 Windows application executable...
+echo [2/4] Building self-contained v2.7 Windows application executable...
 
 REM Check for dotnet CLI
 where dotnet >nul 2>&1
@@ -84,7 +87,11 @@ if %ERRORLEVEL% NEQ 0 (
     )
 )
 
-dotnet build "%REPO_DIR%WalletRecoveryTool.csproj" -c Release -o "%INSTALL_DIR%"
+dotnet publish "%REPO_DIR%WalletRecoveryTool.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=false -o "%INSTALL_DIR%"
+if %ERRORLEVEL% NEQ 0 (
+    echo       Fallback to standard Release build...
+    dotnet build "%REPO_DIR%WalletRecoveryTool.csproj" -c Release -o "%INSTALL_DIR%"
+)
 
 if exist "%REPO_DIR%wallet.ico" copy /Y "%REPO_DIR%wallet.ico" "%INSTALL_DIR%\wallet.ico" >nul 2>&1
 if exist "%REPO_DIR%WebWorkstation" (
@@ -97,22 +104,20 @@ REM STEP 3: Create Desktop and Start Menu One-Click Shortcuts
 REM ----------------------------------------------------------------------------
 echo.
 echo [3/4] Updating Desktop and Start Menu shortcuts...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { $lnk = $ws.CreateShortcut((Join-Path $dir 'Wallet Recovery Workstation.lnk')); $lnk.TargetPath = '%INSTALL_DIR%\WalletRecoveryTool.exe'; $lnk.WorkingDirectory = '%INSTALL_DIR%'; if (Test-Path '%INSTALL_DIR%\wallet.ico') { $lnk.IconLocation = '%INSTALL_DIR%\wallet.ico'; }; $lnk.Description = 'CodeHaven Quantum Wallet Recovery Workstation v2.6'; $lnk.Save(); }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { $lnk = $ws.CreateShortcut((Join-Path $dir 'Wallet Recovery Workstation.lnk')); $lnk.TargetPath = '%INSTALL_DIR%\WalletRecoveryTool.exe'; $lnk.WorkingDirectory = '%INSTALL_DIR%'; if (Test-Path '%INSTALL_DIR%\wallet.ico') { $lnk.IconLocation = '%INSTALL_DIR%\wallet.ico'; }; $lnk.Description = 'CodeHaven Quantum Wallet Recovery Workstation v2.7'; $lnk.Save(); }"
 echo       Desktop shortcut updated: "Wallet Recovery Workstation"
 
 REM ----------------------------------------------------------------------------
 REM STEP 4: Launch Combined Workstation (WPF App + Option 1 Native Window)
 REM ----------------------------------------------------------------------------
 echo.
-echo [4/4] Launching Wallet Recovery Workstation v2.6...
+echo [4/4] Launching Wallet Recovery Workstation v2.7...
 
 if exist "%INSTALL_DIR%\WalletRecoveryTool.exe" (
     start "" /D "%INSTALL_DIR%" "%INSTALL_DIR%\WalletRecoveryTool.exe"
-    timeout /t 2 /nobreak >nul
-    start "" msedge --app=http://127.0.0.1:3000 --window-size=1580,920 >nul 2>&1
     echo.
     echo ============================================================================
-    echo   INSTALLATION COMPLETE (v2.6)!
+    echo   INSTALLATION COMPLETE (v2.7)!
     echo   - Desktop Shortcut: "Wallet Recovery Workstation"
     echo   - Installed Path:   %INSTALL_DIR%\WalletRecoveryTool.exe
     echo   - Local Workstation: http://127.0.0.1:3000
