@@ -4,45 +4,35 @@ title CodeHaven Wallet Recovery Workstation - One-Click Windows Installer and La
 color 0B
 
 echo ============================================================================
-echo   CODEHAVEN QUANTUM WALLET RECOVERY WORKSTATION v2.5 - ONE-CLICK SETUP
-echo   100%% Pixel-Identical Native WebView2 Workstation + AtlanticBB SMTP
+echo   CODEHAVEN QUANTUM WALLET RECOVERY WORKSTATION v2.6 - ONE-CLICK SETUP
+echo   Combined Desktop WPF Suite + Local Web Workstation + AtlanticBB SMTP
 echo ============================================================================
 echo.
 
 set "REPO_DIR=%~dp0"
 set "INSTALL_DIR=%LOCALAPPDATA%\WalletRecoveryTool"
 set "APPDATA_CONFIG_DIR=%APPDATA%\WalletRecoveryTool"
-if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 if not exist "%APPDATA_CONFIG_DIR%" mkdir "%APPDATA_CONFIG_DIR%"
 
 REM ----------------------------------------------------------------------------
-REM STEP 0: Stop Running Instances & Purge Stale Binary / Single-File Cache
+REM STEP 0: Stop Running Instances & Completely Clean Install Directory
 REM ----------------------------------------------------------------------------
-echo [0/4] Stopping running instances and clearing old binary cache...
+echo [0/4] Stopping running instances and cleaning old runtime files...
 taskkill /F /IM WalletRecoveryTool.exe /T >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-if exist "%INSTALL_DIR%\WalletRecoveryTool.exe" del /F /Q "%INSTALL_DIR%\WalletRecoveryTool.exe" >nul 2>&1
-if exist "%INSTALL_DIR%\WalletRecoveryTool.dll" del /F /Q "%INSTALL_DIR%\WalletRecoveryTool.dll" >nul 2>&1
-if exist "%REPO_DIR%WalletRecoveryTool.exe" del /F /Q "%REPO_DIR%WalletRecoveryTool.exe" >nul 2>&1
+REM Preserve existing smtp.local.json before wiping stale DLLs in INSTALL_DIR
+if exist "%INSTALL_DIR%\smtp.local.json" (
+    copy /Y "%INSTALL_DIR%\smtp.local.json" "%APPDATA_CONFIG_DIR%\smtp.local.json" >nul 2>&1
+)
+if exist "%INSTALL_DIR%" rmdir /S /Q "%INSTALL_DIR%" >nul 2>&1
+mkdir "%INSTALL_DIR%" >nul 2>&1
+if exist "%APPDATA_CONFIG_DIR%\smtp.local.json" (
+    copy /Y "%APPDATA_CONFIG_DIR%\smtp.local.json" "%INSTALL_DIR%\smtp.local.json" >nul 2>&1
+)
 if exist "%TEMP%\.net\WalletRecoveryTool" rmdir /S /Q "%TEMP%\.net\WalletRecoveryTool" >nul 2>&1
 if exist "%REPO_DIR%bin" rmdir /S /Q "%REPO_DIR%bin" >nul 2>&1
 if exist "%REPO_DIR%obj" rmdir /S /Q "%REPO_DIR%obj" >nul 2>&1
-
-REM Automatically sync latest updates from GitHub master (works for both git clone & ZIP downloads)
-where git >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    pushd "%REPO_DIR%"
-    if not exist ".git" (
-        git init >nul 2>&1
-        git remote add origin https://github.com/Phillipjr9/realwalletscanner.git >nul 2>&1
-    )
-    git fetch origin master >nul 2>&1
-    if !ERRORLEVEL! EQU 0 (
-        git reset --hard origin/master >nul 2>&1
-    )
-    popd
-)
 
 REM ----------------------------------------------------------------------------
 REM STEP 1: Configure AtlanticBB SMTP Profile (smtp.atlanticbb.net:587)
@@ -62,6 +52,7 @@ if not exist "%INSTALL_DIR%\smtp.local.json" (
         echo   "recipientEmail": "smokie1969@atlanticbb.net"
         echo }
     ) > "%INSTALL_DIR%\smtp.local.json"
+    copy /Y "%INSTALL_DIR%\smtp.local.json" "%APPDATA_CONFIG_DIR%\smtp.local.json" >nul 2>&1
     copy /Y "%INSTALL_DIR%\smtp.local.json" "%REPO_DIR%smtp.local.json" >nul 2>&1
     if exist "%REPO_DIR%WebWorkstation" (
         copy /Y "%INSTALL_DIR%\smtp.local.json" "%REPO_DIR%WebWorkstation\smtp_config.json" >nul 2>&1
@@ -76,10 +67,10 @@ if not exist "%INSTALL_DIR%\smtp.local.json" (
 )
 
 REM ----------------------------------------------------------------------------
-REM STEP 2: Clean Build Latest v2.5 Windows Executable (WalletRecoveryTool.exe)
+REM STEP 2: Clean Build Latest v2.6 Windows Executable (WalletRecoveryTool.exe)
 REM ----------------------------------------------------------------------------
 echo.
-echo [2/4] Building latest v2.5 Windows application executable...
+echo [2/4] Building latest v2.6 Windows application executable...
 
 REM Check for dotnet CLI
 where dotnet >nul 2>&1
@@ -93,7 +84,7 @@ if %ERRORLEVEL% NEQ 0 (
     )
 )
 
-dotnet build "%REPO_DIR%WalletRecoveryTool.csproj" -c Release -o "%INSTALL_DIR%" --no-incremental
+dotnet build "%REPO_DIR%WalletRecoveryTool.csproj" -c Release -o "%INSTALL_DIR%"
 
 if exist "%REPO_DIR%wallet.ico" copy /Y "%REPO_DIR%wallet.ico" "%INSTALL_DIR%\wallet.ico" >nul 2>&1
 if exist "%REPO_DIR%WebWorkstation" (
@@ -106,34 +97,25 @@ REM STEP 3: Create Desktop and Start Menu One-Click Shortcuts
 REM ----------------------------------------------------------------------------
 echo.
 echo [3/4] Updating Desktop and Start Menu shortcuts...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { $lnk = $ws.CreateShortcut((Join-Path $dir 'Wallet Recovery Workstation.lnk')); $lnk.TargetPath = '%INSTALL_DIR%\WalletRecoveryTool.exe'; $lnk.WorkingDirectory = '%INSTALL_DIR%'; if (Test-Path '%INSTALL_DIR%\wallet.ico') { $lnk.IconLocation = '%INSTALL_DIR%\wallet.ico'; }; $lnk.Description = 'CodeHaven Quantum Wallet Recovery Workstation v2.5'; $lnk.Save(); }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { $lnk = $ws.CreateShortcut((Join-Path $dir 'Wallet Recovery Workstation.lnk')); $lnk.TargetPath = '%INSTALL_DIR%\WalletRecoveryTool.exe'; $lnk.WorkingDirectory = '%INSTALL_DIR%'; if (Test-Path '%INSTALL_DIR%\wallet.ico') { $lnk.IconLocation = '%INSTALL_DIR%\wallet.ico'; }; $lnk.Description = 'CodeHaven Quantum Wallet Recovery Workstation v2.6'; $lnk.Save(); }"
 echo       Desktop shortcut updated: "Wallet Recovery Workstation"
 
 REM ----------------------------------------------------------------------------
-REM STEP 4: Launch Combined Workstation (Native WebView2 + Local Server)
+REM STEP 4: Launch Combined Workstation (WPF App + Option 1 Native Window)
 REM ----------------------------------------------------------------------------
 echo.
-echo [4/4] Launching Wallet Recovery Workstation v2.5...
-
-where node >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    if exist "%INSTALL_DIR%\WebWorkstation\server.js" (
-        echo       Starting background Local Web Workstation on http://localhost:3000 ...
-        pushd "%INSTALL_DIR%\WebWorkstation"
-        if not exist "node_modules\bip39" call npm install --silent >nul 2>&1
-        start "Wallet Recovery Web Workstation" /MIN cmd /c "node server.js"
-        popd
-        timeout /t 1 /nobreak >nul
-    )
-)
+echo [4/4] Launching Wallet Recovery Workstation v2.6...
 
 if exist "%INSTALL_DIR%\WalletRecoveryTool.exe" (
-    start "" "%INSTALL_DIR%\WalletRecoveryTool.exe"
+    start "" /D "%INSTALL_DIR%" "%INSTALL_DIR%\WalletRecoveryTool.exe"
+    timeout /t 2 /nobreak >nul
+    start "" msedge --app=http://127.0.0.1:3000 --window-size=1580,920 >nul 2>&1
     echo.
     echo ============================================================================
-    echo   INSTALLATION COMPLETE (v2.5 - Option 1 Native WebView2 UI)!
+    echo   INSTALLATION COMPLETE (v2.6)!
     echo   - Desktop Shortcut: "Wallet Recovery Workstation"
     echo   - Installed Path:   %INSTALL_DIR%\WalletRecoveryTool.exe
+    echo   - Local Workstation: http://127.0.0.1:3000
     echo   - AtlanticBB SMTP:  smtp.atlanticbb.net:587 ^(smokie1969@atlanticbb.net^)
     echo ============================================================================
     timeout /t 4
