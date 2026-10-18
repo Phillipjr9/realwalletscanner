@@ -28,7 +28,18 @@ if (-not $dir) {
 }
 
 Write-Host "[1/4] Syncing latest v2.7 files into: $dir" -ForegroundColor Yellow
-$base = "https://raw.githubusercontent.com/Phillipjr9/realwalletscanner/master"
+$ref = "master"
+try {
+    $commitInfo = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/Phillipjr9/realwalletscanner/commits/master" -Headers @{ "User-Agent" = "WRT-Updater"; "Cache-Control" = "no-cache" } -ErrorAction Stop
+    if ($commitInfo -and $commitInfo.sha) {
+        $ref = $commitInfo.sha
+        Write-Host "      Resolved latest master commit: $($ref.Substring(0, 7))" -ForegroundColor Cyan
+    }
+} catch {
+    $ref = "master"
+}
+$base = "https://raw.githubusercontent.com/Phillipjr9/realwalletscanner/$ref"
+$cb = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 $files = @(
     "OneClick-Install-And-Run.bat",
     "WalletRecoveryTool.csproj",
@@ -53,7 +64,7 @@ foreach ($f in $files) {
     if (-not (Test-Path $parent)) {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    $resp = Invoke-WebRequest -UseBasicParsing -Uri "$base/$f"
+    $resp = Invoke-WebRequest -UseBasicParsing -Uri "$base/$f?cb=$cb" -Headers @{ "Cache-Control" = "no-cache"; "Pragma" = "no-cache" }
     if ($f.EndsWith(".bat")) {
         $text = ($resp.Content -replace "`r`n", "`n") -replace "`n", "`r`n"
         [System.IO.File]::WriteAllText($target, $text, [System.Text.Encoding]::ASCII)
