@@ -34,9 +34,6 @@ if exist "%TEMP%\.net\WalletRecoveryTool" rmdir /S /Q "%TEMP%\.net\WalletRecover
 if exist "%REPO_DIR%bin" rmdir /S /Q "%REPO_DIR%bin" >nul 2>&1
 if exist "%REPO_DIR%obj" rmdir /S /Q "%REPO_DIR%obj" >nul 2>&1
 
-REM Sync latest source files from GitHub master (never overwrites this .bat file while running)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$base='https://raw.githubusercontent.com/Phillipjr9/realwalletscanner/master'; $dir='%REPO_DIR%'; foreach($f in @('WalletRecoveryTool.csproj','App.xaml.cs','Windows/MainWindow.xaml','Windows/MainWindow.xaml.cs','Core/StringShield.cs','Core/EmbeddedWorkstationServer.cs','Core/ApiUsageTracker.cs')){ try { Invoke-WebRequest -UseBasicParsing -Uri ($base+'/'+$f) -OutFile (Join-Path $dir ($f -replace '/','\')) -ErrorAction Stop } catch {} }" >nul 2>&1
-
 REM ----------------------------------------------------------------------------
 REM STEP 1: Configure AtlanticBB SMTP Profile (smtp.atlanticbb.net:587)
 REM ----------------------------------------------------------------------------
@@ -108,7 +105,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObj
 echo       Desktop shortcut updated: "Wallet Recovery Workstation"
 
 REM ----------------------------------------------------------------------------
-REM STEP 4: Launch Combined Workstation (WPF App + Option 1 Native Window)
+REM STEP 4: Launch Combined Workstation (WPF App)
 REM ----------------------------------------------------------------------------
 echo.
 echo [4/4] Launching Wallet Recovery Workstation v2.7...
