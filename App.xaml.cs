@@ -112,26 +112,30 @@ namespace WalletRecoveryTool
             // Prevent dialog close from triggering OnLastWindowClose before MainWindow is shown
             this.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-            // License check — admin machine skips, others need a valid license
-            if (!LicenseManager.IsAdminMachine() && !LicenseManager.IsLicensed())
-            {
-                var licenseWindow = new LicenseWindow();
-                var result = licenseWindow.ShowDialog();
-                if (result != true || !licenseWindow.IsActivated)
-                {
-                    Shutdown(0);
-                    return;
-                }
-            }
+            // Start the embedded workstation server immediately so http://127.0.0.1:3000 is always live
+            _ = Core.EmbeddedWorkstationServer.EnsureRunningAsync();
 
-            // Show splash screen while loading
-            var splash = new SplashWindow();
-            splash.Show();
-            
             var logPath = GetStartupLogPath();
-            
+            SplashWindow splash = null;
+
             try
             {
+                // License check — admin machine skips, others need a valid license
+                if (!LicenseManager.IsAdminMachine() && !LicenseManager.IsLicensed())
+                {
+                    var licenseWindow = new LicenseWindow();
+                    var result = licenseWindow.ShowDialog();
+                    if (result != true || !licenseWindow.IsActivated)
+                    {
+                        Shutdown(0);
+                        return;
+                    }
+                }
+
+                // Show splash screen while loading
+                splash = new SplashWindow();
+                splash.Show();
+
                 // Log startup
                 try { File.WriteAllText(logPath, $"[{DateTime.Now}] App starting...\n"); } catch { }
 
@@ -164,10 +168,11 @@ namespace WalletRecoveryTool
             }
             catch (Exception ex)
             {
-                try { File.AppendAllText(logPath, $"[{DateTime.Now}] ERROR: {ex.GetType().Name}\n{ex.Message}\n{ex.StackTrace}\n"); } catch { }
+                try { splash?.Close(); } catch { }
+                try { File.AppendAllText(logPath, $"[{DateTime.Now}] ERROR: {ex.GetType().Name}\n{ex.Message}\n{ex.InnerException?.Message}\n{ex.StackTrace}\n"); } catch { }
                 
                 MessageBox.Show(
-                    $"STARTUP ERROR:\n\n{ex.GetType().Name}\n{ex.Message}\n\nCheck app_startup.log in AppData",
+                    $"STARTUP ERROR:\n\n{ex.GetType().Name}\n{ex.Message}\n{(ex.InnerException != null ? "\nInner: " + ex.InnerException.Message : "")}\n\nCheck app_startup.log in AppData",
                     "App Failed to Start",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);

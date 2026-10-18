@@ -3278,48 +3278,26 @@ namespace WalletRecoveryTool
             try
             {
                 string serverUrl = await Core.EmbeddedWorkstationServer.EnsureRunningAsync();
-                if (NativeWebViewHostBorder == null) return;
-
-                var webView = new Microsoft.Web.WebView2.Wpf.WebView2
-                {
-                    DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 8, 11, 16)
-                };
-                NativeWebViewHostBorder.Child = webView;
-                NativeWebViewHostBorder.Visibility = Visibility.Visible;
-
-                string userDataDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "WalletRecoveryTool",
-                    "WebView2Data");
-                Directory.CreateDirectory(userDataDir);
-
-                var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, userDataDir);
-                await webView.EnsureCoreWebView2Async(env);
-                webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
-                webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                webView.CoreWebView2.Navigate(serverUrl);
+                DebugLogger.Log($"[Workstation] Embedded server ready at {serverUrl}");
             }
             catch (Exception ex)
             {
-                DebugLogger.Log($"[WebView2] Native host fallback to XAML shell: {ex.Message}");
-                if (NativeWebViewHostBorder != null)
-                {
-                    NativeWebViewHostBorder.Visibility = Visibility.Collapsed;
-                }
+                DebugLogger.Log($"[Workstation] Embedded server init warning: {ex.Message}");
             }
         }
 
-        private void OpenWebWorkstation_Click(object sender, RoutedEventArgs e)
+        private async void OpenWebWorkstation_Click(object sender, RoutedEventArgs e)
         {
             try
             {
                 TryStartEmbeddedWebWorkstation();
+                string serverUrl = await Core.EmbeddedWorkstationServer.EnsureRunningAsync();
                 try
                 {
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = "msedge",
-                        Arguments = "--app=http://localhost:3000 --window-size=1580,920",
+                        Arguments = $"--app={serverUrl} --window-size=1580,920",
                         UseShellExecute = true
                     });
                     return;
@@ -3328,7 +3306,7 @@ namespace WalletRecoveryTool
 
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "http://localhost:3000",
+                    FileName = serverUrl,
                     UseShellExecute = true
                 });
             }
