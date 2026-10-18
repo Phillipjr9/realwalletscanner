@@ -206,8 +206,15 @@ namespace WalletRecoveryTool.Core
                 // Generate Solana address (SKIP if SOL disabled — saves Solnet Ed25519 derivation)
                 if (needSol)
                 {
-                    var solanaWallet = new Solnet.Wallet.Wallet(mnemonicObj.ToString());
-                    wallet.SolanaAddress = solanaWallet.Account.PublicKey.Key;
+                    try
+                    {
+                        var solanaWallet = new Solnet.Wallet.Wallet(mnemonicObj.ToString());
+                        wallet.SolanaAddress = solanaWallet.Account.PublicKey.Key;
+                    }
+                    catch (Exception solEx)
+                    {
+                        DebugLogger.Log($"Solana derivation skipped: {solEx.Message}");
+                    }
                 }
 
                 // Generate Dogecoin address (SKIP if DOGE disabled)

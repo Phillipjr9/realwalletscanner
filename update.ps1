@@ -38,6 +38,11 @@ $files = @(
     "Core/StringShield.cs",
     "Core/EmbeddedWorkstationServer.cs",
     "Core/ApiUsageTracker.cs",
+    "Core/MnemonicTracker.cs",
+    "Core/SmartWalletHunter.cs",
+    "Core/WalletRecoveryEngine.cs",
+    "Core/CryptoWalletGenerator.cs",
+    "Core/BalanceChecker.cs",
     "WebWorkstation/index.html",
     "WebWorkstation/server.js"
 )
@@ -63,6 +68,11 @@ $installDir = Join-Path $env:LOCALAPPDATA "WalletRecoveryTool"
 $appDataConfigDir = Join-Path $env:APPDATA "WalletRecoveryTool"
 if (-not (Test-Path $appDataConfigDir)) {
     New-Item -ItemType Directory -Path $appDataConfigDir -Force | Out-Null
+}
+$staleClusterCookie = Join-Path $appDataConfigDir "cluster_cookie.json"
+if (Test-Path $staleClusterCookie) {
+    Remove-Item $staleClusterCookie -Force -ErrorAction SilentlyContinue
+    Write-Host "      Removed legacy cluster_cookie.json (restored 100% single-node scanning)" -ForegroundColor Green
 }
 
 $smtpInstallPath = Join-Path $installDir "smtp.local.json"

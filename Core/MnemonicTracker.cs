@@ -77,58 +77,21 @@ namespace WalletRecoveryTool.Core
             
             _memoryCache = new HashSet<UInt128>();
 
-            // Cluster sharding configuration
-            // Supports environment variable overrides for easy per-PC install config:
-            //   WRT_CLUSTER_NODE_INDEX (0-based), WRT_CLUSTER_NODE_COUNT
+            // Cluster sharding configuration (only active when explicitly enabled in AppSettings)
             _clusterShardingEnabled = settings.EnableClusterSharding;
             _clusterNodeIndex = settings.ClusterNodeIndex;
             _clusterNodeCount = settings.ClusterNodeCount;
 
-            var envNodeIndex = Environment.GetEnvironmentVariable("WRT_CLUSTER_NODE_INDEX");
-            var envNodeCount = Environment.GetEnvironmentVariable("WRT_CLUSTER_NODE_COUNT");
-
-            // Optional per-device cookie fallback (written by oneclick installer)
-            // Path: %APPDATA%\WalletRecoveryTool\cluster_cookie.json
-            try
+            if (_clusterShardingEnabled)
             {
-                var cookiePath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "WalletRecoveryTool",
-                    "cluster_cookie.json");
+                var envNodeIndex = Environment.GetEnvironmentVariable("WRT_CLUSTER_NODE_INDEX");
+                var envNodeCount = Environment.GetEnvironmentVariable("WRT_CLUSTER_NODE_COUNT");
 
-                if (File.Exists(cookiePath))
-                {
-                    var cookieJson = File.ReadAllText(cookiePath);
-                    var cookie = JsonSerializer.Deserialize<ClusterCookie>(cookieJson);
-                    if (cookie != null)
-                    {
-                        if (string.IsNullOrWhiteSpace(envNodeCount) && cookie.NodeCount > 0)
-                        {
-                            envNodeCount = cookie.NodeCount.ToString();
-                        }
+                if (int.TryParse(envNodeCount, out var parsedNodeCount) && parsedNodeCount > 0)
+                    _clusterNodeCount = parsedNodeCount;
 
-                        if (string.IsNullOrWhiteSpace(envNodeIndex) && cookie.NodeIndex >= 0)
-                        {
-                            envNodeIndex = cookie.NodeIndex.ToString();
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.Log($"MnemonicTracker: Failed to read cluster cookie, using defaults/env. {ex.Message}");
-            }
-
-            if (int.TryParse(envNodeCount, out var parsedNodeCount) && parsedNodeCount > 0)
-            {
-                _clusterNodeCount = parsedNodeCount;
-                _clusterShardingEnabled = parsedNodeCount > 1 || _clusterShardingEnabled;
-            }
-
-            if (int.TryParse(envNodeIndex, out var parsedNodeIndex) && parsedNodeIndex >= 0)
-            {
-                _clusterNodeIndex = parsedNodeIndex;
-                _clusterShardingEnabled = true;
+                if (int.TryParse(envNodeIndex, out var parsedNodeIndex) && parsedNodeIndex >= 0)
+                    _clusterNodeIndex = parsedNodeIndex;
             }
 
             if (_clusterNodeCount < 1) _clusterNodeCount = 1;

@@ -1235,8 +1235,16 @@ namespace WalletRecoveryTool
             _smartHuntingResults.Clear();
             _livePreviewLog.Clear();
             _smartHuntingChecked = 0;
+            _totalChecked = 0;
+            _droppedBySystemDedupe = 0;
+            _prevCheckedForRate = 0;
+            _prevRateTime = DateTime.Now;
             _smartHuntingFound = 0;
             _smartHuntingStartTime = DateTime.Now;
+            if (QuickStatsCheckedText != null) QuickStatsCheckedText.Text = "0";
+            if (SmartHuntingCheckedText != null) SmartHuntingCheckedText.Text = "0";
+            if (SmartHuntingDedupeDropText != null) SmartHuntingDedupeDropText.Text = "0";
+            if (DedupeWarningBanner != null) DedupeWarningBanner.Visibility = Visibility.Collapsed;
             
             // Reset unified live preview panel
             LivePreviewSourceText.Text = "Starting...";
@@ -1400,10 +1408,14 @@ namespace WalletRecoveryTool
                 PreviewBnbBalanceTextBlock.Foreground = e.BnbBalance > 0 ? Brushes.Lime : _brushBnb;
                 
                 // Update check counter
-                _smartHuntingChecked = e.CheckNumber;
-                SmartHuntingCheckedText.Text = e.CheckNumber.ToString("N0");
+                if (e.CheckNumber > _smartHuntingChecked)
+                    _smartHuntingChecked = e.CheckNumber;
+                if (_smartHuntingChecked > _totalChecked)
+                    _totalChecked = _smartHuntingChecked;
+                SmartHuntingCheckedText.Text = _smartHuntingChecked.ToString("N0");
+                if (QuickStatsCheckedText != null) QuickStatsCheckedText.Text = _totalChecked.ToString("N0");
                 SmartHuntingPhaseText.Text = $"[{source}] Checking: {e.Address?.Substring(0, Math.Min(20, e.Address?.Length ?? 0))}...";
-                PreviewTotalTextBlock.Text = $"Scanned: {e.CheckNumber:N0}";
+                PreviewTotalTextBlock.Text = $"Scanned: {_smartHuntingChecked:N0}";
             }));
         }
         
@@ -1479,10 +1491,14 @@ namespace WalletRecoveryTool
         {
             Dispatcher.BeginInvoke((Action)(() =>
             {
-                _smartHuntingChecked = e.TotalChecked;
+                if (e.TotalChecked > _smartHuntingChecked)
+                    _smartHuntingChecked = e.TotalChecked;
+                if (_smartHuntingChecked > _totalChecked)
+                    _totalChecked = _smartHuntingChecked;
                 _droppedBySystemDedupe = e.DroppedBySystemDedupe;
                 _rolling30sRate = e.Rolling30sRate;
                 SmartHuntingCheckedText.Text = _smartHuntingChecked.ToString("N0");
+                if (QuickStatsCheckedText != null) QuickStatsCheckedText.Text = _totalChecked.ToString("N0");
                 SmartHuntingPhaseText.Text = e.Message ?? "Scanning...";
                 
                 if (e.ProgressPercentage > 0)
@@ -1535,15 +1551,45 @@ namespace WalletRecoveryTool
                 _smartHuntingChecked = (int)liveCount;
                 SmartHuntingCheckedText.Text = _smartHuntingChecked.ToString("N0");
             }
+            if (_smartHuntingChecked > _totalChecked)
+            {
+                _totalChecked = _smartHuntingChecked;
+            }
+            if (QuickStatsCheckedText != null)
+            {
+                QuickStatsCheckedText.Text = _totalChecked.ToString("N0");
+            }
+
+            // Poll latest candidate directly from hunter so Live Candidate Stream & Preview cards never stall
+            var latest = _recoveryEngine?.LatestWalletChecking;
+            if (latest != null)
+            {
+                var seedDisplay = !string.IsNullOrEmpty(latest.Phrase) ? latest.Phrase : (latest.Mnemonic ?? "---");
+                var source = latest.Source ?? "SmartHunter";
+                if (SmartLiveSeedText != null && SmartLiveSeedText.Text != seedDisplay)
+                {
+                    SmartLiveSeedText.Text = seedDisplay;
+                    if (SmartLiveBtcText != null) SmartLiveBtcText.Text = latest.Address ?? "---";
+                    if (SmartLiveEthText != null) SmartLiveEthText.Text = latest.EthAddress ?? "---";
+                    if (SmartLiveSourceBadge != null) SmartLiveSourceBadge.Text = source.ToUpperInvariant();
+                    if (SmartLiveApiSavedText != null) SmartLiveApiSavedText.Text = $"🛡️ API QUOTA SAVED: {BalanceChecker.ApiQuotaSavedCount:N0} calls (Zero-Waste RPC-First Active)";
+                    LivePreviewSourceText.Text = source;
+                    PreviewBtcAddressTextBox.Text = latest.Address ?? "---";
+                    PreviewEthAddressTextBox.Text = latest.EthAddress ?? "---";
+                    SetLiveMnemonicPreview(seedDisplay, source);
+                    SmartHuntingPhaseText.Text = $"[{source}] Checking: {latest.Address?.Substring(0, Math.Min(20, latest.Address?.Length ?? 0))}...";
+                    PreviewTotalTextBlock.Text = $"Scanned: {_smartHuntingChecked:N0}";
+                }
+            }
             
             if (elapsed.TotalSeconds > 0)
             {
                 // Windowed speed: measure throughput over last ~2 seconds for responsive display
                 var now = DateTime.Now;
                 var dt = (now - _prevRateTime).TotalSeconds;
-                if (dt >= 2.0 && _prevRateTime != DateTime.MinValue)
+                if (dt >= 1.0 && _prevRateTime != DateTime.MinValue)
                 {
-                    var delta = _smartHuntingChecked - _prevCheckedForRate;
+                    var delta = Math.Max(0, _smartHuntingChecked - _prevCheckedForRate);
                     _currentRate = delta / dt;
                     _prevCheckedForRate = _smartHuntingChecked;
                     _prevRateTime = now;
@@ -1553,9 +1599,16 @@ namespace WalletRecoveryTool
                     _prevRateTime = now;
                     _prevCheckedForRate = _smartHuntingChecked;
                 }
-                SmartHuntingSpeedText.Text = _rolling30sRate > 0
-                    ? $"{_rolling30sRate:F1}/sec"
-                    : $"{_currentRate:F1}/sec";
+                var displayRate = _rolling30sRate > 0 ? _rolling30sRate : _currentRate;
+                if (displayRate <= 0 && _smartHuntingChecked > 0)
+                {
+                    displayRate = _smartHuntingChecked / Math.Max(1.0, elapsed.TotalSeconds);
+                }
+                SmartHuntingSpeedText.Text = $"{displayRate:F1}/sec";
+                if (QuickStatsSpeedText != null)
+                {
+                    QuickStatsSpeedText.Text = $"{displayRate:F0}/sec";
+                }
             }
         }
         

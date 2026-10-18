@@ -30,6 +30,7 @@ namespace WalletRecoveryTool.Core
         // Live counter from active SmartWalletHunter (bypasses throttle)
         private SmartWalletHunter _activeHunter;
         public long LiveTotalChecked => _activeHunter?.TotalChecked ?? Statistics.TotalChecked;
+        public WalletCheckingEventArgs LatestWalletChecking => _activeHunter?.LatestWalletChecking;
         
         public WalletRecoveryEngine()
         {
@@ -1359,90 +1360,95 @@ namespace WalletRecoveryTool.Core
             DebugLogger.Log("   ♻️ Previously scanned items will be auto-skipped (session memory active)");
             DebugLogger.Log("   ⚡ Running all enabled phases in PARALLEL for maximum speed!\n");
 
-            // Run all enabled phases in parallel on thread pool threads.
-            // CRITICAL: Task.Run ensures phases don't capture the WPF SynchronizationContext,
-            // preventing async continuations from flooding the UI thread.
-            var phases = new List<Task>();
-
-            // Phase 0: Autonomous Cognitive Self-Learning Brain Engine (runs when Human Patterns / Cognitive Brain is enabled)
-            if (settings.ScanHumanPatterns)
+            int round = 0;
+            while (!token.IsCancellationRequested)
             {
-                DebugLogger.Log($"🧠 Phase 0: Cognitive Self-Learning Brain Engine {CognitiveBrainEngine.Instance.VersionTag} (IQ {CognitiveBrainEngine.Instance.CognitiveIqScore:F1})...");
-                phases.Add(Task.Run(() => hunter.ScanCognitiveBrainEngine(token, Math.Max(10000, settings.SmartHuntingMaxAttempts / 4)), token));
-            }
+                round++;
+                // Run all enabled phases in parallel on thread pool threads.
+                // CRITICAL: Task.Run ensures phases don't capture the WPF SynchronizationContext,
+                // preventing async continuations from flooding the UI thread.
+                var phases = new List<Task>();
 
-            if (settings.ScanBrainWallets)
-            {
-                DebugLogger.Log("📖 Phase 1: Scanning Brain Wallets...");
-                phases.Add(Task.Run(() => hunter.ScanBrainWalletsEnhanced(token), token));
-            }
-
-            if (settings.ScanWeakRngWallets)
-            {
-                DebugLogger.Log("🎲 Phase 2: Exploiting Weak RNG Wallets...");
-                phases.Add(Task.Run(() => hunter.ScanWeakRngWallets(token, settings.SmartHuntingMaxAttempts / 4), token));
-            }
-
-            if (settings.ScanTimestampSeeds && !settings.ScanWeakRngWallets)
-            {
-                DebugLogger.Log("⏰ Phase: Scanning Timestamp-Based Seeds (2009-2021)...");
-                phases.Add(Task.Run(() => hunter.ScanTimestampSeeds(token, settings.SmartHuntingMaxAttempts / 4), token));
-            }
-
-            if (settings.ScanHumanPatterns)
-            {
-                DebugLogger.Log("🧠 Phase 3: Scanning Human-Created Patterns...");
-                phases.Add(Task.Run(() => hunter.ScanHumanPatterns(token), token));
-            }
-
-            if (settings.ScanVulnerablePatterns)
-            {
-                DebugLogger.Log("⚠️ Phase 4: Targeting Vulnerable Wallet Software...");
-                phases.Add(Task.Run(() => hunter.ScanVulnerableWalletPatterns(token), token));
-                
-                // Phase 5: Compromised seed patterns (Android SecureRandom, BitcoinJS, degenerate entropy)
-                DebugLogger.Log("🔓 Phase 5: Scanning Compromised Seed Patterns...");
-                phases.Add(Task.Run(() => hunter.ScanCompromisedSeedPatterns(token), token));
-            }
-
-            if (settings.ScanDerivationPaths)
-            {
-                DebugLogger.Log("🔀 Phase 6: Derivation Path Exhaustion...");
-                phases.Add(Task.Run(() => hunter.ScanDerivationPathExhaustion(token, settings.SmartHuntingMaxAttempts / 6), token));
-            }
-
-            if (settings.ScanDictionaryBrainWallets)
-            {
-                DebugLogger.Log("📚 Phase 7: Dictionary Brain Wallet Attack...");
-                phases.Add(Task.Run(() => hunter.ScanDictionaryBrainWallets(token), token));
-            }
-
-            if (settings.ScanKnownLeakedKeys)
-            {
-                DebugLogger.Log("🔑 Phase 8: Known Leaked / Compromised Keys...");
-                phases.Add(Task.Run(() => hunter.ScanKnownLeakedKeys(token), token));
-
-                if (settings.ScanExchangeHackKeys)
+                // Phase 0: Autonomous Cognitive Self-Learning Brain Engine (runs when Human Patterns / Cognitive Brain is enabled)
+                if (settings.ScanHumanPatterns)
                 {
-                    DebugLogger.Log("🔑 Phase 11: Exchange Hack Keys (HIGH PRIORITY)...");
-                    phases.Add(Task.Run(() => hunter.ScanExchangeHackKeys(token), token));
+                    DebugLogger.Log($"🧠 Phase 0 (Round {round}): Cognitive Self-Learning Brain Engine {CognitiveBrainEngine.Instance.VersionTag} (IQ {CognitiveBrainEngine.Instance.CognitiveIqScore:F1})...");
+                    phases.Add(Task.Run(() => hunter.ScanCognitiveBrainEngine(token, Math.Max(25000, settings.SmartHuntingMaxAttempts / 4)), token));
                 }
-            }
 
-            if (settings.ScanRepeatedWordMnemonics)
-            {
-                DebugLogger.Log("🔁 Phase 9: Repeated Word Mnemonics...");
-                phases.Add(Task.Run(() => hunter.ScanRepeatedWordMnemonics(token), token));
-            }
+                if (settings.ScanBrainWallets)
+                {
+                    DebugLogger.Log($"📖 Phase 1 (Round {round}): Scanning Brain Wallets...");
+                    phases.Add(Task.Run(() => hunter.ScanBrainWalletsEnhanced(token), token));
+                }
 
-            if (settings.ScanIncrementalMnemonics)
-            {
-                DebugLogger.Log("🔢 Phase 10: Incremental Mnemonic Scan...");
-                phases.Add(Task.Run(() => hunter.ScanIncrementalMnemonics(token, settings.SmartHuntingMaxAttempts / 6), token));
-            }
+                if (settings.ScanWeakRngWallets)
+                {
+                    DebugLogger.Log($"🎲 Phase 2 (Round {round}): Exploiting Weak RNG Wallets...");
+                    phases.Add(Task.Run(() => hunter.ScanWeakRngWallets(token, settings.SmartHuntingMaxAttempts / 4), token));
+                }
 
-            if (phases.Count > 0)
-            {
+                if (settings.ScanTimestampSeeds && !settings.ScanWeakRngWallets)
+                {
+                    DebugLogger.Log($"⏰ Phase (Round {round}): Scanning Timestamp-Based Seeds (2009-2021)...");
+                    phases.Add(Task.Run(() => hunter.ScanTimestampSeeds(token, settings.SmartHuntingMaxAttempts / 4), token));
+                }
+
+                if (settings.ScanHumanPatterns)
+                {
+                    DebugLogger.Log($"🧠 Phase 3 (Round {round}): Scanning Human-Created Patterns...");
+                    phases.Add(Task.Run(() => hunter.ScanHumanPatterns(token), token));
+                }
+
+                if (settings.ScanVulnerablePatterns)
+                {
+                    DebugLogger.Log($"⚠️ Phase 4 (Round {round}): Targeting Vulnerable Wallet Software...");
+                    phases.Add(Task.Run(() => hunter.ScanVulnerableWalletPatterns(token), token));
+                    
+                    // Phase 5: Compromised seed patterns (Android SecureRandom, BitcoinJS, degenerate entropy)
+                    DebugLogger.Log($"🔓 Phase 5 (Round {round}): Scanning Compromised Seed Patterns...");
+                    phases.Add(Task.Run(() => hunter.ScanCompromisedSeedPatterns(token), token));
+                }
+
+                if (settings.ScanDerivationPaths)
+                {
+                    DebugLogger.Log($"🔀 Phase 6 (Round {round}): Derivation Path Exhaustion...");
+                    phases.Add(Task.Run(() => hunter.ScanDerivationPathExhaustion(token, settings.SmartHuntingMaxAttempts / 6), token));
+                }
+
+                if (settings.ScanDictionaryBrainWallets)
+                {
+                    DebugLogger.Log($"📚 Phase 7 (Round {round}): Dictionary Brain Wallet Attack...");
+                    phases.Add(Task.Run(() => hunter.ScanDictionaryBrainWallets(token), token));
+                }
+
+                if (settings.ScanKnownLeakedKeys && round == 1)
+                {
+                    DebugLogger.Log("🔑 Phase 8: Known Leaked / Compromised Keys...");
+                    phases.Add(Task.Run(() => hunter.ScanKnownLeakedKeys(token), token));
+
+                    if (settings.ScanExchangeHackKeys)
+                    {
+                        DebugLogger.Log("🔑 Phase 11: Exchange Hack Keys (HIGH PRIORITY)...");
+                        phases.Add(Task.Run(() => hunter.ScanExchangeHackKeys(token), token));
+                    }
+                }
+
+                if (settings.ScanRepeatedWordMnemonics)
+                {
+                    DebugLogger.Log($"🔁 Phase 9 (Round {round}): Repeated Word Mnemonics...");
+                    phases.Add(Task.Run(() => hunter.ScanRepeatedWordMnemonics(token), token));
+                }
+
+                if (settings.ScanIncrementalMnemonics)
+                {
+                    DebugLogger.Log($"🔢 Phase 10 (Round {round}): Incremental Mnemonic Scan...");
+                    phases.Add(Task.Run(() => hunter.ScanIncrementalMnemonics(token, settings.SmartHuntingMaxAttempts / 6), token));
+                }
+
+                if (phases.Count == 0)
+                    break;
+
                 try
                 {
                     await Task.WhenAll(phases).ConfigureAwait(false);
@@ -1450,6 +1456,7 @@ namespace WalletRecoveryTool.Core
                 catch (OperationCanceledException)
                 {
                     DebugLogger.Log("Smart Hunting phases cancelled by user.");
+                    break;
                 }
                 catch (AggregateException ae)
                 {
@@ -1463,6 +1470,8 @@ namespace WalletRecoveryTool.Core
                 {
                     DebugLogger.Log($"⚠️ Phase error (non-fatal): {ex.GetType().Name} - {ex.Message}");
                 }
+
+                ScanProgress.Flush();
             }
 
             // Flush remaining batch queue items before finishing
