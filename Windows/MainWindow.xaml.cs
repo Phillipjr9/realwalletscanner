@@ -1243,8 +1243,8 @@ namespace WalletRecoveryTool
             _smartHuntingStartTime = DateTime.Now;
             if (QuickStatsCheckedText != null) QuickStatsCheckedText.Text = "0";
             if (SmartHuntingCheckedText != null) SmartHuntingCheckedText.Text = "0";
-            if (SmartHuntingDedupeDropText != null) SmartHuntingDedupeDropText.Text = "0";
-            if (DedupeWarningBanner != null) DedupeWarningBanner.Visibility = Visibility.Collapsed;
+            if (QuickStatsDedupeText != null) QuickStatsDedupeText.Text = "0";
+            if (DedupeHintBanner != null) DedupeHintBanner.Visibility = Visibility.Collapsed;
             
             // Reset unified live preview panel
             LivePreviewSourceText.Text = "Starting...";
@@ -1605,9 +1605,9 @@ namespace WalletRecoveryTool
                     displayRate = _smartHuntingChecked / Math.Max(1.0, elapsed.TotalSeconds);
                 }
                 SmartHuntingSpeedText.Text = $"{displayRate:F1}/sec";
-                if (QuickStatsSpeedText != null)
+                if (QuickStatsRateText != null)
                 {
-                    QuickStatsSpeedText.Text = $"{displayRate:F0}/sec";
+                    QuickStatsRateText.Text = $"{displayRate:F1}/s";
                 }
             }
         }

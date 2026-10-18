@@ -2180,7 +2180,7 @@ public SmartWalletHunter()
             // non-repeating candidate so the pipeline keeps scanning novel wallets at full speed.
             if (MnemonicTracker.IsRestrictedTrivialMnemonic(mnemonic) || _mnemonicTracker.WasScanned(mnemonic))
             {
-                var replacement = CognitiveBrainEngine.Instance.SynthesizeNextCandidate(12, markAsScannedImmediately: false);
+                var replacement = CognitiveBrainEngine.Instance.SynthesizeNextCandidate(markAsScannedImmediately: false);
                 if (!string.IsNullOrEmpty(replacement.Mnemonic) &&
                     !MnemonicTracker.IsRestrictedTrivialMnemonic(replacement.Mnemonic) &&
                     !_mnemonicTracker.WasScanned(replacement.Mnemonic))
