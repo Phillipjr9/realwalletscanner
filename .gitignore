@@ -24,5 +24,10 @@ WebWorkstation/FOUND_WALLETS.txt
 WebWorkstation/api_keys_config.json
 WebWorkstation/found_wallets_vault.json
 WebWorkstation/FOUND_WALLETS_VAULT.txt
+WebWorkstation/.runtime_state/
+WebWorkstation/scanned_bloom_100m.bin
+WebWorkstation/EVER_HELD_WALLETS_VAULT.json
+WebWorkstation/ever_held_wallets.txt
+
 
 

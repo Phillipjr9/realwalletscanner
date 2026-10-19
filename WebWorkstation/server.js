@@ -23,6 +23,9 @@ const MEMORABLE_WORDS = eng.WORDLIST.filter(
   w => w !== 'abandon' && w.length >= 4 && w.length <= 6 && !/[xzq]/.test(w)
 );
 
+const SESSION_ENTROPY_HEX = crypto.randomBytes(16).toString('hex');
+const SESSION_ENTROPY_OFFSET = crypto.randomBytes(4).readUInt32LE(0);
+
 const KNOWN_TEST_VECTORS = new Set([
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art',
@@ -30,13 +33,19 @@ const KNOWN_TEST_VECTORS = new Set([
   'legal winner thank year wave sausage worth useful legal winner thank yellow',
   'letter advice cage absurd amount doctor acoustic avoid letter advice cage above',
   'void come effort suffer camp survey warrior heavy shoot primary clutch crush',
+  'void come effort suffer camp survey warrior heavy shoot primary clutch absurd',
+  'army van defense carry jealous true garbage claim echo media make crunch',
+  'gravity machine north sort system female filter attitude volume fold club abuse',
+  'planet crystal ocean velvet silver canyon harvest timber shadow marble winter acid',
   'all all all all all all all all all all all all',
   'bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon'
 ]);
 
+const KNOWN_SWEPT_BRAINWALLETS = new Set(BRAIN_PHRASES.map(p => p.toLowerCase().trim()));
+
 /**
  * Strictly restricts "abandon abandon..." test vectors, repeated-word mnemonics,
- * adjacent duplicate words, and low-diversity phrases across all sections.
+ * known already-swept dictionary phrases, adjacent duplicate words, and low-diversity phrases across all sections.
  */
 function isRestrictedTrivialMnemonic(input) {
   if (!input || typeof input !== 'string') return false;
@@ -44,11 +53,20 @@ function isRestrictedTrivialMnemonic(input) {
   if (KNOWN_TEST_VECTORS.has(norm)) return true;
   if (norm.includes('abandon abandon') || norm.includes('zoo zoo') || norm.includes('bacon bacon')) return true;
 
-  if (norm.startsWith('brain:') || norm.startsWith('0x') || norm.startsWith('pk:') || norm.startsWith('addr:')) {
+  if (norm.startsWith('brain:')) {
+    const inner = norm.replace(/^brain:\s*"?|"?$/g, '').trim();
+    if (KNOWN_SWEPT_BRAINWALLETS.has(inner)) return true;
     return false;
   }
 
-  const words = norm.split(' ');
+  if (norm.startsWith('0x') || norm.startsWith('pk:') || norm.startsWith('addr:')) {
+    return false;
+  }
+
+  const cleanNorm = norm.replace(/\s*\[m\/[^\]]+\]\s*$/i, '').trim();
+  if (KNOWN_TEST_VECTORS.has(cleanNorm)) return true;
+
+  const words = cleanNorm.split(' ');
   if (words.length === 12 || words.length === 15 || words.length === 18 || words.length === 21 || words.length === 24) {
     const freq = new Map();
     for (let i = 0; i < words.length; i++) {
@@ -67,8 +85,12 @@ function isRestrictedTrivialMnemonic(input) {
 // ============================================================================
 // STRICT CROSS-SECTION EMPTY WALLET NON-REPETITION REGISTRY + 100M BLOOM FILTER
 // ============================================================================
+const PERSISTENT_STATE_DIR = '/home/user/realwalletscanner/WebWorkstation/.runtime_state';
+try { fs.mkdirSync(PERSISTENT_STATE_DIR, { recursive: true }); } catch (_) {}
 const EMPTY_STORE_PATH = path.join(__dirname, 'scanned_empty_wallets.json');
+const PERSISTENT_EMPTY_STORE_PATH = path.join(PERSISTENT_STATE_DIR, 'scanned_empty_wallets.json');
 const BLOOM_STORE_PATH = path.join(__dirname, 'scanned_bloom_100m.bin');
+const PERSISTENT_BLOOM_STORE_PATH = path.join(PERSISTENT_STATE_DIR, 'scanned_bloom_100m.bin');
 const BLOOM_BYTE_LENGTH = 4 * 1024 * 1024; // 4 MB = 33,554,432 atomic bits across worker_threads
 const sharedBloomBuffer = new SharedArrayBuffer(BLOOM_BYTE_LENGTH);
 const sharedBloomView = new Int32Array(sharedBloomBuffer);
@@ -114,32 +136,53 @@ function markKeyInSharedBloom(key) {
 }
 
 const scannedEmptySet = new Set();
+const emittedSessionInputs = new Set();
 const fundedWhitelist = new Set();
 let totalDuplicatesPrevented = 0;
 let unsavedAdditions = 0;
 
 function loadEmptyStore() {
-  try {
-    if (fs.existsSync(BLOOM_STORE_PATH)) {
-      const buf = fs.readFileSync(BLOOM_STORE_PATH);
-      if (buf.length === BLOOM_BYTE_LENGTH) {
-        sharedBloomBytes.set(buf);
+  for (const bloomCandidate of [PERSISTENT_BLOOM_STORE_PATH, BLOOM_STORE_PATH]) {
+    try {
+      if (fs.existsSync(bloomCandidate)) {
+        const buf = fs.readFileSync(bloomCandidate);
+        if (buf.length === BLOOM_BYTE_LENGTH) {
+          for (let i = 0; i < BLOOM_BYTE_LENGTH; i++) {
+            sharedBloomBytes[i] |= buf[i];
+          }
+        }
       }
-    }
-  } catch (_) {}
-  try {
-    if (fs.existsSync(EMPTY_STORE_PATH)) {
-      const raw = JSON.parse(fs.readFileSync(EMPTY_STORE_PATH, 'utf8'));
-      if (Array.isArray(raw.empty)) {
-        raw.empty.forEach(k => {
-          scannedEmptySet.add(k);
-          markKeyInSharedBloom(k);
-        });
+    } catch (_) {}
+  }
+  for (const storeCandidate of [PERSISTENT_EMPTY_STORE_PATH, EMPTY_STORE_PATH]) {
+    try {
+      if (fs.existsSync(storeCandidate)) {
+        const raw = JSON.parse(fs.readFileSync(storeCandidate, 'utf8'));
+        if (Array.isArray(raw.empty)) {
+          raw.empty.forEach(k => {
+            scannedEmptySet.add(k);
+            markKeyInSharedBloom(k);
+          });
+        }
+        if (Array.isArray(raw.funded)) raw.funded.forEach(k => fundedWhitelist.add(k));
+        if (typeof raw.duplicatesPrevented === 'number') {
+          totalDuplicatesPrevented = Math.max(totalDuplicatesPrevented, raw.duplicatesPrevented);
+        }
       }
-      if (Array.isArray(raw.funded)) raw.funded.forEach(k => fundedWhitelist.add(k));
-      if (typeof raw.duplicatesPrevented === 'number') totalDuplicatesPrevented = raw.duplicatesPrevented;
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
+  // Permanently pre-mark all known test/historical vectors in the Bloom filter so they are never scanned
+  for (const tv of KNOWN_TEST_VECTORS) {
+    scannedEmptySet.add('mnem:' + tv);
+    scannedEmptySet.add('in:' + tv);
+    markKeyInSharedBloom('mnem:' + tv);
+    markKeyInSharedBloom('in:' + tv);
+  }
+  for (const bp of KNOWN_SWEPT_BRAINWALLETS) {
+    const bk = `in:brain:"${bp}"`;
+    scannedEmptySet.add(bk);
+    markKeyInSharedBloom(bk);
+  }
 }
 
 let savingEmptyStore = false;
@@ -149,14 +192,18 @@ function saveEmptyStore() {
   unsavedAdditions = 0;
   setImmediate(async () => {
     try {
-      const emptyArr = Array.from(scannedEmptySet).slice(-100000);
+      const emptyArr = Array.from(scannedEmptySet).slice(-150000);
       const fundedArr = Array.from(fundedWhitelist);
-      await fs.promises.writeFile(EMPTY_STORE_PATH, JSON.stringify({
+      const payload = JSON.stringify({
         empty: emptyArr,
         funded: fundedArr,
         duplicatesPrevented: totalDuplicatesPrevented
-      }));
-      await fs.promises.writeFile(BLOOM_STORE_PATH, Buffer.from(sharedBloomBytes));
+      });
+      const bloomCopy = Buffer.from(sharedBloomBytes);
+      await fs.promises.writeFile(EMPTY_STORE_PATH, payload);
+      await fs.promises.writeFile(BLOOM_STORE_PATH, bloomCopy);
+      await fs.promises.writeFile(PERSISTENT_EMPTY_STORE_PATH, payload);
+      await fs.promises.writeFile(PERSISTENT_BLOOM_STORE_PATH, bloomCopy);
     } catch (_) {
     } finally {
       savingEmptyStore = false;
@@ -362,7 +409,12 @@ function synthesizeCognitiveCandidate(allowedArmNames = null, useRepulsion = tru
 
     const mnem = buildChecksumValidMnemonicFromWords(eleven, brainState.totalSynthesized + attempt);
     const normMnem = normalizeKey(mnem);
-    if (scannedEmptySet.has('mnem:' + normMnem) || scannedEmptySet.has('in:' + normMnem)) {
+    if (
+      scannedEmptySet.has('mnem:' + normMnem) ||
+      scannedEmptySet.has('in:' + normMnem) ||
+      isKeyInSharedBloom('mnem:' + normMnem) ||
+      isKeyInSharedBloom('in:' + normMnem)
+    ) {
       totalDuplicatesPrevented++;
       continue;
     }
@@ -399,18 +451,23 @@ function synthesizeCognitiveCandidate(allowedArmNames = null, useRepulsion = tru
     };
   }
 
-  const fallback = eng.bip39.generateMnemonic(128);
-  const w = eng.deriveWalletFromMnemonic(fallback);
-  return {
-    source: customLabel || `Brain ${getBrainVersionTag()} • DeepEntropyCsprng`,
-    vectorKey,
-    feedType: 'Brain',
-    phraseType: `IQ ${brainState.cognitiveIq.toFixed(1)} | Fit 78%`,
-    input: fallback,
-    brainArm: 'DeepEntropyCsprng',
-    fitness: 0.78,
-    ...w
-  };
+  for (let fb = 0; fb < 8; fb++) {
+    const fallback = eng.bip39.generateMnemonic(128);
+    const w = eng.deriveWalletFromMnemonic(fallback);
+    if (!isWalletAlreadyScannedEmpty(w)) {
+      return {
+        source: customLabel || `Brain ${getBrainVersionTag()} • DeepEntropyCsprng`,
+        vectorKey,
+        feedType: 'Brain',
+        phraseType: `IQ ${brainState.cognitiveIq.toFixed(1)} | Fit 78%`,
+        input: fallback,
+        brainArm: 'DeepEntropyCsprng',
+        fitness: 0.78,
+        ...w
+      };
+    }
+  }
+  return null;
 }
 
 function recordBrainFeedback(item, isHit) {
@@ -517,11 +574,11 @@ function getBrainTelemetry() {
   };
 }
 
-let smartIndex = Math.max(brainState.smartIndex || 0, Math.floor(scannedEmptySet.size / 4));
-let brainCursor = Math.max(brainState.brainCursor || 0, Math.floor(scannedEmptySet.size / 10));
-let keyCursor = BigInt(Math.max(Number(brainState.keyCursor || 1), Math.floor(scannedEmptySet.size / 10) + 1));
-let electrumCursor = Math.max(brainState.electrumCursor || 0, Math.floor(scannedEmptySet.size / 12));
-let hdPathCursor = Math.max(brainState.hdPathCursor || 0, Math.floor(scannedEmptySet.size / 12));
+let smartIndex = Math.max(brainState.smartIndex || 0, Math.floor(scannedEmptySet.size / 4)) + (SESSION_ENTROPY_OFFSET % 100000);
+let brainCursor = Math.max(brainState.brainCursor || 0, Math.floor(scannedEmptySet.size / 10)) + (SESSION_ENTROPY_OFFSET % 100000);
+let keyCursor = BigInt(Math.max(Number(brainState.keyCursor || 1), Math.floor(scannedEmptySet.size / 10) + 1) + (SESSION_ENTROPY_OFFSET % 100000));
+let electrumCursor = Math.max(brainState.electrumCursor || 0, Math.floor(scannedEmptySet.size / 12)) + (SESSION_ENTROPY_OFFSET % 100000);
+let hdPathCursor = Math.max(brainState.hdPathCursor || 0, Math.floor(scannedEmptySet.size / 12)) + (SESSION_ENTROPY_OFFSET % 100000);
 
 const ALL_VECTOR_KEYS = ['brain', 'semantic', 'timestamp', 'brainwallet', 'electrum', 'hdpaths', 'repulsion', 'keys'];
 
@@ -551,7 +608,7 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
     ));
   }
 
-  // 3. Weak PRNG & Timestamp Seeds
+  // 3. Weak PRNG & Timestamp Seeds (salted with cryptographic OS entropy so no session ever repeats)
   if (vecSet.has('timestamp')) {
     activeGenerators.push(() => {
       let ts = 1388534400;
@@ -559,10 +616,18 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
       for (let guard = 0; guard < 120; guard++) {
         const tIdx = smartIndex++;
         brainState.smartIndex = smartIndex;
-        ts = 1388534400 + (tIdx * 997);
-        const entropy = crypto.createHash('sha256').update(String(ts)).digest().subarray(0, 16);
+        ts = 1388534400 + ((tIdx * 997) % 340000000);
+        const entropy = crypto.createHash('sha256')
+          .update(`${SESSION_ENTROPY_HEX}:${ts}:${tIdx}:${crypto.randomBytes(8).toString('hex')}`)
+          .digest()
+          .subarray(0, 16);
         mnem = eng.bip39.entropyToMnemonic(entropy.toString('hex'));
-        if (!scannedEmptySet.has('mnem:' + normalizeKey(mnem)) && !scannedEmptySet.has('in:' + normalizeKey(mnem))) break;
+        const norm = normalizeKey(mnem);
+        if (
+          !isRestrictedTrivialMnemonic(mnem) &&
+          !scannedEmptySet.has('mnem:' + norm) &&
+          !isKeyInSharedBloom('mnem:' + norm)
+        ) break;
       }
       const w = eng.deriveWalletFromMnemonic(mnem);
       return {
@@ -577,16 +642,20 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
     });
   }
 
-  // 4. Brainwallet SHA-256 Passphrases
+  // 4. Brainwallet SHA-256 Passphrases (unique multi-word + salt combinations, never static dictionary repeats)
   if (vecSet.has('brainwallet')) {
     activeGenerators.push(() => {
       let phrase = '';
-      for (let guard = 0; guard < 200; guard++) {
+      for (let guard = 0; guard < 120; guard++) {
         const bIdx = brainCursor++;
         brainState.brainCursor = brainCursor;
-        const base = BRAIN_PHRASES[bIdx % BRAIN_PHRASES.length];
-        phrase = bIdx >= BRAIN_PHRASES.length ? `${base}_${Math.floor(bIdx / BRAIN_PHRASES.length)}` : base;
-        if (!scannedEmptySet.has('in:' + normalizeKey(`brain:"${phrase}"`))) break;
+        const w1 = MEMORABLE_WORDS[crypto.randomInt(0, MEMORABLE_WORDS.length)];
+        const w2 = MEMORABLE_WORDS[crypto.randomInt(0, MEMORABLE_WORDS.length)];
+        const w3 = MEMORABLE_WORDS[crypto.randomInt(0, MEMORABLE_WORDS.length)];
+        const tag = crypto.randomBytes(2).toString('hex');
+        phrase = `${w1}-${w2}-${w3}-${tag}`;
+        const normKey = 'in:' + normalizeKey(`brain:"${phrase}"`);
+        if (!scannedEmptySet.has(normKey) && !isKeyInSharedBloom(normKey)) break;
       }
       const privKey = crypto.createHash('sha256').update(phrase).digest();
       const addrs = eng.deriveAddressesFromPrivKey(privKey);
@@ -602,16 +671,24 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
     });
   }
 
-  // 5. Electrum HMAC Seed Recovery
+  // 5. Electrum HMAC Seed Recovery (cryptographically unique per candidate)
   if (vecSet.has('electrum')) {
     activeGenerators.push(() => {
       let mnem = '';
       for (let guard = 0; guard < 120; guard++) {
         const eIdx = electrumCursor++;
         brainState.electrumCursor = electrumCursor;
-        const entropy = crypto.createHash('sha256').update(`electrum_seed_v2_${eIdx}`).digest().subarray(0, 16);
+        const entropy = crypto.createHash('sha256')
+          .update(`electrum_seed_v2_${SESSION_ENTROPY_HEX}_${eIdx}_${crypto.randomBytes(8).toString('hex')}`)
+          .digest()
+          .subarray(0, 16);
         mnem = eng.bip39.entropyToMnemonic(entropy.toString('hex'));
-        if (!scannedEmptySet.has('mnem:' + normalizeKey(mnem)) && !scannedEmptySet.has('in:' + normalizeKey(mnem))) break;
+        const norm = normalizeKey(mnem);
+        if (
+          !isRestrictedTrivialMnemonic(mnem) &&
+          !scannedEmptySet.has('mnem:' + norm) &&
+          !isKeyInSharedBloom('mnem:' + norm)
+        ) break;
       }
       const electrumSeed = crypto.pbkdf2Sync(mnem, 'electrum', 2048, 64, 'sha512');
       const master = eng.bip32MasterFromSeed(electrumSeed);
@@ -630,7 +707,7 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
     });
   }
 
-  // 6. Multi-Client HD Paths
+  // 6. Multi-Client HD Paths (cryptographically unique per candidate)
   if (vecSet.has('hdpaths')) {
     activeGenerators.push(() => {
       let mnem = '';
@@ -639,10 +716,18 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
       for (let guard = 0; guard < 120; guard++) {
         hIdx = hdPathCursor++;
         brainState.hdPathCursor = hdPathCursor;
-        const entropy = crypto.createHash('sha256').update(`hd_client_seed_${hIdx}`).digest().subarray(0, 16);
+        const entropy = crypto.createHash('sha256')
+          .update(`hd_client_seed_${SESSION_ENTROPY_HEX}_${hIdx}_${crypto.randomBytes(8).toString('hex')}`)
+          .digest()
+          .subarray(0, 16);
         mnem = eng.bip39.entropyToMnemonic(entropy.toString('hex'));
         pathTag = `m/84'/0'/${(hIdx % 5) + 1}'/0/${hIdx % 10}`;
-        if (!scannedEmptySet.has('in:' + normalizeKey(`${mnem} [${pathTag}]`))) break;
+        const norm = normalizeKey(mnem);
+        if (
+          !isRestrictedTrivialMnemonic(mnem) &&
+          !scannedEmptySet.has('mnem:' + norm) &&
+          !isKeyInSharedBloom('mnem:' + norm)
+        ) break;
       }
       const w = eng.deriveWalletFromMnemonic(mnem);
       return {
@@ -657,15 +742,18 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
     });
   }
 
-  // 7. Known Compromised Keys
+  // 7. Known Compromised Keys (salted CSPRNG + sub-space sweep)
   if (vecSet.has('keys')) {
     activeGenerators.push(() => {
       let hex = '';
-      for (let guard = 0; guard < 200; guard++) {
+      for (let guard = 0; guard < 120; guard++) {
         const keyNum = keyCursor++;
         brainState.keyCursor = Number(keyNum);
-        hex = crypto.createHash('sha256').update(`low_entropy_seed_${keyNum}`).digest('hex');
-        if (!scannedEmptySet.has('pk:' + hex.toLowerCase())) break;
+        hex = crypto.createHash('sha256')
+          .update(`low_entropy_seed_${SESSION_ENTROPY_HEX}_${keyNum}_${crypto.randomBytes(8).toString('hex')}`)
+          .digest('hex');
+        const pkKey = 'pk:' + hex.toLowerCase();
+        if (!scannedEmptySet.has(pkKey) && !isKeyInSharedBloom(pkKey)) break;
       }
       const addrs = eng.deriveAddressesFromPrivKey(Buffer.from(hex, 'hex'));
       return {
@@ -1231,6 +1319,8 @@ function saveFoundWalletToVault(item) {
   }
 }
 
+const PERSISTENT_CHECKPOINT_FILE = path.join(PERSISTENT_STATE_DIR, 'scan_checkpoint.json');
+
 function saveCheckpoint() {
   try {
     const checkpoint = {
@@ -1245,20 +1335,24 @@ function saveCheckpoint() {
       brainGeneration: brainState.generation,
       brainEpochs: brainState.epochs
     };
-    fs.writeFileSync(CHECKPOINT_FILE, JSON.stringify(checkpoint, null, 2));
+    const payload = JSON.stringify(checkpoint, null, 2);
+    fs.writeFileSync(CHECKPOINT_FILE, payload);
+    fs.writeFileSync(PERSISTENT_CHECKPOINT_FILE, payload);
   } catch (_) {}
 }
 
-try {
-  if (fs.existsSync(CHECKPOINT_FILE)) {
-    const cp = JSON.parse(fs.readFileSync(CHECKPOINT_FILE, 'utf8'));
-    if (typeof cp.smartIndex === 'number') smartIndex = Math.max(smartIndex, cp.smartIndex);
-    if (typeof cp.brainCursor === 'number') brainCursor = Math.max(brainCursor, cp.brainCursor);
-    if (cp.keyCursor) keyCursor = BigInt(Math.max(Number(keyCursor), Number(cp.keyCursor)));
-    if (typeof cp.electrumCursor === 'number') electrumCursor = Math.max(electrumCursor, cp.electrumCursor);
-    if (typeof cp.hdPathCursor === 'number') hdPathCursor = Math.max(hdPathCursor, cp.hdPathCursor);
-  }
-} catch (_) {}
+for (const cpCandidate of [PERSISTENT_CHECKPOINT_FILE, CHECKPOINT_FILE]) {
+  try {
+    if (fs.existsSync(cpCandidate)) {
+      const cp = JSON.parse(fs.readFileSync(cpCandidate, 'utf8'));
+      if (typeof cp.smartIndex === 'number') smartIndex = Math.max(smartIndex, cp.smartIndex);
+      if (typeof cp.brainCursor === 'number') brainCursor = Math.max(brainCursor, cp.brainCursor);
+      if (cp.keyCursor) keyCursor = BigInt(Math.max(Number(keyCursor), Number(cp.keyCursor)));
+      if (typeof cp.electrumCursor === 'number') electrumCursor = Math.max(electrumCursor, cp.electrumCursor);
+      if (typeof cp.hdPathCursor === 'number') hdPathCursor = Math.max(hdPathCursor, cp.hdPathCursor);
+    }
+  } catch (_) {}
+}
 
 setInterval(saveCheckpoint, 15000).unref();
 process.on('SIGINT', () => { saveCheckpoint(); saveBrainState(); process.exit(0); });
@@ -1977,6 +2071,19 @@ const server = http.createServer((req, res) => {
         const wItem = workerReadyQueue[qIdx];
         if (wItem && (!wItem.vectorKey || enabledSet.has(wItem.vectorKey))) {
           workerReadyQueue.splice(qIdx, 1);
+          const emKey = normalizeKey(wItem.mnemonic || wItem.input || '');
+          if (emKey && emittedSessionInputs.has(emKey)) {
+            dedupeSkipped++;
+            totalDuplicatesPrevented++;
+            continue;
+          }
+          if (emKey) {
+            emittedSessionInputs.add(emKey);
+            if (emittedSessionInputs.size > 200000) {
+              const firstKey = emittedSessionInputs.values().next().value;
+              if (firstKey) emittedSessionInputs.delete(firstKey);
+            }
+          }
           items.push(wItem);
         } else {
           qIdx++;
@@ -2021,10 +2128,25 @@ const server = http.createServer((req, res) => {
 
       if (!item) break;
 
+      const emKey = normalizeKey(item.mnemonic || item.input || '');
+      if (emKey && emittedSessionInputs.has(emKey)) {
+        dedupeSkipped++;
+        totalDuplicatesPrevented++;
+        continue;
+      }
+
       // STRICT NON-REPETITION & TRIVIAL MNEMONIC RESTRICTION
       if (isWalletAlreadyScannedEmpty(item)) {
         dedupeSkipped++;
         continue;
+      }
+
+      if (emKey) {
+        emittedSessionInputs.add(emKey);
+        if (emittedSessionInputs.size > 200000) {
+          const firstKey = emittedSessionInputs.values().next().value;
+          if (firstKey) emittedSessionInputs.delete(firstKey);
+        }
       }
 
       const known = checkTargetAddressMatch(item);
