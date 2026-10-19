@@ -28,7 +28,7 @@ if (-not $dir) {
 }
 
 Write-Host "[1/4] Syncing latest v2.7 files into: $dir" -ForegroundColor Yellow
-$ref = "e07cf12fd95a14f5fba2c44be42fc3c762a7bf0b"
+$ref = "da6d2a52b8f8042816b73961f2b8f3a8b20afa0c"
 try {
     $commitInfo = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/Phillipjr9/realwalletscanner/commits/master" -UserAgent "WRT-Updater" -ErrorAction Stop
     if ($commitInfo -and $commitInfo.sha) {
