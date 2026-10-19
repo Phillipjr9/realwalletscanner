@@ -2329,14 +2329,25 @@ public SmartWalletHunter()
                         TotalToCheck = 1000000
                     });
 
-                    // BTC: Collect addresses with bloom filter pre-filtering
+                    // BTC: Collect all multi-index & change-chain addresses with bloom filter pre-filtering
                     if (ScanBitcoin)
                     {
                         var btcAddrs = new List<string>();
-                        if (!string.IsNullOrEmpty(wallet.BitcoinAddress)) btcAddrs.Add(wallet.BitcoinAddress);
-                        if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit)) btcAddrs.Add(wallet.BitcoinAddressSegWit);
-                        if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit)) btcAddrs.Add(wallet.BitcoinAddressNativeSegWit);
-                        if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot)) btcAddrs.Add(wallet.BitcoinAddressTaproot);
+                        if (wallet.AllBitcoinAddresses != null && wallet.AllBitcoinAddresses.Count > 0)
+                        {
+                            foreach (var a in wallet.AllBitcoinAddresses)
+                            {
+                                if (!string.IsNullOrEmpty(a) && !btcAddrs.Contains(a))
+                                    btcAddrs.Add(a);
+                            }
+                        }
+                        else
+                        {
+                            if (!string.IsNullOrEmpty(wallet.BitcoinAddress)) btcAddrs.Add(wallet.BitcoinAddress);
+                            if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit)) btcAddrs.Add(wallet.BitcoinAddressSegWit);
+                            if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit)) btcAddrs.Add(wallet.BitcoinAddressNativeSegWit);
+                            if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot)) btcAddrs.Add(wallet.BitcoinAddressTaproot);
+                        }
 
                         // OFFLINE PRE-FILTER: bloom filter check
                         btcAddrs = FundedAddressFilter.BTCEmpty.FilterOutKnownEmpty(btcAddrs);
@@ -2349,15 +2360,22 @@ public SmartWalletHunter()
                         }
                     }
 
-                    // ETH: Collect with bloom filter (normalize to lowercase for consistent lookup)
+                    // ETH: Collect all multi-index addresses with bloom filter (normalize to lowercase)
                     if (ScanEthereum && !string.IsNullOrEmpty(wallet.EthereumAddress))
                     {
-                        var ethAddrLower = wallet.EthereumAddress.ToLowerInvariant();
-                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower)
-                            && FundedAddressFilter.ETH.MightBeFunded(ethAddrLower))
+                        var ethCandidateList = (wallet.AllEthereumAddresses != null && wallet.AllEthereumAddresses.Count > 0)
+                            ? wallet.AllEthereumAddresses
+                            : new List<string> { wallet.EthereumAddress };
+                        foreach (var rawEth in ethCandidateList)
                         {
-                            allEthAddresses.Add(ethAddrLower);
-                            ethToWallet[ethAddrLower] = (mnemonic, source, wallet);
+                            if (string.IsNullOrEmpty(rawEth)) continue;
+                            var ethAddrLower = rawEth.ToLowerInvariant();
+                            if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower)
+                                && FundedAddressFilter.ETH.MightBeFunded(ethAddrLower))
+                            {
+                                allEthAddresses.Add(ethAddrLower);
+                                ethToWallet[ethAddrLower] = (mnemonic, source, wallet);
+                            }
                         }
                     }
                 }

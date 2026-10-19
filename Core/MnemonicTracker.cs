@@ -34,12 +34,12 @@ namespace WalletRecoveryTool.Core
         private readonly int _clusterNodeIndex;
         private readonly int _clusterNodeCount;
         
-        // Bloom filter for fast "definitely not seen" checks
+        // Bloom filter for fast "definitely not seen" checks across 100M+ scanned wallets
         private readonly byte[] _bloomFilter;
         private readonly int _bloomFilterSize;
-        private const int BloomFilterPreferredSize = 16 * 1024 * 1024;  // 16MB = 128 million bits
-        private const int BloomFilterFallbackSize = 4 * 1024 * 1024;    // 4MB fallback for low-memory systems
-        private const int BloomHashCount = 7; // Optimal for 1% false positive with 100M items
+        private const int BloomFilterPreferredSize = 64 * 1024 * 1024;  // 64MB = 536.8 million bits (100M+ wallet capacity)
+        private const int BloomFilterFallbackSize = 16 * 1024 * 1024;   // 16MB fallback = 128 million bits
+        private const int BloomHashCount = 7; // Optimal for <1% false positive with 100M items
         
         private long _totalTracked;
         private long _duplicatesAvoided;

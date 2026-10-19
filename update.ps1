@@ -53,8 +53,11 @@ $files = @(
     "Core/WalletRecoveryEngine.cs",
     "Core/CryptoWalletGenerator.cs",
     "Core/BalanceChecker.cs",
+    "Core/SelfTestRunner.cs",
     "WebWorkstation/index.html",
-    "WebWorkstation/server.js"
+    "WebWorkstation/server.js",
+    "WebWorkstation/crypto_engine.js",
+    "WebWorkstation/hunter_worker.js"
 )
 
 foreach ($f in $files) {
