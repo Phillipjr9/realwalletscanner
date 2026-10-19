@@ -21,9 +21,27 @@ function fnv1aHashes(str) {
   return [h1 >>> 0, h2 >>> 0, h3 >>> 0];
 }
 
-function tryMarkWorkerBloom(key) {
+function normalizeWorkerKey(str) {
+  return String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isMarkedInMainServerBloom(key, prefix = 'mnem:') {
+  if (!bloomView || !key) return false;
+  const [h1, h2, h3] = fnv1aHashes(prefix + normalizeWorkerKey(key));
+  const b1 = h1 % BLOOM_BITS;
+  const b2 = h2 % BLOOM_BITS;
+  const b3 = h3 % BLOOM_BITS;
+  return (
+    (Atomics.load(bloomView, b1 >>> 5) & (1 << (b1 & 31))) !== 0 &&
+    (Atomics.load(bloomView, b2 >>> 5) & (1 << (b2 & 31))) !== 0 &&
+    (Atomics.load(bloomView, b3 >>> 5) & (1 << (b3 & 31))) !== 0
+  );
+}
+
+function tryMarkWorkerBloom(key, mainPrefix = 'mnem:') {
   if (!bloomView || !key) return true;
-  const [h1, h2, h3] = fnv1aHashes('wk:' + key);
+  if (isMarkedInMainServerBloom(key, mainPrefix)) return false;
+  const [h1, h2, h3] = fnv1aHashes('wk:' + normalizeWorkerKey(key));
   const b1 = h1 % BLOOM_BITS;
   const b2 = h2 % BLOOM_BITS;
   const b3 = h3 % BLOOM_BITS;
@@ -82,8 +100,8 @@ function runUltraFastHardwareBurst(burstCount = 56) {
 
     const privKey = crypto.createHash('sha256').update(fastSeedBuf).digest();
     const fast = eng.deriveUltraFastScreener(privKey);
-    tryMarkWorkerBloom(fast.btcSegwit);
-    tryMarkWorkerBloom(fast.ethAddress);
+    tryMarkWorkerBloom(fast.btcSegwit, 'addr:');
+    tryMarkWorkerBloom(fast.ethAddress, 'addr:');
     screenedWallets++;
   }
   return screenedWallets;
@@ -103,7 +121,7 @@ function generateWorkerCandidate() {
   if (mode === 0) {
     // Check historical 12-word BIP39 audit seeds once across the worker pool before novel synthesis
     for (const histSeed of HISTORICAL_BIP39_SEEDS) {
-      if (tryMarkWorkerBloom('hist12:' + histSeed)) {
+      if (tryMarkWorkerBloom(histSeed, 'mnem:')) {
         const derivedHist = eng.deriveWalletFromMnemonic(histSeed, '', true);
         return {
           source: `Worker #${workerId + 1} • 12-Word BIP39 Historical Seed`,
@@ -119,7 +137,7 @@ function generateWorkerCandidate() {
     }
     // Multi-Index + Change-Chain BIP39 (Upgrade #2 -> matches vectorKey 'hdpaths')
     const mnem = eng.buildChecksumValid12WordDirect(pickRandom11Words(), localCounter & 0x7f);
-    if (!tryMarkWorkerBloom(mnem)) return null;
+    if (!tryMarkWorkerBloom(mnem, 'mnem:')) return null;
     const derived = eng.deriveWalletFromMnemonic(mnem, '', false);
     return {
       source: `Worker #${workerId + 1} • Multi-Index + Change (0/0..2, 1/0)`,
@@ -191,7 +209,7 @@ function generateWorkerCandidate() {
     if (workerId === 0 && localCounter < (workerId + 1) * 1000000 + 500080) {
       const hIdx = Math.floor(localCounter / 6) % HISTORICAL_BRAIN_DICT.length;
       const candPhrase = HISTORICAL_BRAIN_DICT[hIdx];
-      if (tryMarkWorkerBloom('bw:' + candPhrase)) {
+      if (tryMarkWorkerBloom(`brain:"${candPhrase}"`, 'in:')) {
         phrase = candPhrase;
       }
     }
@@ -199,7 +217,7 @@ function generateWorkerCandidate() {
       const w1 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
       const w2 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
       phrase = `${w1}_${w2}_${(localCounter % 9999) + 2011}`;
-      if (!tryMarkWorkerBloom('bw:' + phrase)) return null;
+      if (!tryMarkWorkerBloom(`brain:"${phrase}"`, 'in:')) return null;
     }
     const privKey = crypto.createHash('sha256').update(phrase).digest();
     const addrs = eng.deriveAddressesFromPrivKey(privKey);

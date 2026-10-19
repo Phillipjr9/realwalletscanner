@@ -1094,6 +1094,11 @@ try {
 try {
   if (fs.existsSync(EVER_HELD_VAULT_JSON_FILE)) {
     everHeldWalletsVault = JSON.parse(fs.readFileSync(EVER_HELD_VAULT_JSON_FILE, 'utf8')).map(enrichWalletAccessKeys);
+    for (const ev of everHeldWalletsVault) {
+      if (Number(ev.balanceUsd || 0) === 0) {
+        markWalletScannedEmpty(ev);
+      }
+    }
   }
 } catch (_) {}
 
@@ -1166,6 +1171,10 @@ function saveEverHeldWalletToVault(item) {
     fs.writeSync(txtFd, formatEverHeldTxtContent(everHeldWalletsVault));
     fs.fsyncSync(txtFd);
     fs.closeSync(txtFd);
+    if (Number(item.balanceUsd || 0) === 0) {
+      markWalletScannedEmpty(item);
+      saveEmptyStore();
+    }
   } catch (err) {
     console.error('[EverHeld Vault Error]', err.message);
   }
