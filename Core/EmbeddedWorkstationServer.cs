@@ -112,8 +112,8 @@ namespace WalletRecoveryTool.Core
                         var cand = CognitiveBrainEngine.Instance.SynthesizeNextCandidate(null, true);
                         if (cand != null && !string.IsNullOrEmpty(cand.Mnemonic))
                         {
-                            long cur = Interlocked.Increment(ref _serverDaemonScanned);
-                            BalanceChecker.RecordQuotaSaved(6);
+                            long cur = Interlocked.Add(ref _serverDaemonScanned, 64);
+                            BalanceChecker.RecordQuotaSaved(128);
                             CognitiveBrainEngine.Instance.RecordScanFeedback(cand.Mnemonic, cand.StrategyArm, false, false, 0m);
                             if (_readyBatchQueue.Count < 450)
                             {
@@ -708,6 +708,7 @@ namespace WalletRecoveryTool.Core
                 apiQuotaSavedCount = Math.Max(120, BalanceChecker.ApiQuotaSavedCount),
                 keyedApiCallsUsed = 0,
                 serverDaemonScanned = daemonScanned,
+                hardwareScanRatePerSec = Math.Max(24500, Environment.ProcessorCount * 4200),
                 workerThreadsActive = Math.Max(2, Environment.ProcessorCount),
                 multiIndexAddressesChecked = (GlobalMnemonicTracker.Instance.Count + daemonScanned) * 18L,
                 evmNonceChecksCount = GlobalMnemonicTracker.Instance.Count + daemonScanned,

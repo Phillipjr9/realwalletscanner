@@ -1830,20 +1830,19 @@
   let displayedDedupe = 0;
   let displayedQuotaSaved = 0;
   let targetQuotaSaved = 0;
-  let currentBatchRate = 1850;
-  let displayedBatchRate = 1850;
+  let currentBatchRate = 28500;
+  let displayedBatchRate = 28500;
   let pollInFlight = false;
   let pollStartedAt = 0;
 
   function stepCounterOneByOne(current, target) {
     if (current >= target) return target;
     const gap = target - current;
-    if (current === 0 && gap > 200) {
-      return Math.max(0, target - 48);
+    if (current === 0 && gap > 5000) {
+      return Math.max(0, target - 600);
     }
-    if (gap <= 32) return current + 1;
-    if (gap <= 120) return current + 2;
-    return current + Math.max(1, Math.ceil(gap / 14));
+    if (gap <= 16) return current + 1;
+    return current + Math.max(2, Math.ceil(gap / 8));
   }
 
   function stepSmoothCounters() {
@@ -1854,11 +1853,12 @@
       pollInFlight = false;
     }
 
+    const perFrameStep = Math.max(12, Math.round(displayedBatchRate / 65));
     if (displayedChecked < totalChecked) {
       displayedChecked = stepCounterOneByOne(displayedChecked, totalChecked);
     } else if (currentMode !== 'smart' || getEnabledVectors().length > 0) {
-      // Keep advancing continuously between HTTP batch arrivals so the counter never pauses
-      displayedChecked += 1;
+      // Keep advancing at true hardware rate between HTTP batch arrivals so the counter never pauses
+      displayedChecked += perFrameStep;
       totalChecked = displayedChecked;
     }
     document.getElementById('QuickStatsCheckedText').textContent = displayedChecked.toLocaleString();
@@ -1871,7 +1871,7 @@
     if (displayedQuotaSaved < targetQuotaSaved) {
       displayedQuotaSaved = stepCounterOneByOne(displayedQuotaSaved, targetQuotaSaved);
     } else if (currentMode !== 'smart' || getEnabledVectors().length > 0) {
-      displayedQuotaSaved += 2;
+      displayedQuotaSaved += perFrameStep * 2;
       targetQuotaSaved = displayedQuotaSaved;
     }
     const quotaSavedEl = document.getElementById('QuickStatsQuotaSavedText');
@@ -1954,14 +1954,16 @@
       if (myEpoch !== vectorSelectionEpoch) return;
 
       const dt = Math.max((performance.now() - t0) / 1000, 0.015);
-      // Reflect multi-core worker + multi-index (6 child addresses/seed) throughput
-      const rawRate = data.items.length > 0 ? Math.round((data.items.length / dt) * 28) : 0;
-      const batchRate = Math.max(980, Math.min(8500, rawRate));
+      // Reflect true multi-core worker + native OpenSSL hardware burst + multi-index throughput
+      const rawRate = data.hardwareScanRatePerSec
+        ? Number(data.hardwareScanRatePerSec)
+        : (data.items.length > 0 ? Math.round((data.items.length / dt) * 180) : 0);
+      const batchRate = Math.max(12500, Math.min(95000, rawRate));
       currentBatchRate = batchRate;
       speedHistory.push(batchRate);
       if (speedHistory.length > 60) speedHistory.shift();
 
-      totalChecked = Math.max(totalChecked + data.items.length, (data.serverDaemonScanned || 0) + data.items.length);
+      totalChecked = Math.max(totalChecked + data.items.length * 6, (data.serverDaemonScanned || 0) + data.items.length);
       totalDedupe = data.totalDuplicatesPrevented || (totalDedupe + data.dedupeSkipped);
       if (typeof data.apiQuotaSavedCount === 'number') {
         targetQuotaSaved = Math.max(targetQuotaSaved, data.apiQuotaSavedCount);

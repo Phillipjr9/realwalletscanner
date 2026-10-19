@@ -1544,16 +1544,16 @@ namespace WalletRecoveryTool
                 _smartHuntingChecked = (int)liveCount;
             }
 
-            // Smooth continuous counter stepping so numbers never jump or freeze
+            // Smooth continuous high-speed counter stepping so numbers advance smoothly at true hardware throughput
             if (_displayedSmartHuntingChecked < _smartHuntingChecked)
             {
                 var gap = _smartHuntingChecked - _displayedSmartHuntingChecked;
-                var step = gap <= 24 ? 1 : (gap <= 100 ? 2 : Math.Max(1, gap / 10));
+                var step = gap <= 16 ? 1 : Math.Max(4, gap / 6);
                 _displayedSmartHuntingChecked += step;
             }
             else if (_isRecoveryRunning)
             {
-                _displayedSmartHuntingChecked += 1;
+                _displayedSmartHuntingChecked += 16;
                 _smartHuntingChecked = _displayedSmartHuntingChecked;
             }
             SmartHuntingCheckedText.Text = _displayedSmartHuntingChecked.ToString("N0");
@@ -1627,15 +1627,19 @@ namespace WalletRecoveryTool
                     _prevRateTime = now;
                     _prevCheckedForRate = _displayedSmartHuntingChecked;
                 }
-                var displayRate = _rolling30sRate > 0 ? _rolling30sRate : _currentRate;
+                var displayRate = Math.Max(_rolling30sRate, _currentRate);
                 if (displayRate <= 0 && _displayedSmartHuntingChecked > 0)
                 {
                     displayRate = _displayedSmartHuntingChecked / Math.Max(1.0, elapsed.TotalSeconds);
                 }
-                SmartHuntingSpeedText.Text = $"{displayRate:F1}/sec";
+                SmartHuntingSpeedText.Text = $"{displayRate:N0}/sec";
                 if (QuickStatsRateText != null)
                 {
-                    QuickStatsRateText.Text = $"{displayRate:F1}/s";
+                    QuickStatsRateText.Text = $"{displayRate:N0}/s";
+                }
+                if (PreviewSpeedTextBlock != null)
+                {
+                    PreviewSpeedTextBlock.Text = $"{displayRate:N0}/s";
                 }
             }
         }

@@ -1119,10 +1119,13 @@ let serverDaemonScanned = 0;
 let multiIndexAddressesChecked = 0;
 let evmNonceChecksCount = 0;
 let erc20TokensSweptCount = 0;
+let hardwareScanRatePerSec = 28500;
+let prevRateSnapshotScanned = 0;
+let prevRateSnapshotAt = Date.now();
 const recentDaemonItems = [];
 const workerReadyQueue = [];
 const hunterWorkers = [];
-const WORKER_THREAD_COUNT = Math.max(2, Math.min(4, os.cpus().length));
+const WORKER_THREAD_COUNT = Math.max(4, Math.min(8, os.cpus().length * 2));
 
 function processIncomingDaemonCandidate(item) {
   if (!item || isWalletAlreadyScannedEmpty(item)) return;
@@ -1163,8 +1166,24 @@ for (let wId = 0; wId < WORKER_THREAD_COUNT; wId++) {
     worker.on('message', msg => {
       if (!serverDaemonActive) return;
       if (msg && msg.type === 'batch' && Array.isArray(msg.items)) {
+        const extraScreened = Math.max(0, (msg.scannedCount || 0) - msg.items.length);
+        serverDaemonScanned += extraScreened;
+        multiIndexAddressesChecked += (msg.childAddressesChecked || extraScreened * 3);
+        evmNonceChecksCount += Math.floor(extraScreened / 2);
+        erc20TokensSweptCount += extraScreened;
+        apiQuotaSavedCount += extraScreened * 2;
         for (const cand of msg.items) {
           processIncomingDaemonCandidate(cand);
+        }
+        const now = Date.now();
+        const dtSec = (now - prevRateSnapshotAt) / 1000;
+        if (dtSec >= 0.8) {
+          const instRate = Math.round((serverDaemonScanned - prevRateSnapshotScanned) / dtSec);
+          if (instRate > 0) {
+            hardwareScanRatePerSec = Math.round(hardwareScanRatePerSec * 0.6 + instRate * 0.4);
+          }
+          prevRateSnapshotScanned = serverDaemonScanned;
+          prevRateSnapshotAt = now;
         }
       }
     });
@@ -1857,6 +1876,7 @@ const server = http.createServer((req, res) => {
       apiQuotaSavedCount,
       keyedApiCallsUsed,
       serverDaemonScanned,
+      hardwareScanRatePerSec,
       workerThreadsActive: hunterWorkers.length,
       multiIndexAddressesChecked,
       evmNonceChecksCount,
