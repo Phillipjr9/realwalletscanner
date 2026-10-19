@@ -1907,6 +1907,22 @@
 
   // Smooth streaming queue & continuous counter interpolation state
   const streamQueue = [];
+  const browserSeenInputs = new Set();
+  const BROWSER_SEEN_STORAGE_KEY = 'codehaven_seen_mnemonics_v3';
+  try {
+    const savedSeen = JSON.parse(localStorage.getItem(BROWSER_SEEN_STORAGE_KEY) || '[]');
+    if (Array.isArray(savedSeen)) {
+      for (const s of savedSeen) browserSeenInputs.add(s);
+    }
+  } catch (_) {}
+
+  function persistBrowserSeenInputs() {
+    try {
+      const recent = Array.from(browserSeenInputs).slice(-4000);
+      localStorage.setItem(BROWSER_SEEN_STORAGE_KEY, JSON.stringify(recent));
+    } catch (_) {}
+  }
+
   let displayedChecked = 0;
   let displayedDedupe = 0;
   let displayedQuotaSaved = 0;
@@ -2057,8 +2073,21 @@
         }
       }
 
+      let newSeenAdded = false;
       for (const item of data.items) {
+        const key = String(item.mnemonic || item.input || '').trim().toLowerCase();
+        if (key && browserSeenInputs.has(key)) {
+          totalDedupe++;
+          continue;
+        }
+        if (key) {
+          browserSeenInputs.add(key);
+          newSeenAdded = true;
+        }
         streamQueue.push(item);
+      }
+      if (newSeenAdded) {
+        persistBrowserSeenInputs();
       }
 
       const everHeldCount = Math.max(

@@ -47,7 +47,7 @@ namespace WalletRecoveryTool.Core
         private bool _disposed;
         private long _newEntriesSinceLastSave;
         private int _saveInProgress;
-        private const int IncrementalSaveThreshold = 500;
+        private const int IncrementalSaveThreshold = 100;
         
         // Auto-save interval
         private readonly Timer _autoSaveTimer;
@@ -118,9 +118,9 @@ namespace WalletRecoveryTool.Core
                 DebugLogger.Log($"MnemonicTracker cluster sharding enabled: node {_clusterNodeIndex + 1}/{_clusterNodeCount}");
             }
             
-            // Auto-save every minute to reduce duplicate rescans after restarts/crashes
+            // Auto-save every 10 seconds to prevent any duplicate rescans after restarts/crashes
             _autoSaveTimer = new Timer(_ => SaveToDiskAsync().Wait(), null, 
-                TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
         }
 
         private static readonly HashSet<string> KnownTrivialTestVectors = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -132,6 +132,10 @@ namespace WalletRecoveryTool.Core
             "legal winner thank year wave sausage worth useful legal winner thank yellow",
             "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
             "void come effort suffer camp survey warrior heavy shoot primary clutch crush",
+            "void come effort suffer camp survey warrior heavy shoot primary clutch absurd",
+            "army van defense carry jealous true garbage claim echo media make crunch",
+            "gravity machine north sort system female filter attitude volume fold club abuse",
+            "planet crystal ocean velvet silver canyon harvest timber shadow marble winter acid",
             "all all all all all all all all all all all all",
             "bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon",
             "bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon bacon"
