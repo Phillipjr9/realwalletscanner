@@ -2399,6 +2399,26 @@ public SmartWalletHunter()
                     }
                 }
             }
+
+            // Evaluate Ever-Held Crypto History (total_received > 0, n_tx > 0, or EVM nonce > 0 even when current balance == 0)
+            foreach (var (mnemonic, source, wallet, ct) in derivedWallets)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (BalanceChecker.EvaluateWalletEverHeldHistory(wallet))
+                {
+                    CognitiveBrainEngine.Instance.RecordScanFeedback(
+                        mnemonic,
+                        ExtractBrainArmFromSource(source),
+                        passedOfflineFilter: true,
+                        hasTransactionsOrBalance: true,
+                        balanceUsd: wallet.TotalUsdValue);
+                    if (wallet.TotalUsdValue == 0m && (wallet.Balances == null || wallet.Balances.Values.Sum() == 0m))
+                    {
+                        _logger.LogWalletFound(wallet, mnemonicOnly: false);
+                        WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                    }
+                }
+            }
         }
 
         private static string ExtractBrainArmFromSource(string source)

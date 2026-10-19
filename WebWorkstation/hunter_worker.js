@@ -160,10 +160,24 @@ function generateWorkerCandidate() {
 
   if (mode === 3) {
     // Ultra-Fast Brainwallet SHA-256 Passphrase Sweep (matches vectorKey 'brainwallet')
-    const w1 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
-    const w2 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
-    const phrase = `${w1}_${w2}_${(localCounter % 9999) + 2011}`;
-    if (!tryMarkWorkerBloom('bw:' + phrase)) return null;
+    const HISTORICAL_BRAIN_DICT = [
+      'correct horse battery staple', 'password', 'satoshi', 'bitcoin',
+      '123456', 'nakamoto', 'hal finney', 'blockchain'
+    ];
+    let phrase = '';
+    if (workerId === 0 && localCounter < (workerId + 1) * 1000000 + 500080) {
+      const hIdx = Math.floor(localCounter / 6) % HISTORICAL_BRAIN_DICT.length;
+      const candPhrase = HISTORICAL_BRAIN_DICT[hIdx];
+      if (tryMarkWorkerBloom('bw:' + candPhrase)) {
+        phrase = candPhrase;
+      }
+    }
+    if (!phrase) {
+      const w1 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
+      const w2 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
+      phrase = `${w1}_${w2}_${(localCounter % 9999) + 2011}`;
+      if (!tryMarkWorkerBloom('bw:' + phrase)) return null;
+    }
     const privKey = crypto.createHash('sha256').update(phrase).digest();
     const addrs = eng.deriveAddressesFromPrivKey(privKey);
     return {

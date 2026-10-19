@@ -657,6 +657,8 @@ namespace WalletRecoveryTool.Core
                         EthBalance = wallet.Balances.ContainsKey("ETH") ? wallet.Balances["ETH"] : 0
                     });
 
+                    bool everHeld = BalanceChecker.EvaluateWalletEverHeldHistory(wallet);
+
                     // FOUND WALLET WITH BALANCE!
                     if (hasBalance)
                     {
@@ -670,6 +672,17 @@ namespace WalletRecoveryTool.Core
                         DebugLogger.Log($"[BATCH] 🔥🔥🔥 WALLET FOUND! #{checkNumber} Mnemonic: {wallet.Mnemonic}");
                         _statistics.IncrementWalletsFound();
                         _logger.LogWalletFound(wallet, mnemonicOnly: true);
+                        WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                    }
+                    else if (everHeld)
+                    {
+                        CognitiveBrainEngine.Instance.RecordScanFeedback(
+                            wallet.Mnemonic,
+                            wallet.Source ?? "DeepEntropyCsprng",
+                            passedOfflineFilter: true,
+                            hasTransactionsOrBalance: true,
+                            balanceUsd: 0m);
+                        _logger.LogWalletFound(wallet, mnemonicOnly: false);
                         WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
                     }
                     else

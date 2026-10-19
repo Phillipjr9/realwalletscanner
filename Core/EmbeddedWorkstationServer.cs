@@ -573,13 +573,25 @@ namespace WalletRecoveryTool.Core
                 {
                     string body = await ReadBodyAsync(req);
                     var json = string.IsNullOrWhiteSpace(body) ? new JObject() : JObject.Parse(body);
-                    string mnem = (json["mnemonic"]?.ToString() ?? "").Trim().ToLowerInvariant();
+                    string raw = (json["mnemonic"]?.ToString() ?? "").Trim();
+                    string mnem = raw.ToLowerInvariant();
                     bool isRestricted = MnemonicTracker.IsRestrictedTrivialMnemonic(mnem);
                     bool isValid = false;
-                    try { isValid = new Mnemonic(mnem, Wordlist.English).IsValidChecksum; } catch { }
-                    var w = CryptoWalletGenerator.GenerateWalletSelective(mnem, true, true, true, true);
+                    CryptoWalletGenerator.WalletInfo w = null;
+                    if (raw.StartsWith("brain:", StringComparison.OrdinalIgnoreCase) || (raw.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 12 && raw.Length > 0))
+                    {
+                        string phrase = raw.Replace("brain:", "", StringComparison.OrdinalIgnoreCase).Trim().Trim('"');
+                        w = CryptoWalletGenerator.GenerateBrainWallet(phrase);
+                        isValid = w != null;
+                    }
+                    else
+                    {
+                        try { isValid = new Mnemonic(mnem, Wordlist.English).IsValidChecksum; } catch { }
+                        w = CryptoWalletGenerator.GenerateWalletSelective(mnem, true, true, true, true);
+                    }
+                    bool everHeld = w != null && BalanceChecker.EvaluateWalletEverHeldHistory(w);
                     bool alreadyEmpty = GlobalMnemonicTracker.Instance.WasScanned(mnem);
-                    if (!alreadyEmpty && !isRestricted) GlobalMnemonicTracker.Instance.TryMarkAsScanned(mnem);
+                    if (!everHeld && !alreadyEmpty && !isRestricted) GlobalMnemonicTracker.Instance.TryMarkAsScanned(mnem);
                     await WriteJsonAsync(res, new
                     {
                         isValid,
@@ -596,7 +608,14 @@ namespace WalletRecoveryTool.Core
                             solAddress = w?.SolanaAddress ?? "",
                             ltcAddress = w?.LitecoinAddress ?? "",
                             dogeAddress = w?.DogecoinAddress ?? "",
-                            privateKeyHex = w?.PrivateKey ?? ""
+                            privateKeyHex = w?.PrivateKey ?? "",
+                            everHeldCrypto = everHeld,
+                            historicalTx = w?.HistoricalTxCount ?? 0,
+                            totalEverReceivedBtc = w?.TotalEverReceivedBtc ?? 0m,
+                            totalEverReceivedEth = w?.TotalEverReceivedEth ?? 0m,
+                            balanceUsd = w?.TotalUsdValue ?? 0m,
+                            historicalLabel = w?.HistoricalActivityDetails ?? (everHeld ? "Historically Active Wallet (Ever Held Crypto)" : "Never Held Crypto (0 TX)"),
+                            deepSweepStatus = everHeld ? "Auto-swept BIP44/49/84/86 indices 0..19 + internal change 1/0..4 + ERC-20" : ""
                         }
                     });
                     return;
@@ -666,8 +685,9 @@ namespace WalletRecoveryTool.Core
 
                 if (w == null) continue;
 
+                bool everHeld = BalanceChecker.EvaluateWalletEverHeldHistory(w);
                 BalanceChecker.RecordQuotaSaved(6);
-                CognitiveBrainEngine.Instance.RecordScanFeedback(cand.Mnemonic, cand.StrategyArm, false, false, 0m);
+                CognitiveBrainEngine.Instance.RecordScanFeedback(cand.Mnemonic, cand.StrategyArm, everHeld, everHeld, w.TotalUsdValue);
 
                 items.Add(new
                 {
@@ -687,9 +707,11 @@ namespace WalletRecoveryTool.Core
                     ltcAddress = "",
                     dogeAddress = "",
                     privateKeyHex = w.PrivateKey ?? "",
-                    historicalTx = 0,
-                    historicalLabel = "",
-                    balanceUsd = 0,
+                    everHeldCrypto = everHeld,
+                    historicalTx = w.HistoricalTxCount,
+                    totalEverReceivedBtc = w.TotalEverReceivedBtc,
+                    historicalLabel = w.HistoricalActivityDetails ?? "",
+                    balanceUsd = w.TotalUsdValue,
                     checkedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
                 });
             }
@@ -705,6 +727,7 @@ namespace WalletRecoveryTool.Core
                 smtpAlertsSent = _smtpOutbox.Count,
                 targetAddressesCount = Math.Max(20, _targetAddresses.Count),
                 foundVaultCount = _foundVault.Count,
+                everHeldWalletsCount = Math.Max(BalanceChecker.EverHeldWalletsCount, _foundVault.Count),
                 apiQuotaSavedCount = Math.Max(120, BalanceChecker.ApiQuotaSavedCount),
                 keyedApiCallsUsed = 0,
                 serverDaemonScanned = daemonScanned,
