@@ -17,6 +17,8 @@ namespace WalletRecoveryTool.Core;
 
 public class BalanceChecker
 {
+	public static readonly ConcurrentDictionary<string, long> HistoricallyActiveEvmAddresses = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
 	/// <summary>
 	/// Safely truncates an address for logging (avoids ArgumentOutOfRangeException)
 	/// </summary>
@@ -2830,14 +2832,25 @@ public class BalanceChecker
 				"https://rpc.ankr.com/eth"
 			};
 
-			var batchPayload = page.Select((addr, idx) => new
+			var batchPayloadList = new List<object>(page.Count * 2);
+			for (int idx = 0; idx < page.Count; idx++)
 			{
-				jsonrpc = "2.0",
-				method = "eth_getBalance",
-				@params = new object[] { addr, "latest" },
-				id = idx + 1
-			}).ToArray();
-			string batchPayloadJson = JsonConvert.SerializeObject(batchPayload);
+				batchPayloadList.Add(new
+				{
+					jsonrpc = "2.0",
+					method = "eth_getBalance",
+					@params = new object[] { page[idx], "latest" },
+					id = idx + 1
+				});
+				batchPayloadList.Add(new
+				{
+					jsonrpc = "2.0",
+					method = "eth_getTransactionCount",
+					@params = new object[] { page[idx], "latest" },
+					id = idx + 1 + 1000
+				});
+			}
+			string batchPayloadJson = JsonConvert.SerializeObject(batchPayloadList);
 
 			foreach (var rpcUrl in freeBatchRpcEndpoints)
 			{
@@ -2852,6 +2865,7 @@ public class BalanceChecker
 					{
 						var arr = JArray.Parse(rpcResp.Content);
 						int parsedCount = 0;
+						var nonZeroNonceAddrs = new List<string>();
 						foreach (var item in arr)
 						{
 							int id = item["id"]?.Value<int>() ?? 0;
@@ -2870,6 +2884,73 @@ public class BalanceChecker
 								_balanceCache[$"ETH:{addr}"] = (ethBal, DateTime.Now);
 								parsedCount++;
 							}
+							else if (id >= 1001 && id <= 1000 + page.Count && !string.IsNullOrEmpty(hex) && hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+							{
+								string hexDigits = hex.Substring(2).TrimStart('0');
+								if (hexDigits.Length > 0)
+								{
+									string addr = page[id - 1001];
+									if (long.TryParse(hexDigits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out long nonceVal) && nonceVal > 0)
+									{
+										HistoricallyActiveEvmAddresses[addr] = nonceVal;
+										nonZeroNonceAddrs.Add(addr);
+									}
+								}
+							}
+						}
+						// Upgrade #6: If an address has historical TX activity (nonce > 0) or non-zero ETH, sweep ERC-20 (USDT, USDC, DAI, WBTC)
+						if (nonZeroNonceAddrs.Count > 0)
+						{
+							try
+							{
+								var erc20Contracts = new (string Symbol, string Contract, int Decimals)[]
+								{
+									("USDT", "0xdAC17F958D2ee523a2206206994597C13D831ec7", 6),
+									("USDC", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", 6),
+									("DAI",  "0x6B175474E89094C44Da98b954EedeAC495271d0F", 18),
+									("WBTC", "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", 8)
+								};
+								foreach (var activeAddr in nonZeroNonceAddrs)
+								{
+									string cleanHex = activeAddr.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? activeAddr.Substring(2).ToLowerInvariant() : activeAddr.ToLowerInvariant();
+									string callData = "0x70a08231" + cleanHex.PadLeft(64, '0');
+									var tokenBatch = erc20Contracts.Select((t, tidx) => new
+									{
+										jsonrpc = "2.0",
+										method = "eth_call",
+										@params = new object[] { new { to = t.Contract, data = callData }, "latest" },
+										id = tidx + 1
+									}).ToArray();
+									var tokenReq = new RestRequest("", Method.Post);
+									tokenReq.AddStringBody(JsonConvert.SerializeObject(tokenBatch), DataFormat.Json);
+									var tokenResp = await client.ExecuteAsync(tokenReq, _globalCancellationToken);
+									if (tokenResp.IsSuccessful && !string.IsNullOrWhiteSpace(tokenResp.Content))
+									{
+										var tokenArr = JArray.Parse(tokenResp.Content);
+										foreach (var tItem in tokenArr)
+										{
+											int tid = tItem["id"]?.Value<int>() ?? 0;
+											string tHex = tItem["result"]?.ToString();
+											if (tid >= 1 && tid <= erc20Contracts.Length && !string.IsNullOrEmpty(tHex) && tHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+											{
+												string tDigits = tHex.Substring(2).TrimStart('0');
+												if (tDigits.Length > 0)
+												{
+													BigInteger rawToken = BigInteger.Parse("0" + tDigits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+													if (rawToken > BigInteger.Zero && (!results.TryGetValue(activeAddr, out decimal curBal) || curBal == 0m))
+													{
+														// Surface non-zero ERC-20 token balance as positive balance hit so the wallet is flagged and alerted
+														decimal normalizedToken = (decimal)rawToken / (decimal)Math.Pow(10, erc20Contracts[tid - 1].Decimals);
+														results[activeAddr] = Math.Max(0.0001m, normalizedToken);
+														DebugLogger.Log($"[ERC20-SWEEP] Found {normalizedToken} {erc20Contracts[tid - 1].Symbol} on historically active address {activeAddr}!");
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+							catch { }
 						}
 						if (parsedCount == page.Count)
 						{

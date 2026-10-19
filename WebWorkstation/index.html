@@ -980,13 +980,16 @@
             <button class="btn btn-emerald" style="width:100%; margin-top:8px; height:32px; font-weight:700;" onclick="openModal('settingsModal')">
               ⚙️ Settings &amp; SMTP (AtlanticBB:587)
             </button>
+            <button id="SyncFundedSnapshotBtn" class="btn" style="width:100%; margin-top:6px; height:29px; font-size:11px; border-color:rgba(56,189,248,0.35); color:#7DD3FC;" onclick="syncFundedSnapshot()">
+              ⚡ Sync Dormant Funded Snapshot (O(1) RAM)
+            </button>
           </div>
 
           <!-- Right Live Candidate Stream Table -->
           <div class="card">
             <div class="card-header">
               <span class="card-title">Live Synthesized Candidates &amp; On-Chain Verification</span>
-              <span class="mono" style="font-size:11px; color:var(--text-secondary);">secp256k1 • BIP84 Bech32 • Keccak-256</span>
+              <span id="QuantumUpgradesBadge" class="mono" style="font-size:11px; color:#34D399;">Multi-Core Workers • 0/0..2 + 1/0 Change • Dual Electrum • 33.5M-Bit Bloom • ERC-20 Sweep</span>
             </div>
             <div class="table-container">
               <table class="data-table mono">
@@ -1945,10 +1948,31 @@
       if (typeof data.smtpAlertsSent === 'number' && data.smtpAlertsSent > 0) {
         updateSmtpHeaderBadge(true, data.smtpAlertsSent);
       }
+      const qBadge = document.getElementById('QuantumUpgradesBadge');
+      if (qBadge && typeof data.workerThreadsActive === 'number') {
+        qBadge.textContent = `${data.workerThreadsActive} Workers • ${(data.multiIndexAddressesChecked || 0).toLocaleString()} Multi-Index/Change • ${(data.erc20TokensSweptCount || 0).toLocaleString()} ERC-20 Swept • 33.5M-Bit Bloom`;
+      }
     } catch (e) {
       console.error(e);
     } finally {
       pollInFlight = false;
+    }
+  }
+
+  async function syncFundedSnapshot() {
+    const btn = document.getElementById('SyncFundedSnapshotBtn');
+    if (btn) btn.textContent = '⏳ Syncing Dormant Funded Snapshot...';
+    try {
+      const res = await fetch('/api/sync-funded-snapshot', { method: 'POST' });
+      const data = await res.json();
+      if (btn && data.ok) {
+        btn.textContent = `✓ ${data.totalLoaded} Dormant Whales & 33.5M-Bit Filter Synced`;
+        btn.style.color = '#34D399';
+        const tBadge = document.getElementById('TargetCountBadge');
+        if (tBadge) tBadge.textContent = `${data.totalLoaded} Loaded`;
+      }
+    } catch (e) {
+      if (btn) btn.textContent = '⚡ Sync Dormant Funded Snapshot (O(1) RAM)';
     }
   }
 

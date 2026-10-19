@@ -301,10 +301,14 @@ function bip32DeriveChild(parent, index) {
   return { key: childKeyBuf, chainCode: I.subarray(32) };
 }
 
-function derivePath(master, indices) {
+function derivePathNode(master, indices) {
   let node = master;
   for (const idx of indices) node = bip32DeriveChild(node, idx);
-  return node.key;
+  return node;
+}
+
+function derivePath(master, indices) {
+  return derivePathNode(master, indices).key;
 }
 
 const H = 0x80000000;
@@ -352,11 +356,59 @@ function buildChecksumValid12WordDirect(elevenWords, top7Bits = 0) {
 }
 
 /**
- * High-Speed Multi-Chain BIP39 Derivation:
- * - Shares PBKDF2-HMAC-SHA512 seed across all chains
- * - Shares m/44' hardened parent between BTC Legacy and ETH
+ * High-Speed Multi-Chain BIP39 Derivation with Multi-Index & Change-Chain Sweep (Upgrade #2):
+ * - Shares PBKDF2-HMAC-SHA512 seed across all chains (0/0, 0/1, 0/2 external + 1/0 change)
+ * - Shares m/44' hardened parent between BTC Legacy and ETH (0/0 and 0/1)
  * - Only computes target encoding per chain (no wasted throwaway Base58/Keccak encodings!)
  */
+function pubKeyToBtcSegwit(privKey) {
+  sharedEcdh.setPrivateKey(privKey);
+  const pubComp = sharedEcdh.getPublicKey(null, 'compressed');
+  return bech32EncodeBc0(hash160(pubComp));
+}
+
+function pubKeyToEthAddress(privKey) {
+  sharedEcdh.setPrivateKey(privKey);
+  const pubUncomp = sharedEcdh.getPublicKey(null, 'uncompressed');
+  return '0x' + keccak256PubKey64(pubUncomp.subarray(1)).subarray(12).toString('hex');
+}
+
+function deriveElectrumDualAddresses(mnemonic, passphrase = '') {
+  const electrumSeed = crypto.pbkdf2Sync(
+    mnemonic.normalize('NFKD'),
+    'electrum' + passphrase.normalize('NFKD'),
+    2048,
+    64,
+    'sha512'
+  );
+  const master = bip32MasterFromSeed(electrumSeed);
+  const acct0 = bip32DeriveChild(master, 0 + H);
+  const ext0 = bip32DeriveChild(acct0, 0);
+  const chg1 = bip32DeriveChild(acct0, 1);
+  const key0 = bip32DeriveChild(ext0, 0).key;
+  const keyChg0 = bip32DeriveChild(chg1, 0).key;
+
+  sharedEcdh.setPrivateKey(key0);
+  const pub0 = sharedEcdh.getPublicKey(null, 'compressed');
+  const h160 = hash160(pub0);
+  return {
+    electrumBtcLegacy: base58CheckEncode(0x00, h160),
+    electrumBtcSegwit: bech32EncodeBc0(h160),
+    electrumBtcChange: pubKeyToBtcSegwit(keyChg0)
+  };
+}
+
+// Multi-Language BIP39 Wordlist Support (Upgrade #4)
+const MULTI_LANG_WORDLISTS = {
+  english: bip39.wordlists.english,
+  spanish: bip39.wordlists.spanish || [],
+  french: bip39.wordlists.french || [],
+  italian: bip39.wordlists.italian || [],
+  japanese: bip39.wordlists.japanese || [],
+  korean: bip39.wordlists.korean || [],
+  chinese_simplified: bip39.wordlists.chinese_simplified || []
+};
+
 function deriveWalletFromMnemonic(mnemonic, passphrase = '', fullAltcoins = false) {
   const seed = crypto.pbkdf2Sync(
     mnemonic.normalize('NFKD'),
@@ -369,11 +421,26 @@ function deriveWalletFromMnemonic(mnemonic, passphrase = '', fullAltcoins = fals
 
   // Share m/44' hardened node between BTC (0') and ETH (60')
   const m44 = bip32DeriveChild(master, 44 + H);
-  const btcKey = derivePath(m44, [0 + H, 0 + H, 0, 0]);
-  const ethKey = derivePath(m44, [60 + H, 0 + H, 0, 0]);
-  const btcSegwitKey = derivePath(master, [84 + H, 0 + H, 0 + H, 0, 0]);
+  const btcAcct44 = derivePathNode(m44, [0 + H, 0 + H]);
+  const btcExt44 = bip32DeriveChild(btcAcct44, 0);
+  const btcChg44 = bip32DeriveChild(btcAcct44, 1);
+  const btcKey = bip32DeriveChild(btcExt44, 0).key;
+  const btcChangeLegacyKey = bip32DeriveChild(btcChg44, 0).key;
 
-  // 1. BTC Legacy (1...) + Nested SegWit (3...)
+  const ethAcct44 = derivePathNode(m44, [60 + H, 0 + H]);
+  const ethExt44 = bip32DeriveChild(ethAcct44, 0);
+  const ethKey = bip32DeriveChild(ethExt44, 0).key;
+  const ethKeyIndex1 = bip32DeriveChild(ethExt44, 1).key;
+
+  const btcAcct84 = derivePathNode(master, [84 + H, 0 + H, 0 + H]);
+  const btcExt84 = bip32DeriveChild(btcAcct84, 0);
+  const btcChg84 = bip32DeriveChild(btcAcct84, 1);
+  const btcSegwitKey = bip32DeriveChild(btcExt84, 0).key;
+  const btcSegwitKey1 = bip32DeriveChild(btcExt84, 1).key;
+  const btcSegwitKey2 = bip32DeriveChild(btcExt84, 2).key;
+  const btcChangeSegwitKey = bip32DeriveChild(btcChg84, 0).key;
+
+  // 1. BTC Legacy (1...) + Nested SegWit (3...) + Legacy Change (1...)
   sharedEcdh.setPrivateKey(btcKey);
   const btcPubComp = sharedEcdh.getPublicKey(null, 'compressed');
   const btcH160 = hash160(btcPubComp);
@@ -381,20 +448,33 @@ function deriveWalletFromMnemonic(mnemonic, passphrase = '', fullAltcoins = fals
   const redeemScript = Buffer.concat([Buffer.from([0x00, 0x14]), btcH160]);
   const btcNestedSegwit = base58CheckEncode(0x05, hash160(redeemScript));
 
-  // 2. BTC Native SegWit (bc1q...) + Taproot (bc1p... Bech32m)
+  sharedEcdh.setPrivateKey(btcChangeLegacyKey);
+  const btcChangeLegacy = base58CheckEncode(0x00, hash160(sharedEcdh.getPublicKey(null, 'compressed')));
+
+  // 2. BTC Native SegWit (bc1q... 0/0, 0/1, 0/2 + 1/0 Change) + Taproot (bc1p... Bech32m)
   sharedEcdh.setPrivateKey(btcSegwitKey);
   const segwitPubComp = sharedEcdh.getPublicKey(null, 'compressed');
   const segwitH160 = hash160(segwitPubComp);
   const btcSegwit = bech32EncodeBc0(segwitH160);
   const btcTaproot = bech32mEncodeBc1p(segwitPubComp.subarray(1, 33));
+  const btcSegwitIndex1 = pubKeyToBtcSegwit(btcSegwitKey1);
+  const btcSegwitIndex2 = pubKeyToBtcSegwit(btcSegwitKey2);
+  const btcChangeSegwit = pubKeyToBtcSegwit(btcChangeSegwitKey);
 
-  // 3. ETH Address (only compute uncompressed pubkey -> 32-bit Keccak-256)
-  sharedEcdh.setPrivateKey(ethKey);
-  const ethPubUncomp = sharedEcdh.getPublicKey(null, 'uncompressed');
-  const ethAddress = '0x' + keccak256PubKey64(ethPubUncomp.subarray(1)).subarray(12).toString('hex');
+  // 3. ETH Address (0/0 primary + 0/1 secondary account)
+  const ethAddress = pubKeyToEthAddress(ethKey);
+  const ethAddressIndex1 = pubKeyToEthAddress(ethKeyIndex1);
 
   const privHex = btcKey.toString('hex');
   const ltcAddress = base58CheckEncode(0x30, btcH160);
+  const childAddresses = [
+    btcSegwitIndex1,
+    btcSegwitIndex2,
+    btcChangeSegwit,
+    btcChangeLegacy,
+    ethAddressIndex1
+  ];
+
   if (!fullAltcoins) {
     return {
       mnemonic,
@@ -407,7 +487,13 @@ function deriveWalletFromMnemonic(mnemonic, passphrase = '', fullAltcoins = fals
       btcP2sh: btcNestedSegwit,
       btcSegwit,
       btcTaproot,
+      btcSegwitIndex1,
+      btcSegwitIndex2,
+      btcChangeSegwit,
+      btcChangeLegacy,
       ethAddress,
+      ethAddressIndex1,
+      childAddresses,
       ltcAddress
     };
   }
@@ -429,7 +515,13 @@ function deriveWalletFromMnemonic(mnemonic, passphrase = '', fullAltcoins = fals
     btcP2sh: btcNestedSegwit,
     btcSegwit,
     btcTaproot,
+    btcSegwitIndex1,
+    btcSegwitIndex2,
+    btcChangeSegwit,
+    btcChangeLegacy,
     ethAddress,
+    ethAddressIndex1,
+    childAddresses,
     solAddress,
     ltcAddress,
     dogeAddress
@@ -462,12 +554,17 @@ function levenshtein(a, b) {
 module.exports = {
   WORDLIST,
   WORD_TO_INDEX,
+  MULTI_LANG_WORDLISTS,
   bip39,
   deriveAddressesFromPrivKey,
   deriveWalletFromMnemonic,
+  deriveElectrumDualAddresses,
   buildChecksumValid12WordDirect,
   derivePath,
+  derivePathNode,
   bip32MasterFromSeed,
+  pubKeyToBtcSegwit,
+  pubKeyToEthAddress,
   H,
   KNOWN_ACTIVITY_MAP,
   levenshtein

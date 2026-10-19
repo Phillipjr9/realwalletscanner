@@ -22,12 +22,15 @@ namespace WalletRecoveryTool.Core
         // Pre-parsed BIP32 key paths to avoid string parsing and allocations per wallet
         private static readonly KeyPath Purpose44Path = new KeyPath("m/44'");
         private static readonly KeyPath BtcCoinSubPath = new KeyPath("0'/0'/0/0");
+        private static readonly KeyPath BtcChangeSubPath = new KeyPath("0'/0'/1/0");
         private static readonly KeyPath EthCoinSubPath = new KeyPath("60'/0'/0/0");
+        private static readonly KeyPath EthCoinIndex1SubPath = new KeyPath("60'/0'/0/1");
         private static readonly KeyPath DogeCoinSubPath = new KeyPath("3'/0'/0/0");
         private static readonly KeyPath LtcCoinSubPath = new KeyPath("2'/0'/0/0");
         private static readonly KeyPath BtcLegacyPath = new KeyPath("m/44'/0'/0'/0/0");
         private static readonly KeyPath BtcSegWitPath = new KeyPath("m/49'/0'/0'/0/0");
         private static readonly KeyPath BtcNativeSegWitPath = new KeyPath("m/84'/0'/0'/0/0");
+        private static readonly KeyPath BtcNativeSegWitAcctPath = new KeyPath("m/84'/0'/0'");
         private static readonly KeyPath BtcTaprootPath = new KeyPath("m/86'/0'/0'/0/0");
         private static readonly KeyPath EthBip44Path = new KeyPath("m/44'/60'/0'/0/0");
         private static readonly KeyPath DogeBip44Path = new KeyPath("m/44'/3'/0'/0/0");
@@ -177,15 +180,36 @@ namespace WalletRecoveryTool.Core
                 var segwitKey = masterKey.Derive(BtcSegWitPath);
                 wallet.BitcoinAddressSegWit = segwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
                 
-                // Native SegWit (Bech32) - starts with bc1
-                var nativeSegwitKey = masterKey.Derive(BtcNativeSegWitPath);
+                // Native SegWit (Bech32) - starts with bc1 + Multi-Index (0/0, 0/1, 0/2) + Change Chain (1/0)
+                var nativeAcctKey = masterKey.Derive(BtcNativeSegWitAcctPath);
+                var nativeExtKey = nativeAcctKey.Derive(0u);
+                var nativeChgKey = nativeAcctKey.Derive(1u);
+                var nativeSegwitKey = nativeExtKey.Derive(0u);
                 wallet.BitcoinAddressNativeSegWit = nativeSegwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressSegWit);
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+                try
+                {
+                    var segwitIdx1 = nativeExtKey.Derive(1u).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+                    var segwitIdx2 = nativeExtKey.Derive(2u).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+                    var segwitChange0 = nativeChgKey.Derive(0u).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+                    var legacyChange0 = purpose44Key.Derive(BtcChangeSubPath).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
+                    wallet.AllBitcoinAddresses.Add(segwitIdx1);
+                    wallet.AllBitcoinAddresses.Add(segwitIdx2);
+                    wallet.AllBitcoinAddresses.Add(segwitChange0);
+                    wallet.AllBitcoinAddresses.Add(legacyChange0);
+                }
+                catch { }
                 
                 // Taproot (BIP86, Bech32m) - starts with bc1p
                 try
                 {
                     var taprootKey = masterKey.Derive(BtcTaprootPath);
                     wallet.BitcoinAddressTaproot = taprootKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot))
+                        wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressTaproot);
                 }
                 catch (Exception ex) { DebugLogger.Log($"Taproot derivation skipped: {ex.Message}"); }
                 
@@ -201,6 +225,18 @@ namespace WalletRecoveryTool.Core
                     wallet.EthereumAddress = "0x" + Convert.ToHexString(keccakHash.Slice(12, 20)).ToLowerInvariant();
                     wallet.PolygonAddress = wallet.EthereumAddress; // EVM compatible
                     wallet.BnbAddress = wallet.EthereumAddress;     // EVM compatible
+                    wallet.AllEthereumAddresses.Add(wallet.EthereumAddress);
+
+                    try
+                    {
+                        var ethKey1 = purpose44Key.Derive(EthCoinIndex1SubPath);
+                        var uncomp1 = ethKey1.PrivateKey.PubKey.Decompress().ToBytes();
+                        Span<byte> keccakHash1 = stackalloc byte[32];
+                        SimdHasher.Keccak256(uncomp1.AsSpan(1), keccakHash1);
+                        var ethAddr1 = "0x" + Convert.ToHexString(keccakHash1.Slice(12, 20)).ToLowerInvariant();
+                        wallet.AllEthereumAddresses.Add(ethAddr1);
+                    }
+                    catch { }
                 }
 
                 // Generate Solana address (SKIP if SOL disabled — saves Solnet Ed25519 derivation)
@@ -731,7 +767,9 @@ namespace WalletRecoveryTool.Core
 
             var masterKey = ExtKey.CreateFromSeed(seed);
             var legacyKey = masterKey.Derive(new KeyPath("m/0/0"));
+            var legacyChangeKey = masterKey.Derive(new KeyPath("m/0/1/0"));
             var segwitKey = masterKey.Derive(new KeyPath("m/0'/0/0"));
+            var segwitChangeKey = masterKey.Derive(new KeyPath("m/0'/1/0"));
 
             var wallet = new WalletInfo
             {
@@ -745,7 +783,30 @@ namespace WalletRecoveryTool.Core
 
             wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
             wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+            wallet.AllBitcoinAddresses.Add(legacyChangeKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString());
+            wallet.AllBitcoinAddresses.Add(segwitChangeKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString());
             return wallet;
+        }
+
+        private static readonly Wordlist[] SupportedMultiLanguageWordlists = new[]
+        {
+            Wordlist.English,
+            Wordlist.Spanish,
+            Wordlist.French,
+            Wordlist.PortugueseBrazil,
+            Wordlist.ChineseSimplified,
+            Wordlist.Japanese
+        };
+
+        /// <summary>
+        /// Generates a valid checksummed BIP39 mnemonic in one of the supported multi-language BIP39 wordlists
+        /// (English, Spanish, French, Portuguese, Chinese Simplified, Japanese).
+        /// </summary>
+        public static string GenerateMultiLanguageMnemonic(int languageIndex = 0, int wordCount = 12)
+        {
+            var wl = SupportedMultiLanguageWordlists[Math.Abs(languageIndex) % SupportedMultiLanguageWordlists.Length];
+            var wc = wordCount == 24 ? BtcWordCount.TwentyFour : BtcWordCount.Twelve;
+            return new BtcMnemonic(wl, wc).ToString();
         }
 
         private static IEnumerable<List<string>> GenerateWordCombinations(List<string> wordlist, int count)
@@ -771,12 +832,20 @@ namespace WalletRecoveryTool.Core
             try
             {
                 var m = new BtcMnemonic(mnemonic, GetWordlistForLanguage());
-                return m.IsValidChecksum;
+                if (m.IsValidChecksum) return true;
             }
-            catch
+            catch { }
+
+            foreach (var wl in SupportedMultiLanguageWordlists)
             {
-                return false;
+                try
+                {
+                    var m = new BtcMnemonic(mnemonic, wl);
+                    if (m.IsValidChecksum) return true;
+                }
+                catch { }
             }
+            return false;
         }
         
         /// <summary>
