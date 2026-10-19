@@ -82,6 +82,8 @@ public class SmartWalletHunter : IDisposable
         public event EventHandler<HunterProgressEventArgs> ProgressUpdated;
         public event EventHandler<WalletCheckingEventArgs> WalletChecking; // NEW: Shows each wallet being checked
         public WalletCheckingEventArgs LatestWalletChecking { get; private set; }
+        private readonly ConcurrentQueue<WalletCheckingEventArgs> _recentCheckedQueue = new();
+        public bool TryDequeueWalletChecking(out WalletCheckingEventArgs args) => _recentCheckedQueue.TryDequeue(out args);
         
         // Statistics
         private long _totalChecked = 0;
@@ -3308,6 +3310,10 @@ public SmartWalletHunter()
         private void FireWalletCheckingThrottled(WalletCheckingEventArgs args)
         {
             LatestWalletChecking = args;
+            if (_recentCheckedQueue.Count < 160)
+            {
+                _recentCheckedQueue.Enqueue(args);
+            }
 
             // Always fire immediately if wallet has balance or during initial startup
             bool hasBalance = args.BtcBalance > 0 || args.EthBalance > 0 || args.SolBalance > 0 || args.UsdtBalance > 0;

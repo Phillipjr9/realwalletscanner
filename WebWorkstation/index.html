@@ -278,6 +278,9 @@
     font-size: 13px;
     font-weight: 700;
     color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    min-width: 54px;
+    display: inline-block;
   }
 
   .topbar-actions {
@@ -568,6 +571,29 @@
   table.data-table tr.row-hit td {
     background: rgba(16, 185, 129, 0.12) !important;
     color: #A7F3D0;
+  }
+
+  @keyframes smoothStreamSlideIn {
+    0% {
+      opacity: 0;
+      transform: translateY(-10px);
+      background-color: rgba(56, 189, 248, 0.14);
+    }
+    45% {
+      opacity: 1;
+      transform: translateY(0);
+      background-color: rgba(56, 189, 248, 0.06);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+      background-color: transparent;
+    }
+  }
+
+  table.data-table tbody tr.stream-row-enter {
+    animation: smoothStreamSlideIn 210ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    will-change: transform, opacity;
   }
 
   /* ═══════════════════════ COMPACT BOTTOM LIVE TICKER BAR ═══════════════════════ */
@@ -1795,14 +1821,95 @@
     if (running) stopScanner(); else startScanner(currentMode);
   }
 
-  async function pollScanBatch() {
+  // Smooth streaming queue & continuous counter interpolation state
+  const streamQueue = [];
+  let displayedChecked = 0;
+  let displayedDedupe = 0;
+  let displayedQuotaSaved = 0;
+  let targetQuotaSaved = 0;
+  let currentBatchRate = 0;
+  let displayedBatchRate = 0;
+  let pollInFlight = false;
+
+  function stepCounterOneByOne(current, target) {
+    if (current >= target) return target;
+    const gap = target - current;
+    // If initial load has a large server daemon offset, initialize near target so it counts +1 from there
+    if (current === 0 && gap > 100) {
+      return Math.max(0, target - 16);
+    }
+    if (gap <= 24) return current + 1;
+    if (gap <= 80) return current + 2;
+    return current + Math.max(1, Math.ceil(gap / 18));
+  }
+
+  function stepSmoothCounters() {
     if (!running) return;
+
+    if (displayedChecked < totalChecked) {
+      displayedChecked = stepCounterOneByOne(displayedChecked, totalChecked);
+      document.getElementById('QuickStatsCheckedText').textContent = displayedChecked.toLocaleString();
+      document.getElementById('ModalChecked').textContent = displayedChecked.toLocaleString();
+    }
+    if (displayedDedupe < totalDedupe) {
+      displayedDedupe = stepCounterOneByOne(displayedDedupe, totalDedupe);
+      document.getElementById('QuickStatsDedupeText').textContent = displayedDedupe.toLocaleString();
+    }
+    if (displayedQuotaSaved < targetQuotaSaved) {
+      displayedQuotaSaved = stepCounterOneByOne(displayedQuotaSaved, targetQuotaSaved);
+      const quotaSavedEl = document.getElementById('QuickStatsQuotaSavedText');
+      if (quotaSavedEl) quotaSavedEl.textContent = displayedQuotaSaved.toLocaleString();
+    }
+    if (displayedBatchRate !== currentBatchRate) {
+      const rateDiff = currentBatchRate - displayedBatchRate;
+      displayedBatchRate = Math.abs(rateDiff) <= 2
+        ? currentBatchRate
+        : Math.round(displayedBatchRate + rateDiff * 0.2);
+      document.getElementById('QuickStatsRateText').textContent = `${displayedBatchRate.toLocaleString()}/s`;
+      document.getElementById('PreviewSpeedTextBlock').textContent = `${displayedBatchRate.toLocaleString()}/s`;
+      document.getElementById('ModalSpeed').textContent = `${displayedBatchRate.toLocaleString()}/s`;
+    }
+    document.getElementById('QuickStatsRuntimeText').textContent = formatTime(Date.now() - startTime);
+  }
+
+  function drainNextStreamItem() {
+    if (!running || streamQueue.length === 0) return;
+
+    const item = streamQueue.shift();
+    if (!item) return;
+
+    if (item.historicalTx > 0 && !watchlistItems.has(item.btcLegacy)) {
+      watchlistItems.set(item.btcLegacy, item);
+      totalFound = watchlistItems.size;
+      renderWatchlist();
+      document.getElementById('QuickStatsFoundText').textContent = totalFound.toLocaleString();
+      document.getElementById('ModalHits').textContent = totalFound.toLocaleString();
+    }
+
+    prependTableRow(item);
+
+    const enabledChains = getEnabledChains();
+    document.getElementById('LivePreviewSourceText').textContent = (item.source || 'SMART').toUpperCase();
+    document.getElementById('PreviewBtcAddressTextBox').textContent = enabledChains.includes('BTC')
+      ? ((item.btcSegwit || item.btcLegacy || '').slice(0, 18) + '…')
+      : 'DISABLED';
+    document.getElementById('PreviewEthAddressTextBox').textContent = enabledChains.includes('ETH')
+      ? ((item.ethAddress || '').slice(0, 16) + '…')
+      : 'DISABLED';
+    document.getElementById('PreviewMnemonicWideTextBox').textContent = item.input;
+  }
+
+  async function pollScanBatch() {
+    if (!running || pollInFlight) return;
     const enabledVectors = getEnabledVectors();
     const enabledChains = getEnabledChains();
     if (currentMode === 'smart' && enabledVectors.length === 0) {
       return;
     }
+    // Keep queue smoothly filled without overflowing
+    if (streamQueue.length > 36) return;
 
+    pollInFlight = true;
     const myEpoch = vectorSelectionEpoch;
     const t0 = performance.now();
     try {
@@ -1818,47 +1925,19 @@
 
       const dt = Math.max((performance.now() - t0) / 1000, 0.02);
       const batchRate = data.items.length > 0 ? Math.round((data.items.length / dt) * 16) : 0;
+      currentBatchRate = batchRate;
       speedHistory.push(batchRate);
       if (speedHistory.length > 60) speedHistory.shift();
 
       totalChecked = Math.max(totalChecked + data.items.length, (data.serverDaemonScanned || 0) + data.items.length);
       totalDedupe = data.totalDuplicatesPrevented || (totalDedupe + data.dedupeSkipped);
+      if (typeof data.apiQuotaSavedCount === 'number') {
+        targetQuotaSaved = Math.max(targetQuotaSaved, data.apiQuotaSavedCount);
+      }
 
       for (const item of data.items) {
-        if (item.historicalTx > 0 && !watchlistItems.has(item.btcLegacy)) {
-          watchlistItems.set(item.btcLegacy, item);
-          totalFound = watchlistItems.size;
-          renderWatchlist();
-        }
-        prependTableRow(item);
+        streamQueue.push(item);
       }
-
-      const last = data.items[data.items.length - 1];
-      if (last) {
-        document.getElementById('LivePreviewSourceText').textContent = last.source.toUpperCase();
-        document.getElementById('PreviewBtcAddressTextBox').textContent = enabledChains.includes('BTC')
-          ? ((last.btcSegwit || last.btcLegacy || '').slice(0, 18) + '…')
-          : 'DISABLED';
-        document.getElementById('PreviewEthAddressTextBox').textContent = enabledChains.includes('ETH')
-          ? ((last.ethAddress || '').slice(0, 16) + '…')
-          : 'DISABLED';
-        document.getElementById('PreviewMnemonicWideTextBox').textContent = last.input;
-        document.getElementById('PreviewSpeedTextBlock').textContent = `${batchRate.toLocaleString()}/s`;
-      }
-
-      document.getElementById('QuickStatsFoundText').textContent = totalFound.toLocaleString();
-      document.getElementById('QuickStatsCheckedText').textContent = totalChecked.toLocaleString();
-      document.getElementById('QuickStatsRuntimeText').textContent = formatTime(Date.now() - startTime);
-      document.getElementById('QuickStatsRateText').textContent = `${batchRate.toLocaleString()}/s`;
-      document.getElementById('QuickStatsDedupeText').textContent = totalDedupe.toLocaleString();
-      const quotaSavedEl = document.getElementById('QuickStatsQuotaSavedText');
-      if (quotaSavedEl && typeof data.apiQuotaSavedCount === 'number') {
-        quotaSavedEl.textContent = data.apiQuotaSavedCount.toLocaleString();
-      }
-
-      document.getElementById('ModalSpeed').textContent = `${batchRate.toLocaleString()}/s`;
-      document.getElementById('ModalChecked').textContent = totalChecked.toLocaleString();
-      document.getElementById('ModalHits').textContent = totalFound.toLocaleString();
 
       if (data.brain) {
         updateBrainTelemetry(data.brain);
@@ -1868,6 +1947,8 @@
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      pollInFlight = false;
     }
   }
 
@@ -1954,7 +2035,7 @@
     const smartBody = document.getElementById('SmartResultsBody');
     const tr = document.createElement('tr');
     tr.dataset.vector = item.vectorKey || '';
-    if (isHit) tr.className = 'row-hit';
+    tr.className = isHit ? 'row-hit stream-row-enter' : 'stream-row-enter';
     tr.innerHTML = `
       <td style="color:#7DD3FC; font-weight:600;" title="${item.source}">${item.source}</td>
       <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
@@ -1968,6 +2049,7 @@
     if (item.feedType === 'Random') {
       const rb = document.getElementById('RandomResultsBody');
       const rtr = document.createElement('tr');
+      rtr.className = 'stream-row-enter';
       rtr.innerHTML = `
         <td>${item.phraseType}</td>
         <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
@@ -1982,6 +2064,7 @@
     if (item.feedType === 'Brain') {
       const bb = document.getElementById('BrainResultsBody');
       const btr = document.createElement('tr');
+      btr.className = 'stream-row-enter';
       btr.innerHTML = `
         <td style="color:#C7D2FE;" title="${item.input}">${item.input}</td>
         <td>${(item.privateKeyHex || item.privateKey || '').slice(0, 20)}…</td>
@@ -1996,6 +2079,7 @@
     if (item.feedType === 'Private') {
       const kb = document.getElementById('KeyResultsBody');
       const ktr = document.createElement('tr');
+      ktr.className = 'stream-row-enter';
       ktr.innerHTML = `
         <td style="color:#FCA5A5;">${item.input}</td>
         <td>${item.btcLegacy}</td>
@@ -2211,7 +2295,9 @@
     a.click();
   }
 
-  setInterval(pollScanBatch, 1100);
+  setInterval(drainNextStreamItem, 55);
+  setInterval(stepSmoothCounters, 40);
+  setInterval(pollScanBatch, 850);
   pollScanBatch();
 </script>
 </body>
