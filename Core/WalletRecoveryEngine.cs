@@ -676,6 +676,7 @@ namespace WalletRecoveryTool.Core
                     }
                     else if (everHeld)
                     {
+                        _logger.LogEverHeldWallet(wallet);
                         CognitiveBrainEngine.Instance.RecordScanFeedback(
                             wallet.Mnemonic,
                             wallet.Source ?? "DeepEntropyCsprng",

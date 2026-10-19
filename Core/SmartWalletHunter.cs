@@ -2406,6 +2406,7 @@ public SmartWalletHunter()
                 if (ct.IsCancellationRequested) break;
                 if (BalanceChecker.EvaluateWalletEverHeldHistory(wallet))
                 {
+                    _logger.LogEverHeldWallet(wallet);
                     CognitiveBrainEngine.Instance.RecordScanFeedback(
                         mnemonic,
                         ExtractBrainArmFromSource(source),
