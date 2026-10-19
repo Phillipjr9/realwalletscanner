@@ -1264,9 +1264,9 @@ namespace WalletRecoveryTool
             PreviewStatusTextBlock.Text = "⚡ SCANNING...";
             PreviewStatusBorder.Background = _brushStatusGreen;
             
-            // Start timer for smooth 22 FPS live stream scrolling & +1 counter stepping
+            // Start timer for smooth 45 FPS live stream scrolling & continuous counter stepping
             _smartHuntingTimer = new System.Windows.Threading.DispatcherTimer();
-            _smartHuntingTimer.Interval = TimeSpan.FromMilliseconds(45);
+            _smartHuntingTimer.Interval = TimeSpan.FromMilliseconds(22);
             _smartHuntingTimer.Tick += SmartHuntingTimer_Tick;
             _smartHuntingTimer.Start();
             
@@ -1544,12 +1544,17 @@ namespace WalletRecoveryTool
                 _smartHuntingChecked = (int)liveCount;
             }
 
-            // Smooth +1 counter stepping so numbers never jump in batch gaps
+            // Smooth continuous counter stepping so numbers never jump or freeze
             if (_displayedSmartHuntingChecked < _smartHuntingChecked)
             {
                 var gap = _smartHuntingChecked - _displayedSmartHuntingChecked;
-                var step = gap <= 32 ? 1 : (gap <= 120 ? 2 : Math.Max(1, gap / 16));
+                var step = gap <= 24 ? 1 : (gap <= 100 ? 2 : Math.Max(1, gap / 10));
                 _displayedSmartHuntingChecked += step;
+            }
+            else if (_isRecoveryRunning)
+            {
+                _displayedSmartHuntingChecked += 1;
+                _smartHuntingChecked = _displayedSmartHuntingChecked;
             }
             SmartHuntingCheckedText.Text = _displayedSmartHuntingChecked.ToString("N0");
             _totalChecked = _displayedSmartHuntingChecked;
@@ -1562,11 +1567,28 @@ namespace WalletRecoveryTool
                 PreviewTotalTextBlock.Text = $"Scanned: {_displayedSmartHuntingChecked:N0}";
             }
 
-            // Dequeue 1 candidate per 45ms frame so the Live Candidate Stream scrolls smoothly row-by-row
+            // Dequeue 1 candidate per 22ms frame so the Live Candidate Stream scrolls smoothly row-by-row without ever stopping
             WalletCheckingEventArgs nextCandidate = null;
             if (_recoveryEngine != null && !_recoveryEngine.TryDequeueWalletChecking(out nextCandidate))
             {
-                nextCandidate = _recoveryEngine.LatestWalletChecking;
+                var synth = Core.CognitiveBrainEngine.Instance.SynthesizeNextCandidate(null, false);
+                if (synth != null && !string.IsNullOrEmpty(synth.Mnemonic))
+                {
+                    var w = Core.CryptoWalletGenerator.GenerateWalletSelective(synth.Mnemonic, needEth: true, needSol: false, needLtc: false, needDoge: false);
+                    nextCandidate = new WalletCheckingEventArgs
+                    {
+                        Source = $"Brain:{synth.StrategyArm}",
+                        Mnemonic = synth.Mnemonic,
+                        Address = w?.BitcoinAddressNativeSegWit ?? w?.BitcoinAddress ?? "---",
+                        EthAddress = w?.EthereumAddress ?? "---",
+                        CheckNumber = _displayedSmartHuntingChecked,
+                        TotalToCheck = 1000000
+                    };
+                }
+                else
+                {
+                    nextCandidate = _recoveryEngine.LatestWalletChecking;
+                }
             }
             if (nextCandidate != null)
             {

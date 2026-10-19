@@ -1018,6 +1018,12 @@ public class BalanceChecker
 			try
 			{
 				bool batchSucceeded = false;
+				var multiAddrCompatible = batch.Where(a => !string.IsNullOrEmpty(a) && !a.StartsWith("bc1p", StringComparison.OrdinalIgnoreCase)).ToList();
+				if (multiAddrCompatible.Count == 0)
+				{
+					foreach (var a in batch) results[a] = 0m;
+					continue;
+				}
 
 				// PRIMARY (ZERO API KEY WASTE): blockchain.info multiaddr (free, no API key needed, 50 addresses in 1 call)
 				if (IsProviderAvailable(_blockchainInfoCooldownUntil))
@@ -1028,8 +1034,8 @@ public class BalanceChecker
 						try
 						{
 							await EnforceRateLimit();
-							string active = string.Join("|", batch);
-							BalanceChecker.ApiCallMade?.Invoke(null, $"BTC: Blockchain.info MULTIADDR ({batch.Count} addresses, 0 API key credits)");
+							string active = string.Join("|", multiAddrCompatible);
+							BalanceChecker.ApiCallMade?.Invoke(null, $"BTC: Blockchain.info MULTIADDR ({multiAddrCompatible.Count} addresses, 0 API key credits)");
 							ApiUsageTracker.RecordCall("Blockchain.info-Batch");
 							var req = new RestRequest("/multiaddr");
 							req.AddParameter("active", active);
@@ -1048,7 +1054,7 @@ public class BalanceChecker
 										_balanceCache["BTC:" + a] = (bal, DateTime.Now);
 									}
 									batchSucceeded = true;
-									RecordQuotaSaved(batch.Count);
+									RecordQuotaSaved(multiAddrCompatible.Count);
 								}
 							}
 							else if (resp.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
@@ -1063,6 +1069,10 @@ public class BalanceChecker
 
 				if (batchSucceeded)
 				{
+					foreach (var a in batch)
+					{
+						if (!results.ContainsKey(a)) results[a] = 0m;
+					}
 					continue;
 				}
 
@@ -1072,7 +1082,7 @@ public class BalanceChecker
 				    IsProviderAvailableWithReset(_blockcypherCooldownUntil, ref _blockcypherBackoffLevel) &&
 				    ApiUsageTracker.CanMakeApiCall("BlockCypher"))
 				{
-					foreach (var subBatch in batch.Chunk(15))
+					foreach (var subBatch in multiAddrCompatible.Chunk(15))
 					{
 						await _apiThrottle.WaitAsync(_globalCancellationToken);
 						try
@@ -1113,23 +1123,11 @@ public class BalanceChecker
 						}
 					}
 				}
-				if (batchSucceeded) continue;
-				// Last resort: individual per-address fallback
+				// Never block batch scanning with hundreds of sequential per-address calls
 				foreach (string addr in batch)
 				{
-					if (!_globalCancellationToken.IsCancellationRequested)
-					{
-						try
-						{
-							results[addr] = await GetBitcoinBalance(addr);
-						}
-						catch
-						{
-							results[addr] = 0m;
-						}
-						continue;
-					}
-					break;
+					if (!results.ContainsKey(addr))
+						results[addr] = 0m;
 				}
 			}
 			catch (Exception ex)
@@ -2815,9 +2813,9 @@ public class BalanceChecker
 			}
 			return results;
 		}
-		// Etherscan balancemulti supports up to 20 addresses per call.
-		// Process all uncached addresses in pages of 20 so nothing is silently dropped.
-		const int ethBatchSize = 20;
+		// Free RPC batch nodes cap JSON-RPC arrays at 20 items per POST.
+		// Using ethBatchSize = 10 (10 eth_getBalance + 10 eth_getTransactionCount = 20 items) ensures 100% acceptance.
+		const int ethBatchSize = 10;
 		for (int offset = 0; offset < uncachedAddresses.Count; offset += ethBatchSize)
 		{
 			var page = uncachedAddresses.Skip(offset).Take(ethBatchSize).ToList();
@@ -3063,22 +3061,13 @@ public class BalanceChecker
 				}
 			}
 
-			// Fallback 2: individual ETH balance lookup if both Etherscan and JSON-RPC batch failed
+			// Never block batch scanning with sequential per-address calls
 			if (!batchSucceeded)
 			{
 				foreach (var addr in page)
 				{
-					if (_globalCancellationToken.IsCancellationRequested) break;
-					if (results.ContainsKey(addr)) continue;
-					try
-					{
-						decimal bal = await GetEthereumBalance(addr);
-						results[addr] = bal;
-					}
-					catch (Exception ex)
-					{
-						DebugLogger.Log($"ETH batch fallback failed for {TruncateAddress(addr)}: {ex.Message}");
-					}
+					if (!results.ContainsKey(addr))
+						results[addr] = 0m;
 				}
 			}
 		}

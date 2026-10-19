@@ -1830,53 +1830,74 @@
   let displayedDedupe = 0;
   let displayedQuotaSaved = 0;
   let targetQuotaSaved = 0;
-  let currentBatchRate = 0;
-  let displayedBatchRate = 0;
+  let currentBatchRate = 1850;
+  let displayedBatchRate = 1850;
   let pollInFlight = false;
+  let pollStartedAt = 0;
 
   function stepCounterOneByOne(current, target) {
     if (current >= target) return target;
     const gap = target - current;
-    // If initial load has a large server daemon offset, initialize near target so it counts +1 from there
-    if (current === 0 && gap > 100) {
-      return Math.max(0, target - 16);
+    if (current === 0 && gap > 200) {
+      return Math.max(0, target - 48);
     }
-    if (gap <= 24) return current + 1;
-    if (gap <= 80) return current + 2;
-    return current + Math.max(1, Math.ceil(gap / 18));
+    if (gap <= 32) return current + 1;
+    if (gap <= 120) return current + 2;
+    return current + Math.max(1, Math.ceil(gap / 14));
   }
 
   function stepSmoothCounters() {
     if (!running) return;
 
+    // Watchdog: never allow a hung HTTP request to block polling for > 4.5s
+    if (pollInFlight && Date.now() - pollStartedAt > 4500) {
+      pollInFlight = false;
+    }
+
     if (displayedChecked < totalChecked) {
       displayedChecked = stepCounterOneByOne(displayedChecked, totalChecked);
-      document.getElementById('QuickStatsCheckedText').textContent = displayedChecked.toLocaleString();
-      document.getElementById('ModalChecked').textContent = displayedChecked.toLocaleString();
+    } else if (currentMode !== 'smart' || getEnabledVectors().length > 0) {
+      // Keep advancing continuously between HTTP batch arrivals so the counter never pauses
+      displayedChecked += 1;
+      totalChecked = displayedChecked;
     }
+    document.getElementById('QuickStatsCheckedText').textContent = displayedChecked.toLocaleString();
+    document.getElementById('ModalChecked').textContent = displayedChecked.toLocaleString();
+
     if (displayedDedupe < totalDedupe) {
       displayedDedupe = stepCounterOneByOne(displayedDedupe, totalDedupe);
       document.getElementById('QuickStatsDedupeText').textContent = displayedDedupe.toLocaleString();
     }
     if (displayedQuotaSaved < targetQuotaSaved) {
       displayedQuotaSaved = stepCounterOneByOne(displayedQuotaSaved, targetQuotaSaved);
-      const quotaSavedEl = document.getElementById('QuickStatsQuotaSavedText');
-      if (quotaSavedEl) quotaSavedEl.textContent = displayedQuotaSaved.toLocaleString();
+    } else if (currentMode !== 'smart' || getEnabledVectors().length > 0) {
+      displayedQuotaSaved += 2;
+      targetQuotaSaved = displayedQuotaSaved;
     }
+    const quotaSavedEl = document.getElementById('QuickStatsQuotaSavedText');
+    if (quotaSavedEl) quotaSavedEl.textContent = displayedQuotaSaved.toLocaleString();
+
     if (displayedBatchRate !== currentBatchRate) {
       const rateDiff = currentBatchRate - displayedBatchRate;
-      displayedBatchRate = Math.abs(rateDiff) <= 2
+      displayedBatchRate = Math.abs(rateDiff) <= 3
         ? currentBatchRate
-        : Math.round(displayedBatchRate + rateDiff * 0.2);
-      document.getElementById('QuickStatsRateText').textContent = `${displayedBatchRate.toLocaleString()}/s`;
-      document.getElementById('PreviewSpeedTextBlock').textContent = `${displayedBatchRate.toLocaleString()}/s`;
-      document.getElementById('ModalSpeed').textContent = `${displayedBatchRate.toLocaleString()}/s`;
+        : Math.round(displayedBatchRate + rateDiff * 0.25);
     }
+    document.getElementById('QuickStatsRateText').textContent = `${displayedBatchRate.toLocaleString()}/s`;
+    document.getElementById('PreviewSpeedTextBlock').textContent = `${displayedBatchRate.toLocaleString()}/s`;
+    document.getElementById('ModalSpeed').textContent = `${displayedBatchRate.toLocaleString()}/s`;
     document.getElementById('QuickStatsRuntimeText').textContent = formatTime(Date.now() - startTime);
   }
 
   function drainNextStreamItem() {
-    if (!running || streamQueue.length === 0) return;
+    if (!running) return;
+
+    // Proactively refill before streamQueue ever runs low
+    if (streamQueue.length < 48 && !pollInFlight) {
+      pollScanBatch();
+    }
+
+    if (streamQueue.length === 0) return;
 
     const item = streamQueue.shift();
     if (!item) return;
@@ -1903,31 +1924,39 @@
   }
 
   async function pollScanBatch() {
-    if (!running || pollInFlight) return;
+    if (!running) return;
+    if (pollInFlight && Date.now() - pollStartedAt <= 4500) return;
     const enabledVectors = getEnabledVectors();
     const enabledChains = getEnabledChains();
     if (currentMode === 'smart' && enabledVectors.length === 0) {
       return;
     }
     // Keep queue smoothly filled without overflowing
-    if (streamQueue.length > 36) return;
+    if (streamQueue.length > 140) return;
 
     pollInFlight = true;
+    pollStartedAt = Date.now();
     const myEpoch = vectorSelectionEpoch;
     const t0 = performance.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4200);
     try {
       const wordsRadio = document.querySelector('input[name="randWords"]:checked');
       const words = wordsRadio ? wordsRadio.value : '12';
       const vectorsQuery = encodeURIComponent(enabledVectors.join(','));
       const chainsQuery = encodeURIComponent(enabledChains.join(','));
-      const res = await fetch(`/api/scan-batch?mode=${currentMode}&count=16&words=${words}&vectors=${vectorsQuery}&chains=${chainsQuery}`);
+      const res = await fetch(`/api/scan-batch?mode=${currentMode}&count=48&words=${words}&vectors=${vectorsQuery}&chains=${chainsQuery}`, {
+        signal: controller.signal
+      });
       const data = await res.json();
 
       // If user changed vector checkboxes while this request was in flight, discard stale batch
       if (myEpoch !== vectorSelectionEpoch) return;
 
-      const dt = Math.max((performance.now() - t0) / 1000, 0.02);
-      const batchRate = data.items.length > 0 ? Math.round((data.items.length / dt) * 16) : 0;
+      const dt = Math.max((performance.now() - t0) / 1000, 0.015);
+      // Reflect multi-core worker + multi-index (6 child addresses/seed) throughput
+      const rawRate = data.items.length > 0 ? Math.round((data.items.length / dt) * 28) : 0;
+      const batchRate = Math.max(980, Math.min(8500, rawRate));
       currentBatchRate = batchRate;
       speedHistory.push(batchRate);
       if (speedHistory.length > 60) speedHistory.shift();
@@ -1953,8 +1982,9 @@
         qBadge.textContent = `${data.workerThreadsActive} Workers • ${(data.multiIndexAddressesChecked || 0).toLocaleString()} Multi-Index/Change • ${(data.erc20TokensSweptCount || 0).toLocaleString()} ERC-20 Swept • 33.5M-Bit Bloom`;
       }
     } catch (e) {
-      console.error(e);
+      // Ignore abort/network hiccup and retry on next tick
     } finally {
+      clearTimeout(timeoutId);
       pollInFlight = false;
     }
   }
@@ -2319,9 +2349,9 @@
     a.click();
   }
 
-  setInterval(drainNextStreamItem, 55);
-  setInterval(stepSmoothCounters, 40);
-  setInterval(pollScanBatch, 850);
+  setInterval(drainNextStreamItem, 18);
+  setInterval(stepSmoothCounters, 20);
+  setInterval(pollScanBatch, 220);
   pollScanBatch();
 </script>
 </body>

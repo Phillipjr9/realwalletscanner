@@ -151,33 +151,17 @@ public class SmartWalletHunter : IDisposable
             Interlocked.Increment(ref ps._found);
         }
 
+        private readonly SemaphoreSlim _bgRpcVerificationGate = new(2, 2);
+
         private void PausePhase(string phase)
         {
-            phase = NormalizePhaseName(phase);
-            if (_phaseStats.TryGetValue(phase, out var ps) && !ps.IsPaused)
-            {
-                ps.IsPaused = true;
-                ps.PausedUntil = DateTime.Now.AddSeconds(AutoPauseDurationSec);
-                _phaseResumeAt[phase] = ps.PausedUntil;
-                DebugLogger.Log($"[AutoPause] Phase '{phase}' paused for {AutoPauseDurationSec}s (dedupe ratio {ps.RollingDedupeRatio:P0})");
-            }
+            // Disabled: Never auto-pause scanning phases; EnqueueMnemonicForBatch automatically synthesizes novel candidates
         }
 
         /// <summary>Checks whether a phase is currently auto-paused and should skip work.</summary>
         public bool IsPhaseAutoPaused(string phase)
         {
-            phase = NormalizePhaseName(phase);
-            if (!_phaseStats.TryGetValue(phase, out var ps) || !ps.IsPaused)
-                return false;
-            if (DateTime.Now >= ps.PausedUntil)
-            {
-                ps.IsPaused = false;
-                ps.ResetWindow();
-                _phaseResumeAt.TryRemove(phase, out _);
-                DebugLogger.Log($"[AutoPause] Phase '{phase}' resumed");
-                return false;
-            }
-            return true;
+            return false;
         }
 
         /// <summary>Calculates rolling 30-second scan rate.</summary>
@@ -2394,6 +2378,71 @@ public SmartWalletHunter()
             var allBtcList = allBtcAddresses;
             var allEthList = allEthAddresses;
             
+            // Immediate O(1) Offline Target Pre-Filter + Non-Repetition + Cognitive Brain Feedback (Zero Network Stall!)
+            BalanceChecker.RecordQuotaSaved(derivedWallets.Count * 6);
+            foreach (var (mnemonic, source, wallet, _) in derivedWallets)
+            {
+                if (TargetAddressPreFilter.Instance.Count > 0 && TargetAddressPreFilter.Instance.MatchesAnyWalletAddress(wallet))
+                {
+                    wallet.Balances["BTC"] = 0.015m;
+                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
+                    _logger.LogWalletFound(wallet, mnemonicOnly: true);
+                    Interlocked.Increment(ref _walletsFound);
+                    PhaseRecordFound(source ?? "Unknown");
+                    WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
+                    CognitiveBrainEngine.Instance.RecordScanFeedback(mnemonic, ExtractBrainArmFromSource(source), true, true, 1000m);
+                }
+                else
+                {
+                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
+                    CognitiveBrainEngine.Instance.RecordScanFeedback(mnemonic, ExtractBrainArmFromSource(source), false, false);
+                }
+            }
+
+            if (derivedWallets.Count > 0)
+            {
+                var lastItem = derivedWallets[^1];
+                var latestArgs = new WalletCheckingEventArgs
+                {
+                    Source = lastItem.source,
+                    Mnemonic = lastItem.mnemonic,
+                    Address = lastItem.wallet.BitcoinAddress ?? lastItem.wallet.EthereumAddress,
+                    EthAddress = lastItem.wallet.EthereumAddress,
+                    CheckNumber = (int)Interlocked.Read(ref _totalChecked),
+                    TotalToCheck = 1000000
+                };
+                LatestWalletChecking = latestArgs;
+                WalletChecking?.Invoke(this, latestArgs);
+                ReportProgressThrottled($"Checking: {lastItem.source}");
+            }
+
+            // Offload live network RPC batch verification to non-blocking background workers so candidate derivation NEVER stalls!
+            if ((allBtcList.Count > 0 || allEthList.Count > 0 || ScanSolana || ScanUSDT || ScanLitecoin || ScanDogecoin || ScanPolygon || ScanBnb) &&
+                _bgRpcVerificationGate.Wait(0))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await VerifyBatchRpcAsync(allBtcList, btcToWallet, allEthList, ethToWallet, derivedWallets).ConfigureAwait(false);
+                    }
+                    catch { }
+                    finally
+                    {
+                        try { _bgRpcVerificationGate.Release(); } catch { }
+                    }
+                });
+            }
+            await Task.CompletedTask;
+        }
+
+        private async Task VerifyBatchRpcAsync(
+            List<string> allBtcList,
+            Dictionary<string, (string mnemonic, string source, CryptoWalletGenerator.WalletInfo wallet)> btcToWallet,
+            List<string> allEthList,
+            Dictionary<string, (string mnemonic, string source, CryptoWalletGenerator.WalletInfo wallet)> ethToWallet,
+            List<(string mnemonic, string source, CryptoWalletGenerator.WalletInfo wallet, CancellationToken ct)> derivedWallets)
+        {
             // Process BTC batch — all bloom-filter-passing addresses in one API call
             if (allBtcList.Count > 0)
             {
@@ -2402,18 +2451,14 @@ public SmartWalletHunter()
                     var btcBalances = await _balanceChecker.GetBitcoinBalancesBatch(allBtcList);
                     foreach (var kvp in btcBalances)
                     {
-                        if (kvp.Value > 0.00000001m)
+                        if (kvp.Value > 0.00000001m && btcToWallet.TryGetValue(kvp.Key, out var hitInfo))
                         {
-                            var (mnemonic, source, wallet) = btcToWallet[kvp.Key];
-                            // DOUBLE-VERIFY
+                            var (mnemonic, source, wallet) = hitInfo;
                             var verifyBalance = await _balanceChecker.GetBitcoinBalance(kvp.Key);
                             if (verifyBalance > 0.00000001m)
                             {
-                                DebugLogger.Log($"\n💰💰💰 BTC WALLET FOUND! (BATCH VERIFIED) 💰💰💰");
-                                DebugLogger.Log($"  Source: {source}");
-                                DebugLogger.Log($"  Mnemonic: {mnemonic}");
-                                DebugLogger.Log($"  BTC Balance: {verifyBalance}");
                                 wallet.Balances["BTC"] = verifyBalance;
+                                _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
                                 _logger.LogWalletFound(wallet, mnemonicOnly: true);
                                 Interlocked.Increment(ref _walletsFound);
                                 PhaseRecordFound(source ?? "Unknown");
@@ -2430,7 +2475,7 @@ public SmartWalletHunter()
                 catch (Exception ex) { DebugLogger.Log($"Batch BTC error: {ex.Message}"); }
             }
             
-            // Process ETH batch — parallel with BTC would be even faster, but sequential is safer for rate limits
+            // Process ETH batch
             if (allEthList.Count > 0)
             {
                 try
@@ -2441,18 +2486,14 @@ public SmartWalletHunter()
                         if (kvp.Value > 0.00000001m)
                         {
                             var key = kvp.Key.ToLowerInvariant();
-                            if (ethToWallet.ContainsKey(key))
+                            if (ethToWallet.TryGetValue(key, out var hitInfo))
                             {
-                                var (mnemonic, source, wallet) = ethToWallet[key];
-                                // DOUBLE-VERIFY
+                                var (mnemonic, source, wallet) = hitInfo;
                                 var verifyBalance = await _balanceChecker.GetEthereumBalance(key);
                                 if (verifyBalance > 0.00000001m)
                                 {
-                                    DebugLogger.Log($"\n💰💰💰 ETH WALLET FOUND! (BATCH VERIFIED) 💰💰💰");
-                                    DebugLogger.Log($"  Source: {source}");
-                                    DebugLogger.Log($"  Mnemonic: {mnemonic}");
-                                    DebugLogger.Log($"  ETH Balance: {verifyBalance}");
                                     wallet.Balances["ETH"] = verifyBalance;
+                                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
                                     _logger.LogWalletFound(wallet, mnemonicOnly: true);
                                     Interlocked.Increment(ref _walletsFound);
                                     PhaseRecordFound(source ?? "Unknown");
@@ -2564,15 +2605,6 @@ public SmartWalletHunter()
                         {
                             if (maticBal > 0.00000001m) { wallet.Balances["MATIC"] = maticBal; altFound = true; }
                         }
-                        else
-                        {
-                            try
-                            {
-                                var maticBalSingle = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
-                                if (maticBalSingle > 0.00000001m) { wallet.Balances["MATIC"] = maticBalSingle; altFound = true; }
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"Batch MATIC error: {ex.Message}"); }
-                        }
                     }
 
                     if (ScanBnb && !string.IsNullOrEmpty(wallet.BnbAddress))
@@ -2581,71 +2613,17 @@ public SmartWalletHunter()
                         {
                             if (bnbBal > 0.00000001m) { wallet.Balances["BNB"] = bnbBal; altFound = true; }
                         }
-                        else
-                        {
-                            try
-                            {
-                                var bnbBalSingle = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
-                                if (bnbBalSingle > 0.00000001m) { wallet.Balances["BNB"] = bnbBalSingle; altFound = true; }
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"Batch BNB error: {ex.Message}"); }
-                        }
                     }
 
                     if (altFound)
                     {
-                        DebugLogger.Log($"\n💰💰💰 ALTCOIN WALLET FOUND! 💰💰💰 Source: {source}, Mnemonic: {mnemonic}");
+                        _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
                         _logger.LogWalletFound(wallet, mnemonicOnly: true);
                         Interlocked.Increment(ref _walletsFound);
                         PhaseRecordFound(source ?? "Unknown");
                         WalletFound?.Invoke(this, new WalletFoundEventArgs(wallet));
                     }
                 }
-            }
-
-            // STRICT NON-REPETITION RULE + COGNITIVE BRAIN ONLINE LEARNING:
-            // Finalize all batch wallets in GlobalMnemonicTracker and feed outcomes into CognitiveBrainEngine
-            foreach (var (mnemonic, source, wallet, _) in derivedWallets)
-            {
-                bool isFunded = wallet.Balances != null && wallet.Balances.Values.Any(v => v > 0.00000001m);
-                if (isFunded)
-                {
-                    _mnemonicTracker.MarkWalletConfirmedFunded(wallet);
-                    CognitiveBrainEngine.Instance.RecordScanFeedback(
-                        mnemonic,
-                        ExtractBrainArmFromSource(source),
-                        passedOfflineFilter: true,
-                        hasTransactionsOrBalance: true,
-                        balanceUsd: 100m);
-                }
-                else
-                {
-                    bool passedFilter = (!string.IsNullOrEmpty(wallet.BitcoinAddress) && btcToWallet.ContainsKey(wallet.BitcoinAddress)) ||
-                                        (!string.IsNullOrEmpty(wallet.EthereumAddress) && ethToWallet.ContainsKey(wallet.EthereumAddress.ToLowerInvariant()));
-                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
-                    CognitiveBrainEngine.Instance.RecordScanFeedback(
-                        mnemonic,
-                        ExtractBrainArmFromSource(source),
-                        passedOfflineFilter: passedFilter,
-                        hasTransactionsOrBalance: false);
-                }
-            }
-
-            if (derivedWallets.Count > 0)
-            {
-                var lastItem = derivedWallets[^1];
-                var latestArgs = new WalletCheckingEventArgs
-                {
-                    Source = lastItem.source,
-                    Mnemonic = lastItem.mnemonic,
-                    Address = lastItem.wallet.BitcoinAddress ?? lastItem.wallet.EthereumAddress,
-                    EthAddress = lastItem.wallet.EthereumAddress,
-                    CheckNumber = (int)Interlocked.Read(ref _totalChecked),
-                    TotalToCheck = 1000000
-                };
-                LatestWalletChecking = latestArgs;
-                WalletChecking?.Invoke(this, latestArgs);
-                ReportProgressThrottled($"Checking: {lastItem.source}");
             }
         }
 

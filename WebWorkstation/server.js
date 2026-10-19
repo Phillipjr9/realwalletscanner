@@ -554,12 +554,12 @@ function generateSmartCandidate(enabledVectors = ALL_VECTOR_KEYS) {
   // 3. Weak PRNG & Timestamp Seeds
   if (vecSet.has('timestamp')) {
     activeGenerators.push(() => {
-      const idx = smartIndex++;
-      brainState.smartIndex = smartIndex;
-      let ts = 1388534400 + (idx * 997);
+      let ts = 1388534400;
       let mnem = '';
       for (let guard = 0; guard < 120; guard++) {
-        ts = 1388534400 + ((idx + guard * 17) * 997);
+        const tIdx = smartIndex++;
+        brainState.smartIndex = smartIndex;
+        ts = 1388534400 + (tIdx * 997);
         const entropy = crypto.createHash('sha256').update(String(ts)).digest().subarray(0, 16);
         mnem = eng.bip39.entropyToMnemonic(entropy.toString('hex'));
         if (!scannedEmptySet.has('mnem:' + normalizeKey(mnem)) && !scannedEmptySet.has('in:' + normalizeKey(mnem))) break;
@@ -1146,7 +1146,7 @@ function processIncomingDaemonCandidate(item) {
   erc20TokensSweptCount += 4;
   recentDaemonItems.unshift(item);
   if (recentDaemonItems.length > 80) recentDaemonItems.pop();
-  if (workerReadyQueue.length < 120) {
+  if (workerReadyQueue.length < 500) {
     workerReadyQueue.push(item);
   }
 }
@@ -1209,16 +1209,16 @@ function getApiKeysStatusSummary() {
   };
 }
 
-// Background Autonomous Smart Hunter Daemon (supplements worker_threads pool across all 10 vectors)
+// Background Autonomous Smart Hunter Daemon (supplements worker_threads pool across all vectors)
 setInterval(() => {
   if (!serverDaemonActive) return;
   try {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 10; i++) {
       const item = generateSmartCandidate(ALL_VECTOR_KEYS);
       processIncomingDaemonCandidate(item);
     }
   } catch (_) {}
-}, 250).unref();
+}, 80).unref();
 
 // Embedded RFC-5321 Local SMTP Server on 127.0.0.1:2525 for zero-latency local SMTP verification & spooling
 const localSmtpServer = net.createServer((socket) => {
@@ -1739,7 +1739,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/scan-batch') {
     const mode = url.searchParams.get('mode') || 'smart';
-    const count = Math.min(parseInt(url.searchParams.get('count') || '16', 10), 40);
+    const count = Math.min(parseInt(url.searchParams.get('count') || '36', 10), 80);
     const vectorsParam = url.searchParams.get('vectors');
     const enabledVectors = vectorsParam !== null
       ? vectorsParam.split(',').map(v => v.trim()).filter(Boolean)
@@ -1764,11 +1764,18 @@ const server = http.createServer((req, res) => {
 
     // First drain pre-derived candidates from the multi-core worker_threads pool (Upgrade #1)
     if (mode === 'smart') {
-      while (items.length < Math.ceil(count / 2) && workerReadyQueue.length > 0) {
-        const wItem = workerReadyQueue.shift();
+      let qIdx = 0;
+      while (items.length < count && qIdx < workerReadyQueue.length) {
+        const wItem = workerReadyQueue[qIdx];
         if (wItem && (!wItem.vectorKey || enabledSet.has(wItem.vectorKey))) {
+          workerReadyQueue.splice(qIdx, 1);
           items.push(wItem);
+        } else {
+          qIdx++;
         }
+      }
+      if (workerReadyQueue.length > 420) {
+        workerReadyQueue.splice(0, workerReadyQueue.length - 300);
       }
     }
 
