@@ -597,7 +597,7 @@ namespace WalletRecoveryTool.Core
                         catch (Exception ex) { DebugLogger.Log($"[BTC] balance check failed for {wallet.BitcoinAddress}: {ex.Message}"); }
                     }
 
-                    // Check SOL (batch result or fallback)
+                    // Check SOL (batch result only — never block on sequential per-wallet fallback)
                     if (options.ScanSolana && !string.IsNullOrEmpty(wallet.SolanaAddress))
                     {
                         if (solBalances != null && solBalances.TryGetValue(wallet.SolanaAddress, out var solBal))
@@ -605,24 +605,14 @@ namespace WalletRecoveryTool.Core
                             wallet.Balances["SOL"] = solBal;
                             if (solBal > 0.00000001m) hasBalance = true;
                         }
-                        else
-                        {
-                            try
-                            {
-                                var solBalSingle = await _balanceChecker.GetSolanaBalance(wallet.SolanaAddress);
-                                wallet.Balances["SOL"] = solBalSingle;
-                                if (solBalSingle > 0.00000001m) hasBalance = true;
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"[SOL] balance check failed for {wallet.SolanaAddress}: {ex.Message}"); }
-                        }
                     }
 
-                    // Check USDT (ERC-20) gated by ETH offline filter so empty ETH addresses don't trigger individual RPC calls
+                    // Check USDT (ERC-20) only when ETH batch reported activity or offline filter matched
                     if (options.ScanUSDT && !string.IsNullOrEmpty(wallet.EthereumAddress))
                     {
                         var ethAddrLower = wallet.EthereumAddress.ToLowerInvariant();
-                        if (!FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower) &&
-                            (!useOfflineFilter || !FundedAddressFilter.ETH.IsLoaded || FundedAddressFilter.ETH.MightBeFunded(ethAddrLower)))
+                        bool ethHasActivity = ethBalances != null && ethBalances.TryGetValue(ethAddrLower, out var ethVal) && ethVal > 0m;
+                        if (ethHasActivity && !FundedAddressFilter.ETHEmpty.IsKnownEmpty(ethAddrLower))
                         {
                             try
                             {
@@ -634,31 +624,7 @@ namespace WalletRecoveryTool.Core
                         }
                     }
 
-                    // Check LTC individually
-                    if (options.ScanLitecoin && !string.IsNullOrEmpty(wallet.LitecoinAddress))
-                    {
-                        try
-                        {
-                            var ltcBal = await _balanceChecker.GetLitecoinBalance(wallet.LitecoinAddress);
-                            wallet.Balances["LTC"] = ltcBal;
-                            if (ltcBal > 0.00000001m) hasBalance = true;
-                        }
-                        catch (Exception ex) { DebugLogger.Log($"[LTC] balance check failed for {wallet.LitecoinAddress}: {ex.Message}"); }
-                    }
-
-                    // Check DOGE individually
-                    if (options.ScanDogecoin && !string.IsNullOrEmpty(wallet.DogecoinAddress))
-                    {
-                        try
-                        {
-                            var dogeBal = await _balanceChecker.GetDogecoinBalance(wallet.DogecoinAddress);
-                            wallet.Balances["DOGE"] = dogeBal;
-                            if (dogeBal > 0.01m) hasBalance = true;
-                        }
-                        catch (Exception ex) { DebugLogger.Log($"[DOGE] balance check failed for {wallet.DogecoinAddress}: {ex.Message}"); }
-                    }
-
-                    // Check MATIC (batch result or fallback)
+                    // Check MATIC (batch result only)
                     if (options.ScanPolygon && !string.IsNullOrEmpty(wallet.PolygonAddress))
                     {
                         if (maticBalances != null && maticBalances.TryGetValue(wallet.PolygonAddress, out var maticBal))
@@ -666,35 +632,15 @@ namespace WalletRecoveryTool.Core
                             wallet.Balances["MATIC"] = maticBal;
                             if (maticBal > 0.00000001m) hasBalance = true;
                         }
-                        else
-                        {
-                            try
-                            {
-                                var maticBalSingle = await _balanceChecker.GetPolygonBalance(wallet.PolygonAddress);
-                                wallet.Balances["MATIC"] = maticBalSingle;
-                                if (maticBalSingle > 0.00000001m) hasBalance = true;
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"[MATIC] balance check failed for {wallet.PolygonAddress}: {ex.Message}"); }
-                        }
                     }
 
-                    // Check BNB (batch result or fallback)
+                    // Check BNB (batch result only)
                     if (options.ScanBnb && !string.IsNullOrEmpty(wallet.BnbAddress))
                     {
                         if (bnbBalances != null && bnbBalances.TryGetValue(wallet.BnbAddress, out var bnbBal))
                         {
                             wallet.Balances["BNB"] = bnbBal;
                             if (bnbBal > 0.00000001m) hasBalance = true;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var bnbBalSingle = await _balanceChecker.GetBnbBalance(wallet.BnbAddress);
-                                wallet.Balances["BNB"] = bnbBalSingle;
-                                if (bnbBalSingle > 0.00000001m) hasBalance = true;
-                            }
-                            catch (Exception ex) { DebugLogger.Log($"[BNB] balance check failed for {wallet.BnbAddress}: {ex.Message}"); }
                         }
                     }
 
@@ -1451,8 +1397,18 @@ namespace WalletRecoveryTool.Core
                     phases.Add(Task.Run(() => hunter.ScanIncrementalMnemonics(token, settings.SmartHuntingMaxAttempts / 6), token));
                 }
 
-                if (phases.Count == 0)
+                bool anyVectorConfigured = settings.ScanHumanPatterns || settings.ScanBrainWallets || settings.ScanWeakRngWallets ||
+                                           settings.ScanTimestampSeeds || settings.ScanVulnerablePatterns || settings.ScanDerivationPaths ||
+                                           settings.ScanDictionaryBrainWallets || settings.ScanKnownLeakedKeys || settings.ScanRepeatedWordMnemonics ||
+                                           settings.ScanIncrementalMnemonics;
+                if (!anyVectorConfigured)
                     break;
+
+                // Always keep Autonomous Cognitive Self-Learning Brain Engine running across rounds so scanning never stalls or exits early
+                if (!settings.ScanHumanPatterns || phases.Count == 0 || round > 1)
+                {
+                    phases.Add(Task.Run(() => hunter.ScanCognitiveBrainEngine(token, Math.Max(30000, settings.SmartHuntingMaxAttempts / 3)), token));
+                }
 
                 try
                 {

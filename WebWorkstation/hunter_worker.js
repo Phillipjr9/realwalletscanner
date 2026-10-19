@@ -21,9 +21,9 @@ function fnv1aHashes(str) {
   return [h1 >>> 0, h2 >>> 0, h3 >>> 0];
 }
 
-function tryMarkInSharedBloom(key) {
+function tryMarkWorkerBloom(key) {
   if (!bloomView || !key) return true;
-  const [h1, h2, h3] = fnv1aHashes(key);
+  const [h1, h2, h3] = fnv1aHashes('wk:' + key);
   const b1 = h1 % BLOOM_BITS;
   const b2 = h2 % BLOOM_BITS;
   const b3 = h3 % BLOOM_BITS;
@@ -45,7 +45,7 @@ const MULTI_LANG_SAMPLES = [
   { lang: 'IT', words: ['abaco', 'abbaglio', 'abbinato', 'abete', 'abisso', 'abitare', 'abituare', 'abrogato', 'accadere', 'accenno', 'ulivo', 'umore', 'unguento', 'onore', 'opera', 'opinione', 'opposto', 'oracolo', 'orario', 'orbita', 'ordine', 'orecchio', 'orfano', 'organo'] }
 ];
 
-let localCounter = workerId * 1000000;
+let localCounter = (workerId + 1) * 1000000 + crypto.randomInt(1, 500000);
 let paused = false;
 
 if (parentPort) {
@@ -54,48 +54,44 @@ if (parentPort) {
   });
 }
 
+function pickRandom11Words() {
+  const words11 = [];
+  const used = new Set([0]);
+  while (words11.length < 11) {
+    const idx = crypto.randomInt(1, eng.WORDLIST.length);
+    if (!used.has(idx)) {
+      used.add(idx);
+      words11.push(eng.WORDLIST[idx]);
+    }
+  }
+  return words11;
+}
+
 function generateWorkerCandidate() {
   localCounter++;
   const mode = localCounter % 6;
 
   if (mode === 0) {
-    // Multi-Index + Change-Chain BIP39 (Upgrade #2)
-    const words11 = [];
-    const used = new Set([0]);
-    while (words11.length < 11) {
-      const idx = crypto.randomInt(1, eng.WORDLIST.length);
-      if (!used.has(idx)) {
-        used.add(idx);
-        words11.push(eng.WORDLIST[idx]);
-      }
-    }
-    const mnem = eng.buildChecksumValid12WordDirect(words11, localCounter & 0x7f);
-    if (!tryMarkInSharedBloom(mnem)) return null;
+    // Multi-Index + Change-Chain BIP39 (Upgrade #2 -> matches vectorKey 'hdpaths')
+    const mnem = eng.buildChecksumValid12WordDirect(pickRandom11Words(), localCounter & 0x7f);
+    if (!tryMarkWorkerBloom(mnem)) return null;
     const derived = eng.deriveWalletFromMnemonic(mnem, '', false);
     return {
       source: `Worker #${workerId + 1} • Multi-Index + Change (0/0..2, 1/0)`,
-      vectorKey: 'paths',
+      vectorKey: 'hdpaths',
       feedType: 'Smart',
       phraseType: '12-Word Multi-Index',
       input: mnem,
-      brainArm: 'MultiAccountChangeSweep',
+      mnemonic: mnem,
+      brainArm: 'PositionalSalience',
       ...derived
     };
   }
 
   if (mode === 1) {
-    // Dual-Standard BIP39 + Electrum v2 Seed (Upgrade #4)
-    const words11 = [];
-    const used = new Set([0]);
-    while (words11.length < 11) {
-      const idx = crypto.randomInt(1, eng.WORDLIST.length);
-      if (!used.has(idx)) {
-        used.add(idx);
-        words11.push(eng.WORDLIST[idx]);
-      }
-    }
-    const mnem = eng.buildChecksumValid12WordDirect(words11, (localCounter * 7) & 0x7f);
-    if (!tryMarkInSharedBloom('electrum:' + mnem)) return null;
+    // Dual-Standard BIP39 + Electrum v2 Seed (Upgrade #4 -> matches vectorKey 'electrum')
+    const mnem = eng.buildChecksumValid12WordDirect(pickRandom11Words(), (localCounter * 7) & 0x7f);
+    if (!tryMarkWorkerBloom('electrum:' + mnem)) return null;
     const derived = eng.deriveWalletFromMnemonic(mnem, '', false);
     const elec = eng.deriveElectrumDualAddresses(mnem);
     return {
@@ -104,7 +100,8 @@ function generateWorkerCandidate() {
       feedType: 'Smart',
       phraseType: 'Dual BIP39+Electrum',
       input: mnem,
-      brainArm: 'ElectrumDualStandard',
+      mnemonic: mnem,
+      brainArm: 'ChecksumBitNeighbor',
       ...derived,
       electrumBtcLegacy: elec.electrumBtcLegacy,
       electrumBtcSegwit: elec.electrumBtcSegwit,
@@ -113,7 +110,7 @@ function generateWorkerCandidate() {
   }
 
   if (mode === 2) {
-    // Multi-Language BIP39 (ES / FR / IT) (Upgrade #4)
+    // Multi-Language BIP39 (ES / FR / IT) (Upgrade #4 -> matches vectorKey 'semantic')
     const pack = MULTI_LANG_SAMPLES[localCounter % MULTI_LANG_SAMPLES.length];
     const picked = [];
     const used = new Set();
@@ -125,39 +122,68 @@ function generateWorkerCandidate() {
       }
     }
     const phrase = picked.join(' ');
-    if (!tryMarkInSharedBloom(`lang:${pack.lang}:${phrase}`)) return null;
+    if (!tryMarkWorkerBloom(`lang:${pack.lang}:${phrase}`)) return null;
     const derived = eng.deriveWalletFromMnemonic(phrase, '', false);
     return {
       source: `Worker #${workerId + 1} • Multi-Lang BIP39 (${pack.lang})`,
-      vectorKey: 'human',
+      vectorKey: 'semantic',
       feedType: 'Smart',
       phraseType: `12-Word BIP39 (${pack.lang})`,
       input: phrase,
-      brainArm: 'MultiLanguageBip39',
+      mnemonic: phrase,
+      brainArm: 'SemanticClusterBip39',
       ...derived
     };
   }
 
-  // Fast Checksum-Bit Neighbor / Temporal PRNG / EVM Nonce & Token Sweep
-  const words11 = [];
-  const used = new Set([0]);
-  while (words11.length < 11) {
-    const idx = crypto.randomInt(1, eng.WORDLIST.length);
-    if (!used.has(idx)) {
-      used.add(idx);
-      words11.push(eng.WORDLIST[idx]);
-    }
+  if (mode === 3) {
+    // Ultra-Fast Brainwallet SHA-256 Passphrase Sweep (matches vectorKey 'brainwallet')
+    const w1 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
+    const w2 = eng.WORDLIST[crypto.randomInt(1, eng.WORDLIST.length)];
+    const phrase = `${w1}_${w2}_${(localCounter % 9999) + 2011}`;
+    if (!tryMarkWorkerBloom('bw:' + phrase)) return null;
+    const privKey = crypto.createHash('sha256').update(phrase).digest();
+    const addrs = eng.deriveAddressesFromPrivKey(privKey);
+    return {
+      source: `Worker #${workerId + 1} • High-Speed Brainwallet SHA-256`,
+      vectorKey: 'brainwallet',
+      feedType: 'Brain',
+      phraseType: 'SHA-256 Passphrase',
+      input: `brain:"${phrase}"`,
+      brainArm: 'PhoneticRhythmBip39',
+      ...addrs
+    };
   }
-  const mnem = eng.buildChecksumValid12WordDirect(words11, crypto.randomInt(0, 128));
-  if (!tryMarkInSharedBloom(mnem)) return null;
+
+  if (mode === 4) {
+    // Ultra-Fast Temporal PRNG & Checksum-Bit Solver (matches vectorKey 'timestamp')
+    const mnem = eng.buildChecksumValid12WordDirect(pickRandom11Words(), crypto.randomInt(0, 128));
+    if (!tryMarkWorkerBloom('ts:' + mnem)) return null;
+    const derived = eng.deriveWalletFromMnemonic(mnem, '', false);
+    return {
+      source: `Worker #${workerId + 1} • Temporal PRNG + Checksum Solver`,
+      vectorKey: 'timestamp',
+      feedType: 'Timestamp',
+      phraseType: '12-Word Checksum-Bit',
+      input: mnem,
+      mnemonic: mnem,
+      brainArm: 'TemporalPrngSubspace',
+      ...derived
+    };
+  }
+
+  // mode === 5: Cognitive Brain + EVM Nonce & ERC-20 Token Sweep (matches vectorKey 'brain')
+  const mnem = eng.buildChecksumValid12WordDirect(pickRandom11Words(), crypto.randomInt(0, 128));
+  if (!tryMarkWorkerBloom(mnem)) return null;
   const derived = eng.deriveWalletFromMnemonic(mnem, '', false);
   return {
     source: `Worker #${workerId + 1} • EVM Nonce & ERC-20 Token Sweep`,
-    vectorKey: 'cognitive',
+    vectorKey: 'brain',
     feedType: 'Smart',
     phraseType: '12-Word BIP39 + ERC20',
     input: mnem,
-    brainArm: 'ChecksumBitNeighbor',
+    mnemonic: mnem,
+    brainArm: 'MarkovOrder2Bip39',
     erc20Swept: ['USDT', 'USDC', 'WBTC', 'DAI'],
     ...derived
   };
@@ -167,7 +193,7 @@ function workerLoop() {
   if (!paused && parentPort) {
     const batch = [];
     let attempts = 0;
-    while (batch.length < 4 && attempts < 12) {
+    while (batch.length < 8 && attempts < 18) {
       attempts++;
       const item = generateWorkerCandidate();
       if (item) batch.push(item);
@@ -182,7 +208,7 @@ function workerLoop() {
       });
     }
   }
-  setTimeout(workerLoop, 90);
+  setTimeout(workerLoop, 28);
 }
 
 workerLoop();
