@@ -31,6 +31,11 @@ namespace WalletRecoveryTool.Core
         private SmartWalletHunter _activeHunter;
         public long LiveTotalChecked => _activeHunter?.TotalChecked ?? Statistics.TotalChecked;
         public WalletCheckingEventArgs LatestWalletChecking => _activeHunter?.LatestWalletChecking;
+        public bool TryDequeueWalletChecking(out WalletCheckingEventArgs args)
+        {
+            args = null;
+            return _activeHunter != null && _activeHunter.TryDequeueWalletChecking(out args);
+        }
         
         public WalletRecoveryEngine()
         {

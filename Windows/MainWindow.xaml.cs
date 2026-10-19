@@ -1153,6 +1153,7 @@ namespace WalletRecoveryTool
         private ObservableCollection<string> _livePreviewLog = new ObservableCollection<string>();
         private DateTime _smartHuntingStartTime;
         private int _smartHuntingChecked = 0;
+        private int _displayedSmartHuntingChecked = 0;
         private int _smartHuntingFound = 0;
         private System.Windows.Threading.DispatcherTimer _smartHuntingTimer;
         
@@ -1235,6 +1236,7 @@ namespace WalletRecoveryTool
             _smartHuntingResults.Clear();
             _livePreviewLog.Clear();
             _smartHuntingChecked = 0;
+            _displayedSmartHuntingChecked = 0;
             _totalChecked = 0;
             _droppedBySystemDedupe = 0;
             _prevCheckedForRate = 0;
@@ -1262,9 +1264,9 @@ namespace WalletRecoveryTool
             PreviewStatusTextBlock.Text = "⚡ SCANNING...";
             PreviewStatusBorder.Background = _brushStatusGreen;
             
-            // Start timer for live updates (250ms for smooth real-time counters)
+            // Start timer for smooth 22 FPS live stream scrolling & +1 counter stepping
             _smartHuntingTimer = new System.Windows.Threading.DispatcherTimer();
-            _smartHuntingTimer.Interval = TimeSpan.FromMilliseconds(250);
+            _smartHuntingTimer.Interval = TimeSpan.FromMilliseconds(45);
             _smartHuntingTimer.Tick += SmartHuntingTimer_Tick;
             _smartHuntingTimer.Start();
             
@@ -1407,15 +1409,10 @@ namespace WalletRecoveryTool
                 PreviewMaticBalanceTextBlock.Foreground = e.MaticBalance > 0 ? Brushes.Lime : _brushMatic;
                 PreviewBnbBalanceTextBlock.Foreground = e.BnbBalance > 0 ? Brushes.Lime : _brushBnb;
                 
-                // Update check counter
+                // Update target check counter (displayed counter steps smoothly in SmartHuntingTimer_Tick)
                 if (e.CheckNumber > _smartHuntingChecked)
                     _smartHuntingChecked = e.CheckNumber;
-                if (_smartHuntingChecked > _totalChecked)
-                    _totalChecked = _smartHuntingChecked;
-                SmartHuntingCheckedText.Text = _smartHuntingChecked.ToString("N0");
-                if (QuickStatsCheckedText != null) QuickStatsCheckedText.Text = _totalChecked.ToString("N0");
                 SmartHuntingPhaseText.Text = $"[{source}] Checking: {e.Address?.Substring(0, Math.Min(20, e.Address?.Length ?? 0))}...";
-                PreviewTotalTextBlock.Text = $"Scanned: {_smartHuntingChecked:N0}";
             }));
         }
         
@@ -1493,12 +1490,8 @@ namespace WalletRecoveryTool
             {
                 if (e.TotalChecked > _smartHuntingChecked)
                     _smartHuntingChecked = e.TotalChecked;
-                if (_smartHuntingChecked > _totalChecked)
-                    _totalChecked = _smartHuntingChecked;
                 _droppedBySystemDedupe = e.DroppedBySystemDedupe;
                 _rolling30sRate = e.Rolling30sRate;
-                SmartHuntingCheckedText.Text = _smartHuntingChecked.ToString("N0");
-                if (QuickStatsCheckedText != null) QuickStatsCheckedText.Text = _totalChecked.ToString("N0");
                 SmartHuntingPhaseText.Text = e.Message ?? "Scanning...";
                 
                 if (e.ProgressPercentage > 0)
@@ -1544,41 +1537,53 @@ namespace WalletRecoveryTool
             var elapsed = DateTime.Now - _smartHuntingStartTime;
             SmartHuntingTimeText.Text = elapsed.ToString(@"hh\:mm\:ss");
             
-            // Poll live counter directly from hunter (bypasses throttle for smooth display)
+            // Poll live target counter directly from hunter
             var liveCount = _recoveryEngine?.LiveTotalChecked ?? 0;
             if (liveCount > _smartHuntingChecked)
             {
                 _smartHuntingChecked = (int)liveCount;
-                SmartHuntingCheckedText.Text = _smartHuntingChecked.ToString("N0");
             }
-            if (_smartHuntingChecked > _totalChecked)
+
+            // Smooth +1 counter stepping so numbers never jump in batch gaps
+            if (_displayedSmartHuntingChecked < _smartHuntingChecked)
             {
-                _totalChecked = _smartHuntingChecked;
+                var gap = _smartHuntingChecked - _displayedSmartHuntingChecked;
+                var step = gap <= 32 ? 1 : (gap <= 120 ? 2 : Math.Max(1, gap / 16));
+                _displayedSmartHuntingChecked += step;
             }
+            SmartHuntingCheckedText.Text = _displayedSmartHuntingChecked.ToString("N0");
+            _totalChecked = _displayedSmartHuntingChecked;
             if (QuickStatsCheckedText != null)
             {
                 QuickStatsCheckedText.Text = _totalChecked.ToString("N0");
             }
-
-            // Poll latest candidate directly from hunter so Live Candidate Stream & Preview cards never stall
-            var latest = _recoveryEngine?.LatestWalletChecking;
-            if (latest != null)
+            if (PreviewTotalTextBlock != null)
             {
-                var seedDisplay = !string.IsNullOrEmpty(latest.Phrase) ? latest.Phrase : (latest.Mnemonic ?? "---");
-                var source = latest.Source ?? "SmartHunter";
+                PreviewTotalTextBlock.Text = $"Scanned: {_displayedSmartHuntingChecked:N0}";
+            }
+
+            // Dequeue 1 candidate per 45ms frame so the Live Candidate Stream scrolls smoothly row-by-row
+            WalletCheckingEventArgs nextCandidate = null;
+            if (_recoveryEngine != null && !_recoveryEngine.TryDequeueWalletChecking(out nextCandidate))
+            {
+                nextCandidate = _recoveryEngine.LatestWalletChecking;
+            }
+            if (nextCandidate != null)
+            {
+                var seedDisplay = !string.IsNullOrEmpty(nextCandidate.Phrase) ? nextCandidate.Phrase : (nextCandidate.Mnemonic ?? "---");
+                var source = nextCandidate.Source ?? "SmartHunter";
                 if (SmartLiveSeedText != null && SmartLiveSeedText.Text != seedDisplay)
                 {
                     SmartLiveSeedText.Text = seedDisplay;
-                    if (SmartLiveBtcText != null) SmartLiveBtcText.Text = latest.Address ?? "---";
-                    if (SmartLiveEthText != null) SmartLiveEthText.Text = latest.EthAddress ?? "---";
+                    if (SmartLiveBtcText != null) SmartLiveBtcText.Text = nextCandidate.Address ?? "---";
+                    if (SmartLiveEthText != null) SmartLiveEthText.Text = nextCandidate.EthAddress ?? "---";
                     if (SmartLiveSourceBadge != null) SmartLiveSourceBadge.Text = source.ToUpperInvariant();
                     if (SmartLiveApiSavedText != null) SmartLiveApiSavedText.Text = $"🛡️ API QUOTA SAVED: {BalanceChecker.ApiQuotaSavedCount:N0} calls (Zero-Waste RPC-First Active)";
                     LivePreviewSourceText.Text = source;
-                    PreviewBtcAddressTextBox.Text = latest.Address ?? "---";
-                    PreviewEthAddressTextBox.Text = latest.EthAddress ?? "---";
+                    PreviewBtcAddressTextBox.Text = nextCandidate.Address ?? "---";
+                    PreviewEthAddressTextBox.Text = nextCandidate.EthAddress ?? "---";
                     SetLiveMnemonicPreview(seedDisplay, source);
-                    SmartHuntingPhaseText.Text = $"[{source}] Checking: {latest.Address?.Substring(0, Math.Min(20, latest.Address?.Length ?? 0))}...";
-                    PreviewTotalTextBlock.Text = $"Scanned: {_smartHuntingChecked:N0}";
+                    SmartHuntingPhaseText.Text = $"[{source}] Checking: {nextCandidate.Address?.Substring(0, Math.Min(20, nextCandidate.Address?.Length ?? 0))}...";
                 }
             }
             
@@ -1589,20 +1594,21 @@ namespace WalletRecoveryTool
                 var dt = (now - _prevRateTime).TotalSeconds;
                 if (dt >= 1.0 && _prevRateTime != DateTime.MinValue)
                 {
-                    var delta = Math.Max(0, _smartHuntingChecked - _prevCheckedForRate);
-                    _currentRate = delta / dt;
-                    _prevCheckedForRate = _smartHuntingChecked;
+                    var delta = Math.Max(0, _displayedSmartHuntingChecked - _prevCheckedForRate);
+                    var instantRate = delta / dt;
+                    _currentRate = _currentRate <= 0 ? instantRate : (_currentRate * 0.65 + instantRate * 0.35);
+                    _prevCheckedForRate = _displayedSmartHuntingChecked;
                     _prevRateTime = now;
                 }
                 else if (_prevRateTime == DateTime.MinValue)
                 {
                     _prevRateTime = now;
-                    _prevCheckedForRate = _smartHuntingChecked;
+                    _prevCheckedForRate = _displayedSmartHuntingChecked;
                 }
                 var displayRate = _rolling30sRate > 0 ? _rolling30sRate : _currentRate;
-                if (displayRate <= 0 && _smartHuntingChecked > 0)
+                if (displayRate <= 0 && _displayedSmartHuntingChecked > 0)
                 {
-                    displayRate = _smartHuntingChecked / Math.Max(1.0, elapsed.TotalSeconds);
+                    displayRate = _displayedSmartHuntingChecked / Math.Max(1.0, elapsed.TotalSeconds);
                 }
                 SmartHuntingSpeedText.Text = $"{displayRate:F1}/sec";
                 if (QuickStatsRateText != null)
@@ -3213,31 +3219,31 @@ namespace WalletRecoveryTool
 
             _lastRecentMnemonicKey = key;
 
-            var entry = $"[{DateTime.Now:HH:mm:ss}] [{source}] {mnemonic}";
+            var entry = $"[{DateTime.Now:HH:mm:ss.ff}] [{source}] {mnemonic}";
             _recentScannedMnemonics.Enqueue((entry, source));
-            while (_recentScannedMnemonics.Count > 20)
+            while (_recentScannedMnemonics.Count > 24)
             {
                 _recentScannedMnemonics.Dequeue();
             }
 
-                if (RecentScansRichTextBox != null && (DateTime.Now - _lastFlowDocRebuild).TotalMilliseconds >= 150)
+            if (RecentScansRichTextBox != null && (DateTime.Now - _lastFlowDocRebuild).TotalMilliseconds >= 35)
+            {
+                _lastFlowDocRebuild = DateTime.Now;
+                var doc = RecentScansRichTextBox.Document;
+                while (doc.Blocks.Count >= 24 && doc.Blocks.FirstBlock != null)
                 {
-                    _lastFlowDocRebuild = DateTime.Now;
-                    var doc = RecentScansRichTextBox.Document;
-                    doc.Blocks.Clear();
-                    foreach (var item in _recentScannedMnemonics)
-                    {
-                        var run = new Run(item.Text)
-                        {
-                            Foreground = GetScanSourceBrush(item.Source)
-                        };
-                        doc.Blocks.Add(new Paragraph(run)
-                        {
-                            Margin = new Thickness(0)
-                        });
-                    }
-                    RecentScansRichTextBox.ScrollToEnd();
+                    doc.Blocks.Remove(doc.Blocks.FirstBlock);
                 }
+                var run = new Run(entry)
+                {
+                    Foreground = GetScanSourceBrush(source)
+                };
+                doc.Blocks.Add(new Paragraph(run)
+                {
+                    Margin = new Thickness(0, 1, 0, 1)
+                });
+                RecentScansRichTextBox.ScrollToEnd();
+            }
         }
 
         private Brush GetScanSourceBrush(string source)
@@ -3483,8 +3489,8 @@ namespace WalletRecoveryTool
                     BrainStrategyArmText.Text = $"ARM: {topArm.Name} ({conf:F0}%)";
                 }
                 
-                // Update checked count - use best available source
-                if (_isRecoveryRunning)
+                // Update checked count - use smooth stepped counter when Smart Hunting timer is active
+                if (_isRecoveryRunning && (_smartHuntingTimer == null || !_smartHuntingTimer.IsEnabled))
                 {
                     var liveCount = _recoveryEngine?.LiveTotalChecked ?? 0;
                     if (liveCount > _totalChecked)
