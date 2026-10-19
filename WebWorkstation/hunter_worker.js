@@ -89,11 +89,34 @@ function runUltraFastHardwareBurst(burstCount = 56) {
   return screenedWallets;
 }
 
+const HISTORICAL_BIP39_SEEDS = [
+  'army van defense carry jealous true garbage claim echo media make crunch',
+  'gravity machine north sort system female filter attitude volume fold club abuse',
+  'void come effort suffer camp survey warrior heavy shoot primary clutch absurd',
+  'planet crystal ocean velvet silver canyon harvest timber shadow marble winter acid'
+];
+
 function generateWorkerCandidate() {
   localCounter++;
   const mode = localCounter % 6;
 
   if (mode === 0) {
+    // Check historical 12-word BIP39 audit seeds once across the worker pool before novel synthesis
+    for (const histSeed of HISTORICAL_BIP39_SEEDS) {
+      if (tryMarkWorkerBloom('hist12:' + histSeed)) {
+        const derivedHist = eng.deriveWalletFromMnemonic(histSeed, '', true);
+        return {
+          source: `Worker #${workerId + 1} • 12-Word BIP39 Historical Seed`,
+          vectorKey: 'hdpaths',
+          feedType: 'Smart',
+          phraseType: '12-Word BIP39 Seed',
+          input: histSeed,
+          mnemonic: histSeed,
+          brainArm: 'PositionalSalience',
+          ...derivedHist
+        };
+      }
+    }
     // Multi-Index + Change-Chain BIP39 (Upgrade #2 -> matches vectorKey 'hdpaths')
     const mnem = eng.buildChecksumValid12WordDirect(pickRandom11Words(), localCounter & 0x7f);
     if (!tryMarkWorkerBloom(mnem)) return null;

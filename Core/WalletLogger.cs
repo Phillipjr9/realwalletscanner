@@ -142,6 +142,80 @@ namespace WalletRecoveryTool.Core
             }
         }
 
+        public void LogEverHeldWallet(CryptoWalletGenerator.WalletInfo wallet)
+        {
+            if (wallet == null) return;
+            lock (_lock)
+            {
+                try
+                {
+                    var everHeldPath = Path.Combine(_logDirectory, "EVER_HELD_WALLETS.txt");
+                    var everHeldJsonlPath = Path.Combine(_logDirectory, "EVER_HELD_WALLETS_VAULT.jsonl");
+                    var content = new StringBuilder();
+                    content.AppendLine($"[EVER HELD CRYPTO DETECTED AT: {DateTime.Now:yyyy-MM-dd HH:mm:ss}]");
+                    content.AppendLine($"Source / Vector:           {wallet.Source ?? "Scanner"}");
+                    content.AppendLine($"12-Word Mnemonic / Seed:   {wallet.Mnemonic}");
+                    content.AppendLine($"Private Key (WIF / Hex):   {wallet.PrivateKey}");
+                    if (!string.IsNullOrEmpty(wallet.PrivateKey) && (wallet.PrivateKey.StartsWith("K") || wallet.PrivateKey.StartsWith("L") || wallet.PrivateKey.StartsWith("5")))
+                    {
+                        content.AppendLine("Electrum 3-Format Import Block:");
+                        content.AppendLine($"  p2pkh:{wallet.PrivateKey}");
+                        content.AppendLine($"  p2wpkh-p2sh:{wallet.PrivateKey}");
+                        content.AppendLine($"  p2wpkh:{wallet.PrivateKey}");
+                    }
+                    content.AppendLine($"BTC Legacy (1...):         {wallet.BitcoinAddress}");
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit))
+                        content.AppendLine($"BTC Nested SegWit (3...):  {wallet.BitcoinAddressSegWit}");
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit))
+                        content.AppendLine($"BTC Native SegWit (bc1q):  {wallet.BitcoinAddressNativeSegWit}");
+                    if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot))
+                        content.AppendLine($"BTC Taproot (bc1p):        {wallet.BitcoinAddressTaproot}");
+                    content.AppendLine($"ETH Address (0x...):       {wallet.EthereumAddress}");
+                    content.AppendLine($"SOL Address:               {wallet.SolanaAddress}");
+                    content.AppendLine($"Lifetime Chain History:    {Math.Max(1, wallet.HistoricalTxCount)} TX | {wallet.TotalEverReceivedBtc:0.########} BTC rcvd | {wallet.HistoricalActivityDetails ?? "Historically Active"}");
+                    content.AppendLine($"Current Unspent Balance:   ${wallet.TotalUsdValue:N2}");
+                    content.AppendLine(new string('=', 80));
+                    content.AppendLine();
+
+                    byte[] plainBytes = Encoding.UTF8.GetBytes(content.ToString());
+                    using (var fs = new FileStream(everHeldPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    {
+                        fs.Write(plainBytes, 0, plainBytes.Length);
+                        fs.Flush(flushToDisk: true);
+                    }
+
+                    var jsonEntry = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        detectedAt = DateTime.UtcNow.ToString("O"),
+                        source = wallet.Source,
+                        mnemonic = wallet.Mnemonic,
+                        privateKey = wallet.PrivateKey,
+                        btcLegacy = wallet.BitcoinAddress,
+                        btcSegWit = wallet.BitcoinAddressSegWit,
+                        btcNativeSegWit = wallet.BitcoinAddressNativeSegWit,
+                        btcTaproot = wallet.BitcoinAddressTaproot,
+                        ethAddress = wallet.EthereumAddress,
+                        solAddress = wallet.SolanaAddress,
+                        everHeldCrypto = true,
+                        historicalTxCount = Math.Max(1, wallet.HistoricalTxCount),
+                        totalEverReceivedBtc = wallet.TotalEverReceivedBtc,
+                        historicalDetails = wallet.HistoricalActivityDetails,
+                        totalUsdValue = wallet.TotalUsdValue
+                    }) + Environment.NewLine;
+                    byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonEntry);
+                    using (var jfs = new FileStream(everHeldJsonlPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    {
+                        jfs.Write(jsonBytes, 0, jsonBytes.Length);
+                        jfs.Flush(flushToDisk: true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"Error saving ever-held wallet: {ex.Message}");
+                }
+            }
+        }
+
         private void SaveFoundWallet(CryptoWalletGenerator.WalletInfo wallet, bool mnemonicOnly = false)
         {
             try

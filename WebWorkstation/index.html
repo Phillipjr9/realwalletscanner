@@ -913,6 +913,9 @@
           <span id="HeaderRunIcon">⏸</span>
           <span id="HeaderRunLabel">Pause</span>
         </button>
+        <button class="btn" style="border-color:rgba(245,158,11,0.45); color:#FCD34D; font-weight:700;" onclick="switchTab('Watch')" title="Open Ever-Held &amp; Found Wallets Vault with Full Mnemonics &amp; Private Keys">
+          📜 Ever-Held &amp; Keys Vault
+        </button>
         <button class="btn" onclick="openModal('settingsModal')" title="7/7 Blockchain Explorer API Keys Active in Zero-Waste Mode">
           <span>🔑 API Keys</span>
           <span id="HeaderApiKeysBadge" class="pill pill-emerald mono" style="padding:1px 6px; font-size:9.5px;">7/7 ACTIVE</span>
@@ -1300,19 +1303,32 @@
 
           <!-- Right Card: Discovered Vault & Historical Activity Watchlist -->
           <div class="card">
-            <div class="card-header">
-              <span class="card-title">Discovered Wallets Vault (Funded &amp; Ever-Held History)</span>
-              <span class="pill pill-amber mono" id="WatchlistHeaderCount">0 WALLETS</span>
+            <div class="card-header" style="flex-wrap:wrap; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="card-title">Discovered Wallets Vault (Full Mnemonics, Private Keys &amp; Ever-Held History)</span>
+                <span class="pill pill-amber mono" id="WatchlistHeaderCount">0 WALLETS</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px;" onclick="setWatchlistFilter('all')">All</button>
+                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(56,189,248,0.4); color:#7DD3FC;" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
+                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(245,158,11,0.4); color:#FCD34D;" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
+                <button class="btn btn-emerald" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700;" onclick="window.open('/api/export-ever-held-txt', '_blank')">
+                  📥 Download ever_held_wallets.txt
+                </button>
+              </div>
+            </div>
+            <div style="font-size:11px; color:#94A3B8; margin-bottom:8px;" class="mono">
+              💾 Automatically saved to <strong style="color:#FCD34D;">ever_held_wallets.txt</strong> &amp; <strong style="color:#34D399;">EVER_HELD_WALLETS_VAULT.json</strong>. Click <strong style="color:#7DD3FC;">🔑 Access / Copy Keys</strong> on any row to copy the 12-word Mnemonic, BTC WIF, Electrum 3-path block, or ETH 0x Private Key.
             </div>
             <div class="table-container">
               <table class="data-table mono">
                 <thead>
                   <tr>
-                    <th style="width:17%;">Discovery Vector</th>
-                    <th style="width:27%;">Seed / Key Material</th>
-                    <th style="width:18%;">BTC (Legacy / SegWit)</th>
-                    <th style="width:16%;">ETH Address</th>
-                    <th style="width:22%;">Balance &amp; Lifetime History</th>
+                    <th style="width:13%;">Vector / Type</th>
+                    <th style="width:28%;">12-Word Mnemonic / Seed Material</th>
+                    <th style="width:23%;">BTC WIF &amp; ETH 0x Private Key</th>
+                    <th style="width:16%;">BTC &amp; ETH Address</th>
+                    <th style="width:20%;">History &amp; Access Keys</th>
                   </tr>
                 </thead>
                 <tbody id="WatchlistBody"></tbody>
@@ -1337,6 +1353,20 @@
       </div>
     </footer>
 
+  </div>
+
+  <!-- WALLET ACCESS & RECOVERY CREDENTIALS MODAL -->
+  <div id="walletAccessModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('walletAccessModal')">
+    <div class="modal-window" style="width:760px; max-height:88vh;">
+      <div class="modal-header">
+        <span>🔑 Wallet Access Credentials — Mnemonic Seed &amp; Private Keys</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-emerald" style="height:28px;" onclick="window.open('/api/export-ever-held-txt', '_blank')">📥 Download ever_held_wallets.txt</button>
+          <button class="btn" style="height:28px;" onclick="closeModal('walletAccessModal')">Close</button>
+        </div>
+      </div>
+      <div id="WalletAccessModalContent" class="mono" style="padding:18px; overflow-y:auto; display:flex; flex-direction:column; gap:12px;"></div>
+    </div>
   </div>
 
   <!-- ANALYTICS MODAL -->
@@ -1988,7 +2018,7 @@
       if (Array.isArray(data.everHeldVault)) {
         for (const evItem of data.everHeldVault) {
           const wk = evItem.btcLegacy || evItem.ethAddress || evItem.input;
-          if (wk && !watchlistItems.has(wk)) {
+          if (wk) {
             watchlistItems.set(wk, evItem);
           }
         }
@@ -2107,11 +2137,116 @@
     }
   }
 
+  let currentWatchlistFilter = 'all';
+
+  function setWatchlistFilter(mode) {
+    currentWatchlistFilter = mode || 'all';
+    renderWatchlist();
+  }
+
+  function copyTextValue(val, btn) {
+    if (!val) return;
+    navigator.clipboard.writeText(val).catch(() => {});
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => { btn.textContent = prev; }, 1200);
+    }
+  }
+
+  function openWalletAccessModal(watchKey) {
+    const item = watchlistItems.get(watchKey);
+    if (!item) return;
+    const isFunded = Number(item.balanceUsd || 0) > 0;
+    const rawInput = String(item.mnemonic || item.input || '');
+    const isSeed = Boolean(item.isMnemonicSeed) || (!rawInput.startsWith('brain:') && !rawInput.startsWith('0x') && rawInput.trim().split(/\s+/).length >= 12);
+    const privHex = (item.privateKeyHex || item.privateKey || '').startsWith('0x')
+      ? (item.privateKeyHex || item.privateKey)
+      : (item.privateKeyHex || item.privateKey ? '0x' + (item.privateKeyHex || item.privateKey) : '—');
+    const btcWif = item.btcWif || '—';
+    const btcWifUncomp = item.btcWifUncompressed || '—';
+    const electrumBlock = item.electrumImportBlock || (btcWif !== '—' ? `p2pkh:${btcWif}\np2wpkh-p2sh:${btcWif}\np2wpkh:${btcWif}` : '—');
+
+    const box = document.getElementById('WalletAccessModalContent');
+    if (box) {
+      box.innerHTML = `
+        <div style="background:${isFunded ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'}; border:1px solid ${isFunded ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.4)'}; border-radius:8px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:13px; font-weight:700; color:${isFunded ? '#6EE7B7' : '#FCD34D'};">
+              ${isFunded ? '💰 CURRENTLY FUNDED WALLET' : '📜 EVER HELD CRYPTO — HISTORICALLY ACTIVE WALLET'}
+            </span>
+            <span class="pill ${isFunded ? 'pill-emerald' : 'pill-amber'} mono">${item.historicalTx || 1} ON-CHAIN TXs • ${item.totalEverReceivedBtc || 0} BTC / ${item.totalEverReceivedEth || 0} ETH RCVD</span>
+          </div>
+          <div style="font-size:11px; color:#E2E8F0; margin-top:5px;">
+            <b>Vector:</b> ${item.source || 'Smart Hunter'} • <b>Access Type:</b> ${isSeed ? '12-Word BIP39 Recovery Phrase + Private Keys' : 'Direct Private Key (Brainwallet SHA-256 Passphrase)'}
+          </div>
+        </div>
+
+        <div style="background:var(--bg-input); border:1px solid rgba(56,189,248,0.35); border-radius:8px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:11px; font-weight:700; color:#7DD3FC;">
+              ${isSeed ? '1️⃣ 12-WORD BIP39 MNEMONIC SEED PHRASE (Import as Recovery Phrase in Trust Wallet / MetaMask / Electrum)' : '1️⃣ SOURCE PASSPHRASE (Brainwallet SHA-256 Input — Use WIF or Hex Key Below to Import)'}
+            </span>
+            <button class="btn" style="height:24px; padding:0 8px; font-size:10.5px; color:#7DD3FC;" data-copy="${rawInput.replace(/"/g, '&quot;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy ${isSeed ? '12-Word Mnemonic' : 'Passphrase'}</button>
+          </div>
+          <div style="font-size:13px; font-weight:700; color:#F8FAFC; word-break:break-word; user-select:all; padding:6px 8px; background:#05070B; border-radius:6px; border:1px solid var(--border-hairline);">
+            ${rawInput}
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div style="background:var(--bg-input); border:1px solid rgba(247,147,26,0.35); border-radius:8px; padding:11px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+              <span style="font-size:10.5px; font-weight:700; color:#F7931A;">2️⃣ BTC PRIVATE KEY (WIF COMPRESSED)</span>
+              <button class="btn" style="height:22px; padding:0 7px; font-size:10px;" data-copy="${btcWif}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy WIF</button>
+            </div>
+            <div style="font-size:11.5px; color:#FDE68A; word-break:break-all; user-select:all;">${btcWif}</div>
+            <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">Uncompressed WIF (Legacy 1…): <span style="color:#CBD5E1; user-select:all;">${btcWifUncomp}</span></div>
+          </div>
+
+          <div style="background:var(--bg-input); border:1px solid rgba(98,126,234,0.35); border-radius:8px; padding:11px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+              <span style="font-size:10.5px; font-weight:700; color:#93C5FD;">3️⃣ ETH / EVM PRIVATE KEY (0x HEX)</span>
+              <button class="btn" style="height:22px; padding:0 7px; font-size:10px;" data-copy="${privHex}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy 0x Key</button>
+            </div>
+            <div style="font-size:11.5px; color:#93C5FD; word-break:break-all; user-select:all;">${privHex}</div>
+            <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">Import into MetaMask / Trust Wallet / Rabby → Import Account → Private Key</div>
+          </div>
+        </div>
+
+        <div style="background:var(--bg-input); border:1px solid rgba(52,211,153,0.35); border-radius:8px; padding:11px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <span style="font-size:10.5px; font-weight:700; color:#34D399;">4️⃣ ELECTRUM / SPARROW 3-FORMAT SWEEP BLOCK (Imports Legacy 1…, Nested 3…, and Native SegWit bc1q… at once)</span>
+            <button class="btn btn-emerald" style="height:22px; padding:0 8px; font-size:10px;" data-copy="${electrumBlock.replace(/\n/g, '&#10;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy All 3 for Electrum</button>
+          </div>
+          <pre style="margin:0; font-size:11px; color:#A7F3D0; background:#05070B; padding:8px; border-radius:6px; border:1px solid var(--border-hairline); user-select:all; overflow-x:auto;">${electrumBlock}</pre>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11px;">
+          <div style="background:var(--bg-input); padding:8px 10px; border-radius:6px; border:1px solid var(--border-hairline);">
+            <span style="color:var(--text-muted);">BTC Legacy (1…):</span> <span style="color:#F8FAFC; user-select:all;">${item.btcLegacy || '—'}</span>
+          </div>
+          <div style="background:var(--bg-input); padding:8px 10px; border-radius:6px; border:1px solid var(--border-hairline);">
+            <span style="color:var(--text-muted);">BTC SegWit (bc1q…):</span> <span style="color:#F8FAFC; user-select:all;">${item.btcSegwit || '—'}</span>
+          </div>
+          <div style="background:var(--bg-input); padding:8px 10px; border-radius:6px; border:1px solid var(--border-hairline);">
+            <span style="color:var(--text-muted);">BTC Taproot (bc1p…):</span> <span style="color:#FDBA74; user-select:all;">${item.btcTaproot || '—'}</span>
+          </div>
+          <div style="background:var(--bg-input); padding:8px 10px; border-radius:6px; border:1px solid var(--border-hairline);">
+            <span style="color:var(--text-muted);">ETH Address (0x…):</span> <span style="color:#93C5FD; user-select:all;">${item.ethAddress || '—'}</span>
+          </div>
+        </div>
+      `;
+    }
+    openModal('walletAccessModal');
+  }
+
   function formatWalletStatusBadge(item) {
     const isFunded = Number(item.balanceUsd || 0) > 0;
     const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
+    const wk = (item.btcLegacy || item.ethAddress || item.input || '').replace(/'/g, "\\'");
     if (isFunded) {
-      return `<span class="pill pill-emerald" title="${item.historicalLabel || 'Active Funded Wallet'}">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString()}) • ${item.historicalTx || 1} TX</span>`;
+      return `<span class="pill pill-emerald" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString()}) • 🔑 Keys</span>`;
     }
     if (isEverHeld) {
       const rcvBtc = Number(item.totalEverReceivedBtc || 0);
@@ -2119,7 +2254,7 @@
       const rcvSummary = rcvBtc > 0
         ? `${rcvBtc} BTC rcvd`
         : (rcvEth > 0 ? `${rcvEth} ETH rcvd` : `${item.historicalTx} TX`);
-      return `<span class="pill pill-amber" title="${item.historicalLabel || 'Historically Active Wallet'} • ${item.deepSweepStatus || ''}">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary})</span>`;
+      return `<span class="pill pill-amber" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary}) • 🔑 Keys</span>`;
     }
     return `<span style="color:var(--text-muted);">0 TX • Never Held</span>`;
   }
@@ -2204,16 +2339,54 @@
   function renderWatchlist() {
     const body = document.getElementById('WatchlistBody');
     body.innerHTML = '';
-    for (const item of watchlistItems.values()) {
+    const allItems = Array.from(watchlistItems.values()).sort((a, b) => {
+      const aSeed = Boolean(a.isMnemonicSeed) || (!String(a.input || '').startsWith('brain:') && String(a.input || '').trim().split(/\s+/).length >= 12);
+      const bSeed = Boolean(b.isMnemonicSeed) || (!String(b.input || '').startsWith('brain:') && String(b.input || '').trim().split(/\s+/).length >= 12);
+      if (aSeed !== bSeed) return aSeed ? -1 : 1;
+      return Number(b.balanceUsd || 0) - Number(a.balanceUsd || 0);
+    });
+
+    for (const item of allItems) {
       const isFunded = Number(item.balanceUsd || 0) > 0;
+      const rawInput = String(item.mnemonic || item.input || '');
+      const isSeed = Boolean(item.isMnemonicSeed) || (!rawInput.startsWith('brain:') && !rawInput.startsWith('0x') && rawInput.trim().split(/\s+/).length >= 12);
+      if (currentWatchlistFilter === 'mnemonic' && !isSeed) continue;
+      if (currentWatchlistFilter === 'funded' && !isFunded) continue;
+      if (currentWatchlistFilter === 'everheld' && isFunded) continue;
+
+      const wk = (item.btcLegacy || item.ethAddress || item.input || '').replace(/'/g, "\\'");
+      const privHex = (item.privateKeyHex || item.privateKey || '').startsWith('0x')
+        ? (item.privateKeyHex || item.privateKey)
+        : (item.privateKeyHex || item.privateKey ? '0x' + (item.privateKeyHex || item.privateKey) : '—');
+      const btcWif = item.btcWif || '—';
+
       const tr = document.createElement('tr');
       tr.className = isFunded ? 'row-hit' : 'row-ever-held';
       tr.innerHTML = `
-        <td>${item.source || 'Scanner'}</td>
-        <td title="${item.input}">${item.input}</td>
-        <td title="${item.btcLegacy || item.btcSegwit}">${item.btcLegacy || item.btcSegwit || '—'}</td>
-        <td title="${item.ethAddress}">${item.ethAddress || '—'}</td>
-        <td>${formatWalletStatusBadge(item)}</td>
+        <td style="white-space:normal; vertical-align:top;">
+          <div style="font-weight:700; color:${isSeed ? '#7DD3FC' : '#C7D2FE'};">${isSeed ? '🔑 12-Word BIP39 Seed' : '⚡ Brainwallet / Key'}</div>
+          <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">${item.source || 'Scanner'}</div>
+        </td>
+        <td style="white-space:normal; word-break:break-word; vertical-align:top; user-select:all;">
+          <div style="font-weight:700; color:#F8FAFC; line-height:1.45;">${rawInput}</div>
+          <div style="margin-top:4px; display:flex; gap:6px;">
+            <button class="btn" style="height:20px; padding:0 6px; font-size:9.5px; color:#7DD3FC;" data-copy="${rawInput.replace(/"/g, '&quot;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy ${isSeed ? '12 Words' : 'Input'}</button>
+          </div>
+        </td>
+        <td style="white-space:normal; word-break:break-all; vertical-align:top; font-size:10.5px; user-select:all;">
+          <div><b style="color:#F7931A;">WIF:</b> <span style="color:#FDE68A;">${btcWif}</span></div>
+          <div style="margin-top:3px;"><b style="color:#627EEA;">ETH:</b> <span style="color:#93C5FD;">${privHex}</span></div>
+        </td>
+        <td style="white-space:normal; word-break:break-all; vertical-align:top; font-size:10.5px; user-select:all;">
+          <div><b style="color:#F7931A;">BTC:</b> ${item.btcSegwit || item.btcLegacy || '—'}</div>
+          <div style="margin-top:3px;"><b style="color:#627EEA;">ETH:</b> ${item.ethAddress || '—'}</div>
+        </td>
+        <td style="white-space:normal; vertical-align:top;">
+          <div>${formatWalletStatusBadge(item)}</div>
+          <button class="btn btn-primary" style="height:24px; padding:0 8px; font-size:10.5px; margin-top:6px; width:100%;" onclick="openWalletAccessModal('${wk}')">
+            🔑 Access / Copy All Keys
+          </button>
+        </td>
       `;
       body.appendChild(tr);
     }

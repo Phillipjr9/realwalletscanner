@@ -53,6 +53,7 @@ $files = @(
     "Core/WalletRecoveryEngine.cs",
     "Core/CryptoWalletGenerator.cs",
     "Core/BalanceChecker.cs",
+    "Core/WalletLogger.cs",
     "Core/SelfTestRunner.cs",
     "WebWorkstation/index.html",
     "WebWorkstation/server.js",
