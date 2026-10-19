@@ -997,25 +997,58 @@
             </button>
           </div>
 
-          <!-- Right Live Candidate Stream Table -->
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Live Synthesized Candidates &amp; On-Chain Verification (Balance + Ever-Held History)</span>
-              <span id="QuantumUpgradesBadge" class="mono" style="font-size:11px; color:#34D399;">Multi-Core Workers • Ever-Held History • 0/0..2 + 1/0 Change • 33.5M-Bit Bloom • ERC-20 Sweep</span>
+          <!-- Right Live Candidate Stream + Pinned Ever-Held & Funded Wallets -->
+          <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+            <div class="card" style="flex:1.1; min-height:0;">
+              <div class="card-header">
+                <span class="card-title">Live Synthesized Candidates &amp; On-Chain Verification (Balance + Ever-Held History)</span>
+                <span id="QuantumUpgradesBadge" class="mono" style="font-size:11px; color:#34D399;">Multi-Core Workers • Ever-Held History • 0/0..2 + 1/0 Change • 33.5M-Bit Bloom • ERC-20 Sweep</span>
+              </div>
+              <div class="table-container">
+                <table class="data-table mono">
+                  <thead>
+                    <tr>
+                      <th style="width:17%;">Strategy Vector</th>
+                      <th style="width:29%;">Seed Phrase / Key Material</th>
+                      <th style="width:17%;">BTC SegWit (bc1q)</th>
+                      <th style="width:17%;">ETH Address (0x)</th>
+                      <th style="width:20%;">Balance &amp; Ever-Held History</th>
+                    </tr>
+                  </thead>
+                  <tbody id="SmartResultsBody"></tbody>
+                </table>
+              </div>
             </div>
-            <div class="table-container">
-              <table class="data-table mono">
-                <thead>
-                  <tr>
-                    <th style="width:17%;">Strategy Vector</th>
-                    <th style="width:29%;">Seed Phrase / Key Material</th>
-                    <th style="width:17%;">BTC SegWit (bc1q)</th>
-                    <th style="width:17%;">ETH Address (0x)</th>
-                    <th style="width:20%;">Balance &amp; Ever-Held History</th>
-                  </tr>
-                </thead>
-                <tbody id="SmartResultsBody"></tbody>
-              </table>
+
+            <!-- Pinned Ever-Held & Funded Wallets Box Directly on Main Scanning Page -->
+            <div class="card" style="flex:0.95; min-height:0; border-color:rgba(245,158,11,0.38);">
+              <div class="card-header" style="flex-wrap:wrap; gap:6px; margin-bottom:6px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="card-title" style="color:#FCD34D;">📜 Pinned Ever-Held &amp; Funded Wallets (Full Mnemonic &amp; Private Keys — Never Scrolls Away)</span>
+                  <span id="SmartPinnedCountBadge" class="pill pill-amber mono">0 SAVED</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px;" onclick="setWatchlistFilter('all')">All</button>
+                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(56,189,248,0.4); color:#7DD3FC;" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
+                  <button class="btn btn-emerald" style="height:23px; padding:0 9px; font-size:10px; font-weight:700;" onclick="window.open('/api/export-ever-held-txt', '_blank')">
+                    📥 Download ever_held_wallets.txt
+                  </button>
+                </div>
+              </div>
+              <div class="table-container">
+                <table class="data-table mono">
+                  <thead>
+                    <tr>
+                      <th style="width:14%;">Type / Vector</th>
+                      <th style="width:30%;">Full 12-Word Mnemonic / Seed Phrase</th>
+                      <th style="width:23%;">BTC WIF &amp; ETH 0x Private Key</th>
+                      <th style="width:15%;">BTC &amp; ETH Address</th>
+                      <th style="width:18%;">History &amp; Access Keys</th>
+                    </tr>
+                  </thead>
+                  <tbody id="SmartPinnedEverHeldBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -2338,7 +2371,9 @@
 
   function renderWatchlist() {
     const body = document.getElementById('WatchlistBody');
-    body.innerHTML = '';
+    const pinnedBody = document.getElementById('SmartPinnedEverHeldBody');
+    if (body) body.innerHTML = '';
+    if (pinnedBody) pinnedBody.innerHTML = '';
     const allItems = Array.from(watchlistItems.values()).sort((a, b) => {
       const aSeed = Boolean(a.isMnemonicSeed) || (!String(a.input || '').startsWith('brain:') && String(a.input || '').trim().split(/\s+/).length >= 12);
       const bSeed = Boolean(b.isMnemonicSeed) || (!String(b.input || '').startsWith('brain:') && String(b.input || '').trim().split(/\s+/).length >= 12);
@@ -2360,9 +2395,7 @@
         : (item.privateKeyHex || item.privateKey ? '0x' + (item.privateKeyHex || item.privateKey) : '—');
       const btcWif = item.btcWif || '—';
 
-      const tr = document.createElement('tr');
-      tr.className = isFunded ? 'row-hit' : 'row-ever-held';
-      tr.innerHTML = `
+      const rowHtml = `
         <td style="white-space:normal; vertical-align:top;">
           <div style="font-weight:700; color:${isSeed ? '#7DD3FC' : '#C7D2FE'};">${isSeed ? '🔑 12-Word BIP39 Seed' : '⚡ Brainwallet / Key'}</div>
           <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">${item.source || 'Scanner'}</div>
@@ -2388,10 +2421,24 @@
           </button>
         </td>
       `;
-      body.appendChild(tr);
+
+      if (body) {
+        const tr = document.createElement('tr');
+        tr.className = isFunded ? 'row-hit' : 'row-ever-held';
+        tr.innerHTML = rowHtml;
+        body.appendChild(tr);
+      }
+      if (pinnedBody) {
+        const ptr = document.createElement('tr');
+        ptr.className = isFunded ? 'row-hit' : 'row-ever-held';
+        ptr.innerHTML = rowHtml;
+        pinnedBody.appendChild(ptr);
+      }
     }
     document.getElementById('VaultBadgeCount').textContent = watchlistItems.size;
     document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS`;
+    const pinnedBadge = document.getElementById('SmartPinnedCountBadge');
+    if (pinnedBadge) pinnedBadge.textContent = `${watchlistItems.size} SAVED`;
   }
 
   async function runWildcardSolver() {
