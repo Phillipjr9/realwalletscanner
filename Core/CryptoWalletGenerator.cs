@@ -157,19 +157,34 @@ namespace WalletRecoveryTool.Core
                     return null; // Skip — neither valid BIP39 nor valid Electrum seed
                 }
 
-                // Generate or use provided mnemonic
-                var wordlist = GetWordlistForLanguage();
-                var mnemonicObj = string.IsNullOrEmpty(mnemonic) 
-                    ? new BtcMnemonic(wordlist, BtcWordCount.Twelve)
-                    : new BtcMnemonic(mnemonic);
+                string cleanMnemonic;
+                if (string.IsNullOrEmpty(mnemonic))
+                {
+                    var wordlist = GetWordlistForLanguage();
+                    cleanMnemonic = new BtcMnemonic(wordlist, BtcWordCount.Twelve).ToString();
+                }
+                else
+                {
+                    cleanMnemonic = mnemonic.Trim();
+                }
 
                 var wallet = new WalletInfo
                 {
-                    Mnemonic = mnemonicObj.ToString()
+                    Mnemonic = cleanMnemonic
                 };
 
-                // Generate Bitcoin addresses (share m/44' hardened node across BTC, ETH, LTC, DOGE)
-                var masterKey = mnemonicObj.DeriveExtKey();
+                // Hardware-accelerated .NET 8 Native OpenSSL/CNG PBKDF2-HMAC-SHA512 (bypasses slow NBitcoin managed PBKDF2)
+                Span<byte> seed = stackalloc byte[64];
+                Rfc2898DeriveBytes.Pbkdf2(
+                    Encoding.UTF8.GetBytes(cleanMnemonic.Normalize(NormalizationForm.FormKD)),
+                    "mnemonic"u8,
+                    seed,
+                    2048,
+                    HashAlgorithmName.SHA512);
+
+                Span<byte> masterKeyData = stackalloc byte[64];
+                HMACSHA512.HashData("Bitcoin seed"u8, seed, masterKeyData);
+                var masterKey = new ExtKey(new Key(masterKeyData[..32].ToArray()), masterKeyData[32..].ToArray());
                 var purpose44Key = masterKey.Derive(Purpose44Path);
                 var bitcoinKey = purpose44Key.Derive(BtcCoinSubPath);
                 
@@ -239,13 +254,15 @@ namespace WalletRecoveryTool.Core
                     catch { }
                 }
 
-                // Generate Solana address (SKIP if SOL disabled — saves Solnet Ed25519 derivation)
+                // Generate Solana address directly from the already-computed 64-byte seed (eliminates duplicate 2048-round Solnet PBKDF2!)
                 if (needSol)
                 {
                     try
                     {
-                        var solanaWallet = new Solnet.Wallet.Wallet(mnemonicObj.ToString());
-                        wallet.SolanaAddress = solanaWallet.Account.PublicKey.Key;
+                        Span<byte> solKeyBytes = stackalloc byte[32];
+                        HMACSHA512.HashData("ed25519 seed"u8, seed, masterKeyData);
+                        masterKeyData[..32].CopyTo(solKeyBytes);
+                        wallet.SolanaAddress = NBitcoin.DataEncoders.Encoders.Base58.EncodeData(solKeyBytes);
                     }
                     catch (Exception solEx)
                     {
