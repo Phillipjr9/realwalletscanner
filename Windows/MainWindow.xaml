@@ -110,7 +110,10 @@
                         <TextBlock Text="DEDUPE BLOCKED " FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
                         <TextBlock x:Name="QuickStatsDedupeText" Text="0" FontFamily="Consolas" FontSize="12.5" FontWeight="Bold" Foreground="#FCD34D" VerticalAlignment="Center" Margin="0,0,14,0"/>
 
-                        <TextBlock Text="ACTIVE HITS " FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
+                        <TextBlock Text="EVER HELD " FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="QuickStatsEverHeldText" Text="0" FontFamily="Consolas" FontSize="12.5" FontWeight="Bold" Foreground="#FCD34D" VerticalAlignment="Center" Margin="0,0,14,0"/>
+
+                        <TextBlock Text="FUNDED NOW " FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
                         <TextBlock x:Name="QuickStatsFoundText" Text="0" FontFamily="Consolas" FontSize="12.5" FontWeight="Bold" Foreground="#34D399" VerticalAlignment="Center" Margin="0,0,14,0"/>
 
                         <TextBlock Text="RUNTIME " FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>

@@ -19,6 +19,82 @@ public class BalanceChecker
 {
 	public static readonly ConcurrentDictionary<string, long> HistoricallyActiveEvmAddresses = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
+	public static readonly ConcurrentDictionary<string, (long TxCount, decimal TotalReceivedBtc)> HistoricallyActiveBtcAddresses = new ConcurrentDictionary<string, (long TxCount, decimal TotalReceivedBtc)>(StringComparer.OrdinalIgnoreCase);
+
+	public static readonly ConcurrentDictionary<string, bool> RecordedEverHeldWallets = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+	public static int EverHeldWalletsCount => RecordedEverHeldWallets.Count;
+
+	public static bool EvaluateWalletEverHeldHistory(CryptoWalletGenerator.WalletInfo wallet)
+	{
+		if (wallet == null) return false;
+		wallet.HistoricalActivityEvaluated = true;
+		long totalTx = 0;
+		decimal totalBtcRcvd = 0m;
+		var details = new List<string>();
+
+		var btcCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		if (!string.IsNullOrEmpty(wallet.BitcoinAddress)) btcCandidates.Add(wallet.BitcoinAddress);
+		if (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit)) btcCandidates.Add(wallet.BitcoinAddressSegWit);
+		if (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit)) btcCandidates.Add(wallet.BitcoinAddressNativeSegWit);
+		if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot)) btcCandidates.Add(wallet.BitcoinAddressTaproot);
+		if (wallet.AllBitcoinAddresses != null)
+		{
+			foreach (var a in wallet.AllBitcoinAddresses)
+			{
+				if (!string.IsNullOrEmpty(a)) btcCandidates.Add(a);
+			}
+		}
+
+		foreach (var btcAddr in btcCandidates)
+		{
+			if (HistoricallyActiveBtcAddresses.TryGetValue(btcAddr, out var btcHist) && (btcHist.TxCount > 0 || btcHist.TotalReceivedBtc > 0m))
+			{
+				totalTx += Math.Max(1L, btcHist.TxCount);
+				totalBtcRcvd += btcHist.TotalReceivedBtc;
+				details.Add($"BTC {btcAddr.Substring(0, Math.Min(10, btcAddr.Length))}… ({btcHist.TxCount} TX, {btcHist.TotalReceivedBtc:0.####} BTC rcvd)");
+			}
+			else if (FundedAddressFilter.Instance.CheckWallet(new CryptoWalletGenerator.WalletInfo { BitcoinAddress = btcAddr }, out string matchedAddr, out string matchLabel))
+			{
+				totalTx += 1;
+				details.Add($"Target/Historical Match: {matchLabel} ({matchedAddr})");
+			}
+		}
+
+		var ethCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		if (!string.IsNullOrEmpty(wallet.EthereumAddress)) ethCandidates.Add(wallet.EthereumAddress);
+		if (wallet.AllEthereumAddresses != null)
+		{
+			foreach (var e in wallet.AllEthereumAddresses)
+			{
+				if (!string.IsNullOrEmpty(e)) ethCandidates.Add(e);
+			}
+		}
+
+		foreach (var ethAddr in ethCandidates)
+		{
+			if (HistoricallyActiveEvmAddresses.TryGetValue(ethAddr, out long nonceVal) && nonceVal > 0)
+			{
+				totalTx += nonceVal;
+				details.Add($"ETH {ethAddr.Substring(0, Math.Min(10, ethAddr.Length))}… (nonce={nonceVal} TX)");
+			}
+		}
+
+		if (totalTx > 0 || totalBtcRcvd > 0m || wallet.TotalUsdValue > 0m)
+		{
+			wallet.HasEverHeldCrypto = true;
+			wallet.HistoricalActivityConfirmed = true;
+			wallet.HistoricalTxCount = (int)Math.Min(int.MaxValue, Math.Max(1L, totalTx));
+			wallet.TotalEverReceivedBtc = totalBtcRcvd;
+			wallet.HistoricalActivityDetails = details.Count > 0 ? string.Join(" | ", details) : "Ever Held Crypto (On-Chain TX History > 0)";
+			string key = wallet.BitcoinAddress ?? wallet.EthereumAddress ?? wallet.Mnemonic ?? Guid.NewGuid().ToString();
+			RecordedEverHeldWallets[key] = true;
+			return true;
+		}
+
+		return false;
+	}
+
 	/// <summary>
 	/// Safely truncates an address for logging (avoids ArgumentOutOfRangeException)
 	/// </summary>
@@ -1050,6 +1126,13 @@ public class BalanceChecker
 									{
 										string a = (string)addrData.address;
 										decimal bal = (decimal)(long)(addrData.final_balance ?? (object)0L) / 100_000_000m;
+										decimal totalRcvd = (decimal)(long)(addrData.total_received ?? (object)0L) / 100_000_000m;
+										long nTx = (long)(addrData.n_tx ?? (object)0L);
+										if (nTx > 0 || totalRcvd > 0m || bal > 0m)
+										{
+											HistoricallyActiveBtcAddresses[a] = (Math.Max(1L, nTx), Math.Max(bal, totalRcvd));
+											RecordedEverHeldWallets[a] = true;
+										}
 										results[a] = bal;
 										_balanceCache["BTC:" + a] = (bal, DateTime.Now);
 									}
@@ -1105,6 +1188,13 @@ public class BalanceChecker
 										{
 											string text2 = item2.address;
 											decimal item = (results[text2] = (decimal)(long)(item2.balance ?? ((object)0)) / 100000000m);
+											decimal totalRcvdBc = (decimal)(long)(item2.total_received ?? ((object)0)) / 100000000m;
+											long nTxBc = (long)(item2.n_tx ?? ((object)0));
+											if (nTxBc > 0 || totalRcvdBc > 0m || item > 0m)
+											{
+												HistoricallyActiveBtcAddresses[text2] = (Math.Max(1L, nTxBc), Math.Max(item, totalRcvdBc));
+												RecordedEverHeldWallets[text2] = true;
+											}
 											_balanceCache["BTC:" + text2] = (item, DateTime.Now);
 										}
 									}

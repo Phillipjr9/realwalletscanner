@@ -3245,7 +3245,7 @@ namespace WalletRecoveryTool
 
             _lastRecentMnemonicKey = key;
 
-            var entry = $"[{DateTime.Now:HH:mm:ss.ff}] [{source}] {mnemonic}";
+            var entry = $"[{DateTime.Now:HH:mm:ss.ff}] [{source}] {mnemonic} • [0 TX • Never Held]";
             _recentScannedMnemonics.Enqueue((entry, source));
             while (_recentScannedMnemonics.Count > 24)
             {
@@ -3498,9 +3498,11 @@ namespace WalletRecoveryTool
 
             try
             {
-                // Update found count
+                // Update found & ever-held counts
                 if (QuickStatsFoundText != null)
                     QuickStatsFoundText.Text = _walletsFound.ToString("N0");
+                if (QuickStatsEverHeldText != null)
+                    QuickStatsEverHeldText.Text = Math.Max(Core.BalanceChecker.EverHeldWalletsCount, _walletsFound).ToString("N0");
 
                 // Update Cognitive Self-Learning Brain Engine telemetry
                 var brain = Core.CognitiveBrainEngine.Instance;

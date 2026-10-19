@@ -569,8 +569,13 @@
   }
 
   table.data-table tr.row-hit td {
-    background: rgba(16, 185, 129, 0.12) !important;
+    background: rgba(16, 185, 129, 0.14) !important;
     color: #A7F3D0;
+  }
+
+  table.data-table tr.row-ever-held td {
+    background: rgba(245, 158, 11, 0.13) !important;
+    color: #FDE68A;
   }
 
   @keyframes smoothStreamSlideIn {
@@ -871,7 +876,7 @@
         </button>
       </div>
 
-      <!-- Unified 5-Metric Inline Strip (Replaces Duplicate KPI Rows) -->
+      <!-- Unified 7-Metric Inline Strip (Replaces Duplicate KPI Rows) -->
       <div class="metrics-strip mono">
         <div class="metric-item">
           <span class="metric-label">Checked</span>
@@ -889,8 +894,12 @@
           <span class="metric-label">API Quota Saved</span>
           <span id="QuickStatsQuotaSavedText" class="metric-val" style="color:#34D399;">0</span>
         </div>
-        <div class="metric-item">
-          <span class="metric-label">Active Hits</span>
+        <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets scanned that have EVER held crypto (historical TX > 0 or total_received > 0)">
+          <span class="metric-label">Ever Held Crypto</span>
+          <span id="QuickStatsEverHeldText" class="metric-val" style="color:#FCD34D;">0</span>
+        </div>
+        <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets with a current unspent balance > $0.00">
+          <span class="metric-label">Funded Now</span>
           <span id="QuickStatsFoundText" class="metric-val" style="color:#34D399;">0</span>
         </div>
         <div class="metric-item">
@@ -988,18 +997,18 @@
           <!-- Right Live Candidate Stream Table -->
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Live Synthesized Candidates &amp; On-Chain Verification</span>
-              <span id="QuantumUpgradesBadge" class="mono" style="font-size:11px; color:#34D399;">Multi-Core Workers • 0/0..2 + 1/0 Change • Dual Electrum • 33.5M-Bit Bloom • ERC-20 Sweep</span>
+              <span class="card-title">Live Synthesized Candidates &amp; On-Chain Verification (Balance + Ever-Held History)</span>
+              <span id="QuantumUpgradesBadge" class="mono" style="font-size:11px; color:#34D399;">Multi-Core Workers • Ever-Held History • 0/0..2 + 1/0 Change • 33.5M-Bit Bloom • ERC-20 Sweep</span>
             </div>
             <div class="table-container">
               <table class="data-table mono">
                 <thead>
                   <tr>
-                    <th style="width:18%;">Strategy Vector</th>
-                    <th style="width:32%;">Seed Phrase / Key Material</th>
-                    <th style="width:18%;">BTC SegWit (bc1q)</th>
-                    <th style="width:18%;">ETH Address (0x)</th>
-                    <th style="width:14%;">Status</th>
+                    <th style="width:17%;">Strategy Vector</th>
+                    <th style="width:29%;">Seed Phrase / Key Material</th>
+                    <th style="width:17%;">BTC SegWit (bc1q)</th>
+                    <th style="width:17%;">ETH Address (0x)</th>
+                    <th style="width:20%;">Balance &amp; Ever-Held History</th>
                   </tr>
                 </thead>
                 <tbody id="SmartResultsBody"></tbody>
@@ -1129,17 +1138,26 @@
         <div class="layout-2col">
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Multi-Chain Seed &amp; Electrum Inspector</span>
+              <span class="card-title">Multi-Chain Seed &amp; Ever-Held History Inspector</span>
               <span id="InspectChecksumBadge" class="pill pill-emerald mono">READY</span>
             </div>
-            <p class="card-desc">Derives BTC (Legacy, P2SH, Native SegWit), ETH, SOL, LTC, and DOGE addresses and verifies BIP39 / Electrum checksums.</p>
+            <p class="card-desc">
+              Enter any 12/24-word BIP39 seed phrase, Brainwallet passphrase (e.g. <span class="mono">correct horse battery staple</span>), or 256-bit hex private key to check if it has <b>ever held crypto</b> (<span class="mono">total_received &gt; 0</span> / <span class="mono">n_tx &gt; 0</span> / EVM <span class="mono">txCount &gt; 0</span>) or has a current balance.
+            </p>
             <textarea id="CheckSeedBox" class="input-box mono" rows="4">planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle</textarea>
-            <div style="margin-top:12px;">
-              <button class="btn btn-primary" onclick="inspectSingleSeed()">Inspect &amp; Derive Portfolio</button>
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+              <button class="btn btn-primary" style="flex:1;" onclick="inspectSingleSeed()">Inspect &amp; Check Ever-Held History</button>
+              <button class="btn" style="border-color:rgba(245,158,11,0.45); color:#FCD34D;" onclick="document.getElementById('CheckSeedBox').value='correct horse battery staple'; inspectSingleSeed();">
+                📜 Test Ever-Held Brainwallet
+              </button>
+              <button class="btn" onclick="document.getElementById('CheckSeedBox').value='planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle'; inspectSingleSeed();">
+                Test Unused BIP39 Seed
+              </button>
             </div>
           </div>
           <div class="card">
-            <div class="card-header"><span class="card-title">Derived Multi-Chain Portfolio</span></div>
+            <div class="card-header"><span class="card-title">Ever-Held Chain History &amp; Derived Multi-Chain Portfolio</span></div>
+            <div id="InspectorHistoryBanner" class="mono" style="margin-bottom:10px;"></div>
             <div id="InspectorContent" class="mono" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; overflow-y:auto;"></div>
           </div>
         </div>
@@ -1283,18 +1301,18 @@
           <!-- Right Card: Discovered Vault & Historical Activity Watchlist -->
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Discovered Wallets Vault &amp; Target Matches</span>
+              <span class="card-title">Discovered Wallets Vault (Funded &amp; Ever-Held History)</span>
               <span class="pill pill-amber mono" id="WatchlistHeaderCount">0 WALLETS</span>
             </div>
             <div class="table-container">
               <table class="data-table mono">
                 <thead>
                   <tr>
-                    <th style="width:18%;">Discovery Vector</th>
-                    <th style="width:30%;">Seed / Key Material</th>
-                    <th style="width:20%;">BTC (Legacy / Taproot)</th>
-                    <th style="width:20%;">ETH Address</th>
-                    <th style="width:12%;">Status</th>
+                    <th style="width:17%;">Discovery Vector</th>
+                    <th style="width:27%;">Seed / Key Material</th>
+                    <th style="width:18%;">BTC (Legacy / SegWit)</th>
+                    <th style="width:16%;">ETH Address</th>
+                    <th style="width:22%;">Balance &amp; Lifetime History</th>
                   </tr>
                 </thead>
                 <tbody id="WatchlistBody"></tbody>
@@ -1902,12 +1920,10 @@
     const item = streamQueue.shift();
     if (!item) return;
 
-    if (item.historicalTx > 0 && !watchlistItems.has(item.btcLegacy)) {
-      watchlistItems.set(item.btcLegacy, item);
-      totalFound = watchlistItems.size;
+    const watchKey = item.btcLegacy || item.ethAddress || item.input;
+    if ((item.everHeldCrypto || item.historicalTx > 0 || item.balanceUsd > 0) && !watchlistItems.has(watchKey)) {
+      watchlistItems.set(watchKey, item);
       renderWatchlist();
-      document.getElementById('QuickStatsFoundText').textContent = totalFound.toLocaleString();
-      document.getElementById('ModalHits').textContent = totalFound.toLocaleString();
     }
 
     prependTableRow(item);
@@ -1969,9 +1985,29 @@
         targetQuotaSaved = Math.max(targetQuotaSaved, data.apiQuotaSavedCount);
       }
 
+      if (Array.isArray(data.everHeldVault)) {
+        for (const evItem of data.everHeldVault) {
+          const wk = evItem.btcLegacy || evItem.ethAddress || evItem.input;
+          if (wk && !watchlistItems.has(wk)) {
+            watchlistItems.set(wk, evItem);
+          }
+        }
+      }
+
       for (const item of data.items) {
         streamQueue.push(item);
       }
+
+      const everHeldCount = Math.max(
+        typeof data.everHeldWalletsCount === 'number' ? data.everHeldWalletsCount : 0,
+        watchlistItems.size
+      );
+      const fundedNowCount = typeof data.foundVaultCount === 'number' ? data.foundVaultCount : 0;
+      const everHeldEl = document.getElementById('QuickStatsEverHeldText');
+      if (everHeldEl) everHeldEl.textContent = everHeldCount.toLocaleString();
+      document.getElementById('QuickStatsFoundText').textContent = fundedNowCount.toLocaleString();
+      document.getElementById('ModalHits').textContent = `${fundedNowCount} (${everHeldCount} Ever Held)`;
+      renderWatchlist();
 
       if (data.brain) {
         updateBrainTelemetry(data.brain);
@@ -1981,7 +2017,7 @@
       }
       const qBadge = document.getElementById('QuantumUpgradesBadge');
       if (qBadge && typeof data.workerThreadsActive === 'number') {
-        qBadge.textContent = `${data.workerThreadsActive} Workers • ${(data.multiIndexAddressesChecked || 0).toLocaleString()} Multi-Index/Change • ${(data.erc20TokensSweptCount || 0).toLocaleString()} ERC-20 Swept • 33.5M-Bit Bloom`;
+        qBadge.textContent = `${data.workerThreadsActive} Workers • ${everHeldCount} Ever Held • ${(data.multiIndexAddressesChecked || 0).toLocaleString()} Multi-Index/Change • 33.5M-Bit Bloom`;
       }
     } catch (e) {
       // Ignore abort/network hiccup and retry on next tick
@@ -2071,6 +2107,23 @@
     }
   }
 
+  function formatWalletStatusBadge(item) {
+    const isFunded = Number(item.balanceUsd || 0) > 0;
+    const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
+    if (isFunded) {
+      return `<span class="pill pill-emerald" title="${item.historicalLabel || 'Active Funded Wallet'}">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString()}) • ${item.historicalTx || 1} TX</span>`;
+    }
+    if (isEverHeld) {
+      const rcvBtc = Number(item.totalEverReceivedBtc || 0);
+      const rcvEth = Number(item.totalEverReceivedEth || 0);
+      const rcvSummary = rcvBtc > 0
+        ? `${rcvBtc} BTC rcvd`
+        : (rcvEth > 0 ? `${rcvEth} ETH rcvd` : `${item.historicalTx} TX`);
+      return `<span class="pill pill-amber" title="${item.historicalLabel || 'Historically Active Wallet'} • ${item.deepSweepStatus || ''}">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary})</span>`;
+    }
+    return `<span style="color:var(--text-muted);">0 TX • Never Held</span>`;
+  }
+
   function prependTableRow(item) {
     const enabledSet = new Set(getEnabledVectors());
     const enabledChains = new Set(getEnabledChains());
@@ -2078,10 +2131,9 @@
       return;
     }
 
-    const isHit = item.historicalTx > 0;
-    const statusBadge = isHit
-      ? `<span class="pill pill-emerald">ACTIVE (${item.historicalTx} TX)</span>`
-      : `<span style="color:var(--text-muted);">Empty • Logged</span>`;
+    const isFunded = Number(item.balanceUsd || 0) > 0;
+    const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
+    const statusBadge = formatWalletStatusBadge(item);
 
     const btcCell = enabledChains.has('BTC') ? (item.btcSegwit || item.btcLegacy || '—') : '<span style="color:var(--text-muted);">— (BTC Off)</span>';
     const ethCell = (enabledChains.has('ETH') || enabledChains.has('USDT') || enabledChains.has('MATIC') || enabledChains.has('BNB'))
@@ -2091,7 +2143,9 @@
     const smartBody = document.getElementById('SmartResultsBody');
     const tr = document.createElement('tr');
     tr.dataset.vector = item.vectorKey || '';
-    tr.className = isHit ? 'row-hit stream-row-enter' : 'stream-row-enter';
+    tr.className = isFunded
+      ? 'row-hit stream-row-enter'
+      : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
     tr.innerHTML = `
       <td style="color:#7DD3FC; font-weight:600;" title="${item.source}">${item.source}</td>
       <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
@@ -2105,7 +2159,7 @@
     if (item.feedType === 'Random') {
       const rb = document.getElementById('RandomResultsBody');
       const rtr = document.createElement('tr');
-      rtr.className = 'stream-row-enter';
+      rtr.className = isFunded ? 'row-hit stream-row-enter' : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
       rtr.innerHTML = `
         <td>${item.phraseType}</td>
         <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
@@ -2120,7 +2174,7 @@
     if (item.feedType === 'Brain') {
       const bb = document.getElementById('BrainResultsBody');
       const btr = document.createElement('tr');
-      btr.className = 'stream-row-enter';
+      btr.className = isFunded ? 'row-hit stream-row-enter' : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
       btr.innerHTML = `
         <td style="color:#C7D2FE;" title="${item.input}">${item.input}</td>
         <td>${(item.privateKeyHex || item.privateKey || '').slice(0, 20)}…</td>
@@ -2135,7 +2189,7 @@
     if (item.feedType === 'Private') {
       const kb = document.getElementById('KeyResultsBody');
       const ktr = document.createElement('tr');
-      ktr.className = 'stream-row-enter';
+      ktr.className = isFunded ? 'row-hit stream-row-enter' : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
       ktr.innerHTML = `
         <td style="color:#FCA5A5;">${item.input}</td>
         <td>${item.btcLegacy}</td>
@@ -2151,14 +2205,15 @@
     const body = document.getElementById('WatchlistBody');
     body.innerHTML = '';
     for (const item of watchlistItems.values()) {
+      const isFunded = Number(item.balanceUsd || 0) > 0;
       const tr = document.createElement('tr');
-      tr.className = 'row-hit';
+      tr.className = isFunded ? 'row-hit' : 'row-ever-held';
       tr.innerHTML = `
-        <td>${item.source}</td>
-        <td>${item.input}</td>
-        <td>${item.btcLegacy}</td>
-        <td>${item.ethAddress}</td>
-        <td>${item.historicalTx} TXs</td>
+        <td>${item.source || 'Scanner'}</td>
+        <td title="${item.input}">${item.input}</td>
+        <td title="${item.btcLegacy || item.btcSegwit}">${item.btcLegacy || item.btcSegwit || '—'}</td>
+        <td title="${item.ethAddress}">${item.ethAddress || '—'}</td>
+        <td>${formatWalletStatusBadge(item)}</td>
       `;
       body.appendChild(tr);
     }
@@ -2202,10 +2257,50 @@
     });
     const data = await res.json();
     const badge = document.getElementById('InspectChecksumBadge');
-    badge.textContent = data.isValid ? 'BIP39 VALID' : 'INVALID CHECKSUM';
-    badge.className = data.isValid ? 'pill pill-emerald mono' : 'pill pill-amber mono';
-
     const w = data.wallet || {};
+    const everHeld = Boolean(w.everHeldCrypto) || Number(w.historicalTx || 0) > 0;
+    const funded = Number(w.balanceUsd || 0) > 0;
+    badge.textContent = funded
+      ? '💰 CURRENTLY FUNDED'
+      : (everHeld ? '📜 EVER HELD CRYPTO' : (data.isValid ? 'BIP39 VALID • 0 TX' : 'CHECKED • 0 TX'));
+    badge.className = funded
+      ? 'pill pill-emerald mono'
+      : (everHeld ? 'pill pill-amber mono' : (data.isValid ? 'pill pill-cyan mono' : 'pill pill-amber mono'));
+
+    const bannerEl = document.getElementById('InspectorHistoryBanner');
+    if (bannerEl) {
+      if (funded || everHeld) {
+        bannerEl.innerHTML = `
+          <div style="background:${funded ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'}; border:1px solid ${funded ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.4)'}; border-radius:8px; padding:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="font-size:12.5px; font-weight:700; color:${funded ? '#6EE7B7' : '#FCD34D'};">
+                ${funded ? '💰 CURRENTLY FUNDED WALLET DETECTED' : '📜 EVER HELD CRYPTO — HISTORICALLY ACTIVE WALLET (SWEPT / USED)'}
+              </span>
+              <span class="pill ${funded ? 'pill-emerald' : 'pill-amber'} mono">${w.historicalTx || 1} ON-CHAIN TXs</span>
+            </div>
+            <div style="font-size:11.5px; color:#E2E8F0; margin-bottom:4px;">
+              <b>Chain Classification:</b> ${w.historicalLabel || 'Historically Active Wallet'} • <b>Current Balance:</b> $${Number(w.balanceUsd || 0).toLocaleString()}
+            </div>
+            <div style="font-size:11px; color:#94A3B8; display:flex; gap:16px; flex-wrap:wrap;">
+              <span><b>Lifetime BTC Received:</b> <span style="color:#F7931A;">${w.totalEverReceivedBtc || 0} BTC</span></span>
+              <span><b>Lifetime ETH Received:</b> <span style="color:#627EEA;">${w.totalEverReceivedEth || 0} ETH</span></span>
+              <span><b>Deep Sweep:</b> <span style="color:#34D399;">${w.deepSweepStatus || 'BIP44/49/84/86 indices 0..19 + internal change 1/0..4 swept'}</span></span>
+            </div>
+          </div>
+        `;
+      } else {
+        bannerEl.innerHTML = `
+          <div style="background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:12px; font-weight:700; color:#94A3B8;">0 HISTORICAL TRANSACTIONS — NEVER HELD CRYPTO</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">total_received = 0 • n_tx = 0 • EVM nonce = 0 across Legacy, SegWit, Taproot &amp; Ethereum paths</div>
+            </div>
+            <span class="pill mono" style="background:rgba(148,163,184,0.1); color:#94A3B8;">NEVER USED</span>
+          </div>
+        `;
+      }
+    }
+
     const rows = [
       ['BTC Legacy (BIP44 1…)', w.btcLegacy, 'var(--btc-color)'],
       ['BTC Nested SegWit (BIP49 3…)', w.btcNestedSegwit, 'var(--btc-color)'],

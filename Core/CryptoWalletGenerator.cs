@@ -113,13 +113,24 @@ namespace WalletRecoveryTool.Core
             public bool HistoricalActivityEvaluated { get; set; }
             public string HistoricalActivityDetails { get; set; }
 
+            // Ever-Held Crypto Tracking (total_received > 0, n_tx > 0, or EVM nonce > 0 even when current balance == 0)
+            public bool HasEverHeldCrypto { get; set; }
+            public int HistoricalTxCount { get; set; }
+            public decimal TotalEverReceivedBtc { get; set; }
+            public decimal TotalEverReceivedEth { get; set; }
+
             public string HistoricalActivityStatus
             {
                 get
                 {
-                    if (HistoricalActivityConfirmed) return "Confirmed";
-                    if (!HistoricalActivityEvaluated) return "Unknown";
-                    return HistoricalActivityLikely ? "Likely" : "No Match";
+                    if (TotalUsdValue > 0) return $"💰 FUNDED (${TotalUsdValue:N2}) • {Math.Max(1, HistoricalTxCount)} TX";
+                    if (HasEverHeldCrypto || HistoricalActivityConfirmed || HistoricalTxCount > 0)
+                    {
+                        string rcv = TotalEverReceivedBtc > 0 ? $" • {TotalEverReceivedBtc:0.####} BTC rcvd" : "";
+                        return $"📜 EVER HELD ({Math.Max(1, HistoricalTxCount)} TX{rcv})";
+                    }
+                    if (!HistoricalActivityEvaluated) return "0 TX • Never Held";
+                    return HistoricalActivityLikely ? "Likely" : "0 TX • Never Held";
                 }
             }
         }
