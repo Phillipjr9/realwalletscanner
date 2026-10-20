@@ -11,6 +11,7 @@ Run:  python3 ops/test_jlp_server.py
 Exit: 0 all tests pass, 1 failure.
 """
 
+import hashlib
 import socket
 import struct
 import sys
@@ -43,6 +44,40 @@ def test_curve():
     k = 0xDEADBEEF
     check("decompress(compress(kG)) round-trips",
           J.decompress(J.compress(J.pt_mul(k))) == J.pt_mul(k))
+
+
+def test_ripemd():
+    """Address derivation must not depend on OpenSSL having legacy algorithms."""
+    print("\n[ripemd-160]")
+    vectors = [
+        (b"", "9c1185a5c5e9fc54612808977ee8f548b2258d31"),
+        (b"abc", "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"),
+        (b"message digest", "5d0689ef49d2fae572b881b123a85ffa21595f36"),
+        (b"abcdefghijklmnopqrstuvwxyz",
+         "f71c27109c692c1b56bbdceb5b9d2865b3708dbc"),
+        (b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+         "12a053384a9c0c88e405a06c27dcf49ada62eb2b"),
+    ]
+    ok = True
+    for msg, want in vectors:
+        got = J.ripemd160_py(msg).hex()
+        if got != want:
+            ok = False
+            check(f"pure-python ripemd160({msg[:16]!r})", False,
+                  f"got {got} want {want}")
+    check("pure-python RIPEMD-160 matches all 5 official vectors", ok)
+    # hash160 of Satoshi's genesis coinbase pubkey
+    pub = bytes.fromhex(
+        "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb6"
+        "49f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f")
+    h = J.ripemd160_py(hashlib.sha256(pub).digest()).hex()
+    check("hash160 via fallback matches the known genesis value",
+          h == "62e907b15cbf27d5425399ebf6f0fb50ebb88f18", h)
+    if J.RIPEMD_FALLBACK_ACTIVE:
+        print("  (this build is using the fallback)")
+    else:
+        check("OpenSSL and fallback agree",
+              J.ripemd160_py(b"check") == J.ripemd160(b"check"))
 
 
 def test_framing():
@@ -347,7 +382,7 @@ def main():
     global FAILS
     t0 = time.time()
     print("JLP v3 server test suite")
-    test_curve(); test_framing(); test_helpers(); test_key_math()
+    test_curve(); test_ripemd(); test_framing(); test_helpers(); test_key_math()
     test_verify_dp(); test_end_to_end(); test_strict_client_compat()
     print(f"\n{'=' * 46}")
     if FAILS:

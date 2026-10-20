@@ -36,10 +36,13 @@ Choosing bits larger than ~48 on a laptop is not worth it for a test.
 import argparse
 import hashlib
 import json
+import os
 import secrets
 import sys
 
 from jlp_server import N, compress, pt_mul, hash160
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def b58check(prefix: bytes, payload: bytes) -> str:
@@ -88,6 +91,8 @@ def main():
     # the collision search quick without flooding the wire.
     dp_bits = args.dp_bits or min(14, max(8, args.bits // 3))
 
+    out_abs = os.path.abspath(args.out)
+    solved_abs = os.path.splitext(out_abs)[0] + "-solved.txt"
     data = {
         "secret_hex": f"{secret:064x}",
         "bits": args.bits,
@@ -109,15 +114,19 @@ def main():
     print(f"  secret      kept in {args.out} - do not lose it, do not share it")
     print(f"              and do not commit it: {args.out} holds a private key")
     print()
-    print("Run the pool:")
-    print(f"  python3 ops/jlp_server.py --pubkey {pub33.hex()} \\")
-    print(f"      --range-start {hex(r0)} --range-end {hex(r1)} --dp-bits {dp_bits}")
+    print("Run the pool (copy this whole command, from any directory):")
+    print(f"  python3 {os.path.join(HERE, 'jlp_server.py')} \\")
+    print(f"      --pubkey {pub33.hex()} \\")
+    print(f"      --range-start {hex(r0)} --range-end {hex(r1)} --dp-bits {dp_bits} \\")
+    print(f"      --puzzle {out_abs} --solved {solved_abs}")
     print()
     print("Then point collider at it:")
-    print("  ./collider --pool jlp://127.0.0.1:17403 --worker <your-address> --verbose")
+    print(f"  ./collider --pool jlp://127.0.0.1:17403 \\")
+    print(f"      --worker bc1qcaugv5gdawqjxw3dm3uyx5gw5m9uqak9ues7wd --verbose")
     print()
-    print("Verify a result:")
-    print(f"  python3 ops/check-solution.py --puzzle {args.out} --key <hex from server>")
+    print("Verify a result independently:")
+    print(f"  python3 {os.path.join(HERE, 'check-solution.py')} \\")
+    print(f"      --puzzle {out_abs} --key <hex from the server>")
 
 
 if __name__ == "__main__":
