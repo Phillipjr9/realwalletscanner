@@ -104,8 +104,13 @@ Start the pool in one terminal:
 python3 jlp_server.py \
   --pubkey 03c857... \
   --range-start 0x8000000000 --range-end 0xffffffffff --dp-bits 13 \
-  --puzzle puzzle.json
+  --assignment both --puzzle puzzle.json
 ```
+
+`--assignment both` is the macOS Metal/CPU mode: those backends always run
+both herds, and a one-sided TAME_ONLY/WILD_ONLY assignment makes the client
+drop the other herd's DPs before they reach the server. CUDA workers reject
+BOTH and should use the server default, `--assignment alternate`.
 
 Point the client at it in another:
 
@@ -165,9 +170,11 @@ python3 jlp_server.py --pubkey <any valid 33-byte compressed key> \
 ```
 
 then connect the real client with `--pool jlp://127.0.0.1:17403`. If you get
-`[Pool] Authentication successful` and the server logs
-`[work] ... type=TAME`, your binary and network are fine and the only thing
-broken is `pool.collisionprotocol.com`. That is a clean, decisive test.
+`[Pool] Authentication successful` and the server logs a `[work] ...` line,
+your binary and network are fine and the only thing broken is
+`pool.collisionprotocol.com`. That is a clean, decisive test. (On a Mac,
+add `--assignment both` to the server command if you want to exercise DP
+submission as well as AUTH/WORK.)
 
 ## Tests
 

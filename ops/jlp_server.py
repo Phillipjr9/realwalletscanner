@@ -73,22 +73,70 @@ def pt_add(p, q):
     return (x, y)
 
 
+def _jac_double(p):
+    x, y, z = p
+    if z == 0 or y == 0:
+        return (0, 1, 0)
+    y2 = y * y % P
+    s = 4 * x * y2 % P
+    m = 3 * x * x % P
+    x3 = (m * m - 2 * s) % P
+    y3 = (m * (s - x3) - 8 * y2 * y2) % P
+    z3 = 2 * y * z % P
+    return (x3, y3, z3)
+
+
+def _jac_add(p, q):
+    x1, y1, z1 = p
+    x2, y2, z2 = q
+    if z1 == 0:
+        return q
+    if z2 == 0:
+        return p
+    z1z1 = z1 * z1 % P
+    z2z2 = z2 * z2 % P
+    u1 = x1 * z2z2 % P
+    u2 = x2 * z1z1 % P
+    s1 = y1 * z2 % P * z2z2 % P
+    s2 = y2 * z1 % P * z1z1 % P
+    if u1 == u2:
+        if s1 != s2:
+            return (0, 1, 0)
+        return _jac_double(p)
+    h = (u2 - u1) % P
+    i = (2 * h) * (2 * h) % P
+    j = h * i % P
+    r = 2 * (s2 - s1) % P
+    v = u1 * i % P
+    x3 = (r * r - j - 2 * v) % P
+    y3 = (r * (v - x3) - 2 * s1 * j) % P
+    z3 = (((z1 + z2) * (z1 + z2) - z1z1 - z2z2) % P) * h % P
+    return (x3, y3, z3)
+
+
 def pt_mul(k, p=G):
-    """Double-and-add. k is taken mod N; negative k reflects the point."""
+    """Scalar multiplication in Jacobian coordinates.
+
+    The original affine double-and-add did a modular inversion for every point
+    addition, which made DP verification far too slow for a real GPU client.
+    Jacobian arithmetic needs one inversion at the end. k is taken mod N.
+    """
     k %= N
     if k == 0 or p is None:
         return None
-    if k < 0:
-        p = (p[0], (-p[1]) % P)
-        k = -k
-    out = None
-    addend = p
+    out = (0, 1, 0)                 # infinity in Jacobian coordinates
+    addend = (p[0] % P, p[1] % P, 1)
     while k:
         if k & 1:
-            out = pt_add(out, addend)
-        addend = pt_add(addend, addend)
+            out = _jac_add(out, addend)
+        addend = _jac_double(addend)
         k >>= 1
-    return out
+    x, y, z = out
+    if z == 0:
+        return None
+    zi = inv(z)
+    zi2 = zi * zi % P
+    return (x * zi2 % P, y * zi2 % P * zi % P)
 
 
 def decompress(pub33: bytes):
@@ -252,6 +300,7 @@ PING = 0x50
 PONG = 0x51
 MSG_ERROR = 0xFF
 
+KANG_BOTH = 0
 KANG_TAME = 1
 KANG_WILD = 2
 DP_TYPE_TAME = 0
@@ -318,34 +367,83 @@ def decode_d(d_be: bytes) -> int:
     return v
 
 
-def verify_dp(dp, target_point, range_start_int, kang_type):
-    """Check a DP is cryptographically consistent with the assignment.
+def encode_d(v: int) -> bytes:
+    """Encode a signed distance as 32-byte big-endian two's complement."""
+    return (v % (1 << 256)).to_bytes(32, "big")
 
-    tame: (d*G).x must equal x
-    wild: ((Q - range_start*G) + s*d*G).x must equal x for s in {+1,-1}
+
+def _x_bytes(pt):
+    return None if pt is None else pt[0].to_bytes(32, "big")
+
+
+def classify_dp(dp, target_point, range_start_int, preferred=None, spec_base=None):
+    """Verify a DP and identify which client convention produced it.
+
+    Returns (ok, convention, effective_d_be).
+
+    The shipped client is not internally consistent here:
+
+    * Spec/CUDA convention ("spec"):
+          tame: x = (d_t*G).x
+          wild: x = ((Q - range_start*G) + d_w*G).x
+          key  = range_start + d_t - d_w
+
+    * Metal/CPU convention ("metal", also the standalone solvers):
+          tame: x = (d_t*G).x, with d_t an absolute scalar
+          wild: x = (Q + d_w*G).x
+          key  = d_t - d_w
+
+    A tame DP is just a point with a known discrete log in both conventions,
+    so the convention is determined by the wild DP's base point. For wild DPs
+    we also accept the negated-distance form and normalize it into
+    effective_d_be, so reconstruction always uses the "+" form above.
     """
     x_be, d_be, dp_type = dp["x"], dp["d"], dp["type"]
     d = decode_d(d_be)
+
     if dp_type == DP_TYPE_TAME:
-        pt = pt_mul(d)
-    else:
-        base = pt_add(target_point, pt_mul(-range_start_int))
-        pt = pt_add(base, pt_mul(d))
-        if pt is None or pt[0].to_bytes(32, "big") != x_be:
-            pt = pt_add(base, pt_mul(-d))
-    if pt is None:
-        return False
-    return pt[0].to_bytes(32, "big") == x_be
+        return _x_bytes(pt_mul(d)) == x_be, None, d_be
+    if dp_type != DP_TYPE_WILD:
+        return False, None, d_be
+
+    conventions = ["spec", "metal"]
+    if preferred == "metal":
+        conventions.reverse()
+
+    def base_for(convention):
+        if convention == "metal":
+            return target_point
+        if spec_base is not None:
+            return spec_base
+        return pt_add(target_point, pt_mul(-range_start_int))
+
+    for convention in conventions:
+        base = base_for(convention)
+        if base is None:
+            continue
+        if _x_bytes(pt_add(base, pt_mul(d))) == x_be:
+            return True, convention, d_be
+        if _x_bytes(pt_add(base, pt_mul(-d))) == x_be:
+            return True, convention, encode_d(-d)
+    return False, None, d_be
 
 
-def reconstruct_key(dp_tame, dp_wild, range_start_int):
-    """key = range_start + d_tame - d_wild  (mod N)
+def verify_dp(dp, target_point, range_start_int, kang_type=None):
+    """Back-compatible boolean DP check (see classify_dp for conventions)."""
+    ok, _convention, _effective_d = classify_dp(dp, target_point, range_start_int)
+    return ok
 
-    From: d_tame*G == (Q - range_start*G) + d_wild*G
-          => Q = (range_start + d_tame - d_wild)*G
+
+def reconstruct_key(dp_tame, dp_wild, range_start_int, convention="spec"):
+    """Recover the key from a tame/wild collision.
+
+    spec:  key = range_start + d_tame - d_wild  (mod N)
+    metal: key = d_tame - d_wild                (mod N)
     """
     dt = decode_d(dp_tame["d"])
     dw = decode_d(dp_wild["d"])
+    if convention == "metal":
+        return (dt - dw) % N
     return (range_start_int + dt - dw) % N
 
 
@@ -354,17 +452,24 @@ def reconstruct_key(dp_tame, dp_wild, range_start_int):
 # ---------------------------------------------------------------------------
 
 class PoolState:
-    def __init__(self, target_pub33, range_start, range_end, dp_bits, seq_window=1024):
+    def __init__(self, target_pub33, range_start, range_end, dp_bits,
+                 seq_window=1024, assignment_mode="alternate"):
+        if assignment_mode not in ("alternate", "both", "tame", "wild"):
+            raise ValueError(f"unknown assignment_mode {assignment_mode!r}")
         self.target = decompress(target_pub33)
+        self.spec_base = pt_add(self.target, pt_mul(-range_start))
         self.pub33 = target_pub33
         self.range_start = range_start
         self.range_end = range_end
         self.dp_bits = dp_bits
         self.seq_window = seq_window
+        self.assignment_mode = assignment_mode
         self.lock = threading.Lock()
         self.workers = {}          # worker_name -> stats
         self.assignments = {}      # worker_name -> dict
         self.tame = {}             # x_be -> dp
+        self.wild = {}             # x_be -> dp (with convention + effective d)
+        self.last_reject_counts = {}
         self.total_dps = 0
         self.started = time.time()
         self.solution = None
@@ -378,10 +483,23 @@ class PoolState:
         with self.lock:
             wid = self.next_work_id
             self.next_work_id += 1
-            # Alternate tame/wild so a single worker still makes both halves
-            # available. A real pool balances across connections; with one
-            # worker this is what allows a collision at all.
-            ktype = KANG_TAME if wid % 2 == 1 else KANG_WILD
+            if self.assignment_mode == "both":
+                # Mac/CPU compatibility mode. The shipped Metal and CPU
+                # backends ignore kangaroo_type and always seed both herds;
+                # assigning TAME_ONLY/WILD_ONLY makes the pool client drop
+                # the other herd locally. kangaroo_type=0 disables that
+                # client-side filter. (The CUDA backend rejects 0, so CUDA
+                # workers should use --assignment alternate.)
+                ktype = KANG_BOTH
+            elif self.assignment_mode == "tame":
+                ktype = KANG_TAME
+            elif self.assignment_mode == "wild":
+                ktype = KANG_WILD
+            else:
+                # Spec/CUDA mode: alternate tame/wild across assignments. A
+                # real pool balances across connections; a single reconnecting
+                # worker still makes both halves over time.
+                ktype = KANG_TAME if wid % 2 == 1 else KANG_WILD
             asn = {
                 "work_id": wid,
                 "kangaroo_type": ktype,
@@ -413,6 +531,11 @@ class PoolState:
             return 0, "no assignment"
 
         accepted = 0
+        rejects = {}
+
+        def reject(reason):
+            rejects[reason] = rejects.get(reason, 0) + 1
+
         with self.lock:
             high = self.workers.get(worker, {}).get("dp_seq_high", -1)
             for i in range(count):
@@ -425,32 +548,68 @@ class PoolState:
                         DP_V2.unpack_from(payload, off)
 
                 if work_id != asn["work_id"]:
+                    reject("stale_work_id")
                     continue
                 if seq <= high - self.seq_window:
+                    reject("seq_out_of_window")
                     continue
                 if dp_bits != self.dp_bits:
+                    reject("dp_bits")
                     continue
                 if not has_leading_zero_bits(x_be, dp_bits):
+                    reject("not_distinguished")
                     continue
-                if dp_type == DP_TYPE_TAME and asn["kangaroo_type"] != KANG_TAME:
+                if dp_type not in (DP_TYPE_TAME, DP_TYPE_WILD):
+                    reject("bad_type")
                     continue
-                if dp_type == DP_TYPE_WILD and asn["kangaroo_type"] != KANG_WILD:
+                assigned = asn["kangaroo_type"]
+                if assigned == KANG_TAME and dp_type != DP_TYPE_TAME:
+                    reject("wrong_type")
                     continue
-                if not verify_dp({"x": x_be, "d": d_be, "type": dp_type},
-                                 self.target, self.range_start, asn["kangaroo_type"]):
+                if assigned == KANG_WILD and dp_type != DP_TYPE_WILD:
+                    reject("wrong_type")
+                    continue
+
+                preferred = "metal" if assigned == KANG_BOTH else "spec"
+                ok, convention, effective_d = classify_dp(
+                    {"x": x_be, "d": d_be, "type": dp_type},
+                    self.target, self.range_start, preferred=preferred,
+                    spec_base=self.spec_base)
+                if not ok:
+                    reject("verify")
                     continue
 
                 high = max(high, seq)
-                dp = {"x": x_be, "d": d_be, "type": dp_type, "work_id": work_id}
+                dp = {
+                    "x": x_be,
+                    "d": effective_d,
+                    "raw_d": d_be,
+                    "type": dp_type,
+                    "work_id": work_id,
+                    "worker": worker,
+                    "convention": convention,
+                }
                 accepted += 1
                 self.total_dps += 1
 
                 if dp_type == DP_TYPE_TAME:
                     self.tame[x_be] = dp
+                    hit = self.wild.get(x_be)
+                    if hit and self.solution is None:
+                        k = reconstruct_key(dp, hit, self.range_start,
+                                            hit.get("convention") or "spec")
+                        if pt_mul(k) == self.target:
+                            self.solution = {
+                                "key": k,
+                                "worker_tame": worker,
+                                "worker_wild": hit.get("worker"),
+                            }
                 else:
+                    self.wild[x_be] = dp
                     hit = self.tame.get(x_be)
                     if hit and self.solution is None:
-                        k = reconstruct_key(hit, dp, self.range_start)
+                        k = reconstruct_key(hit, dp, self.range_start,
+                                            convention or "spec")
                         if pt_mul(k) == self.target:
                             self.solution = {
                                 "key": k,
@@ -458,6 +617,7 @@ class PoolState:
                                 "worker_wild": worker,
                             }
 
+            self.last_reject_counts = rejects
             w = self.workers.setdefault(worker, {"dps": 0, "last": 0, "dp_seq_high": -1})
             w["dps"] += accepted
             w["last"] = time.time()
@@ -545,9 +705,11 @@ class Handler(socketserver.BaseRequestHandler):
                         asn["start_offset_b"],
                     )
                     sock.sendall(pack_frame(WORK_ASN, body))
+                    type_name = {KANG_BOTH: "BOTH", KANG_TAME: "TAME",
+                                 KANG_WILD: "WILD"}.get(asn["kangaroo_type"],
+                                                         str(asn["kangaroo_type"]))
                     print(f"[work] {worker} work_id={asn['work_id']} "
-                          f"type={'TAME' if asn['kangaroo_type'] == KANG_TAME else 'WILD'}",
-                          flush=True)
+                          f"type={type_name}", flush=True)
 
                 elif mtype in (DP_BATCH_V2, DP_BATCH_V3):
                     n, err = state.accept_batch(worker, payload,
@@ -555,6 +717,9 @@ class Handler(socketserver.BaseRequestHandler):
                     sock.sendall(pack_frame(DP_ACK, struct.pack("<I", n)))
                     if n:
                         print(f"[dp] {worker} accepted {n}", flush=True)
+                    elif state.last_reject_counts:
+                        print(f"[dp] {worker} accepted 0 "
+                              f"rejects={state.last_reject_counts}", flush=True)
                     if err:
                         print(f"[dp] {worker} rejected: {err}", flush=True)
                     if state.solution:
@@ -660,6 +825,12 @@ def main(argv=None):
     ap.add_argument("--range-start", help="hex, e.g. 0x8000...")
     ap.add_argument("--range-end", help="hex")
     ap.add_argument("--dp-bits", type=int, default=20)
+    ap.add_argument("--assignment", choices=("alternate", "both", "tame", "wild"),
+                    default="alternate",
+                    help="work assignment policy: alternate = spec/CUDA "
+                         "TAME_ONLY/WILD_ONLY rotation; both = macOS Metal/CPU "
+                         "compatibility (kangaroo_type=0, disables the client's "
+                         "one-sided DP filter; CUDA clients reject this)")
     ap.add_argument("--puzzle", help="puzzle.json from make-puzzle.py; also writes "
                                      "solved.txt on success")
     ap.add_argument("--solved", default="solved.txt")
@@ -682,7 +853,8 @@ def main(argv=None):
     if not 8 <= args.dp_bits <= 32:
         sys.exit("--dp-bits must be 8..32")
 
-    state = PoolState(pub33, r0, r1, args.dp_bits)
+    state = PoolState(pub33, r0, r1, args.dp_bits,
+                      assignment_mode=args.assignment)
     state.puzzle_path = args.puzzle
     state.solved_path = args.solved
     server = Server((args.listen, args.port), state)
@@ -690,6 +862,10 @@ def main(argv=None):
     print(f"  target   {pub33.hex()}")
     print(f"  range    {args.range_start} .. {args.range_end}")
     print(f"  dp_bits  {args.dp_bits}")
+    print(f"  assign   {args.assignment}")
+    if args.assignment == "both":
+        print("  note     BOTH is for macOS Metal/CPU clients; CUDA clients "
+              "reject kangaroo_type=0 (use --assignment alternate for CUDA)")
     if args.puzzle:
         print(f"  puzzle   {args.puzzle}")
     print(f"  client   ./collider --pool jlp://127.0.0.1:{args.port} "

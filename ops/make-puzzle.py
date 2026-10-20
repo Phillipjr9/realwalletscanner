@@ -16,7 +16,7 @@ Outputs:
 
 Then:
     1. python3 ops/jlp_server.py --pubkey <pk> --range-start <hex> \
-       --range-end <hex> --dp-bits <n>
+       --range-end <hex> --dp-bits <n> --assignment both
     2. ./collider --pool jlp://127.0.0.1:17403 --worker <your-address> --verbose
     3. The server prints [SOLVED] key = ...
 
@@ -118,7 +118,7 @@ def main():
     print(f"  python3 {os.path.join(HERE, 'jlp_server.py')} \\")
     print(f"      --pubkey {pub33.hex()} \\")
     print(f"      --range-start {hex(r0)} --range-end {hex(r1)} --dp-bits {dp_bits} \\")
-    print(f"      --puzzle {out_abs} --solved {solved_abs}")
+    print(f"      --assignment both --puzzle {out_abs} --solved {solved_abs}")
     print()
     print("Then point collider at it:")
     print(f"  ./collider --pool jlp://127.0.0.1:17403 \\")

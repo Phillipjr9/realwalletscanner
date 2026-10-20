@@ -378,12 +378,71 @@ def test_strict_client_compat():
     srv.server_close()
 
 
+def test_metal_convention():
+    print("\n[metal/cpu convention + BOTH assignment]")
+    dp_bits = 8
+    r0 = 1 << 19
+    secret = r0 + 777
+    Q = J.pt_mul(secret)
+    pub33 = J.compress(Q)
+
+    # Metal/CPU: tame point = d_t*G with d_t absolute; wild point = Q + d_w*G.
+    # A collision therefore has d_t = secret + d_w and key = d_t - d_w.
+    dw = None
+    for cand in range(200000):
+        pt = J.pt_mul(secret + cand)
+        if pt and J.has_leading_zero_bits(pt[0].to_bytes(32, "big"), dp_bits):
+            dw = cand
+            x = pt[0].to_bytes(32, "big")
+            break
+    check("found a distinguished metal point", dw is not None)
+    if dw is None:
+        return
+    dt = secret + dw
+
+    k = J.reconstruct_key({"d": dt.to_bytes(32, "big")},
+                          {"d": dw.to_bytes(32, "big")}, r0,
+                          convention="metal")
+    check("metal reconstructed key equals secret", k == secret, f"got {k}")
+
+    wpt = J.pt_add(Q, J.pt_mul(dw))
+    ok, convention, _eff = J.classify_dp(
+        {"x": wpt[0].to_bytes(32, "big"), "d": dw.to_bytes(32, "big"),
+         "type": J.DP_TYPE_WILD}, Q, r0, preferred="metal")
+    check("metal wild DP classified", ok and convention == "metal",
+          f"ok={ok} convention={convention}")
+    check("metal wild DP accepted by verify_dp",
+          J.verify_dp({"x": wpt[0].to_bytes(32, "big"),
+                       "d": dw.to_bytes(32, "big"), "type": J.DP_TYPE_WILD},
+                      Q, r0, J.KANG_BOTH))
+
+    s = J.PoolState(pub33, r0, (1 << 20) - 1, dp_bits,
+                    assignment_mode="both")
+    a = s.assign("macw")
+    check("BOTH assignment uses kangaroo_type=0", a["kangaroo_type"] == J.KANG_BOTH,
+          f"got {a['kangaroo_type']}")
+
+    wild_dp = J.DP_V2.pack(a["work_id"], 0, x, dw.to_bytes(32, "big"),
+                           J.DP_TYPE_WILD, dp_bits)
+    n, err = s.accept_batch("macw", struct.pack("<I", 1) + wild_dp)
+    check("wild-first DP stored under BOTH", n == 1 and s.solution is None,
+          f"n={n} err={err} rejects={s.last_reject_counts}")
+
+    tame_dp = J.DP_V2.pack(a["work_id"], 1, x, dt.to_bytes(32, "big"),
+                           J.DP_TYPE_TAME, dp_bits)
+    n, err = s.accept_batch("macw", struct.pack("<I", 1) + tame_dp)
+    check("tame DP completes wild-first collision",
+          n == 1 and s.solution is not None and s.solution["key"] == secret,
+          f"n={n} err={err} solution={s.solution} rejects={s.last_reject_counts}")
+
+
 def main():
     global FAILS
     t0 = time.time()
     print("JLP v3 server test suite")
     test_curve(); test_ripemd(); test_framing(); test_helpers(); test_key_math()
     test_verify_dp(); test_end_to_end(); test_strict_client_compat()
+    test_metal_convention()
     print(f"\n{'=' * 46}")
     if FAILS:
         print(f"\033[31m{len(FAILS)} FAILED\033[0m: {', '.join(FAILS)}")

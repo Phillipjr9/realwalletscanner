@@ -100,7 +100,14 @@ credits an address nobody controls. Validate before connecting.
 flags (bit0 update_available, bit1 maintenance_active), reserved[3],
 download_url[256], sha256[32], **plus a trailing 64-byte `manifest_sig`**.
 
-`kangaroo_type`: `1` = TAME, `2` = WILD, `0` is illegal in pool mode.
+`kangaroo_type`: `1` = TAME_ONLY, `2` = WILD_ONLY. The spec calls `0` = BOTH
+illegal in pool mode, and the CUDA backend does reject it. But the shipped
+macOS Metal and CPU backends ignore `kangaroo_type` and always seed both
+herds; with a one-sided assignment the pool client drops the other herd's DPs
+locally (`type != assigned`). For those clients, `kangaroo_type=0` disables
+the client-side filter and is the only way both halves reach the server. This
+server exposes that as `--assignment both` (Mac/CPU) versus the default
+`--assignment alternate` (spec/CUDA rotation).
 DP `type`: `0` = tame, `1` = wild. Note these two enums do **not** share
 numbering — a conversion bug here silently drops every DP.
 
@@ -115,18 +122,28 @@ numbering — a conversion bug here silently drops every DP.
 The distinguishing rule is on `x` only: a DP is distinguished iff
 `x < 2**(256 - dp_bits)`, i.e. `dp_bits` leading zero bits.
 
-Verification:
+Verification and recovery depend on which backend produced the wild DP. The
+client ships two conventions:
+
+Spec/CUDA:
 
 ```
-tame:  (d * G).x            == x
+tame:  (d * G).x                    == x
 wild:  ((Q - range_start*G) + d*G).x == x
-```
-
-Recovery, from `d_tame*G == (Q - range_start*G) + d_wild*G`:
-
-```
 secret = range_start + d_tame - d_wild   (mod N)
 ```
+
+Metal/CPU (the standalone solvers' convention):
+
+```
+tame:  (d * G).x      == x        # d is an absolute scalar
+wild:  (Q + d*G).x    == x
+secret = d_tame - d_wild          (mod N)
+```
+
+A tame DP is just a point with known discrete log in both conventions, so the
+server classifies each wild DP by its base point, stores both tame and wild
+DPs by `x`, and only accepts a recovered key after checking `key*G == Q`.
 
 ## 6. `PoolStats` / `STATS_RSP` — 36 bytes, `<QIIffQI`
 
