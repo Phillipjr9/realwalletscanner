@@ -466,6 +466,24 @@ def test_metal_convention():
     check("tame DP completes wild-first collision",
           n == 1 and s.solution is not None and s.solution["key"] == secret,
           f"n={n} err={err} solution={s.solution} rejects={s.last_reject_counts}")
+    check("accept types tracked per herd",
+          s.last_accept_types == {"tame": 1, "wild": 0},
+          f"got {s.last_accept_types}")
+
+    # Diagnostics: a tampered wild DP is reported as verify_wild and sampled.
+    s2 = J.PoolState(pub33, r0, (1 << 20) - 1, dp_bits,
+                     assignment_mode="both")
+    a3 = s2.assign("macw2")
+    bad_wild = J.DP_V2.pack(a3["work_id"], 0, x, (dw + 1).to_bytes(32, "big"),
+                            J.DP_TYPE_WILD, dp_bits)
+    n, _ = s2.accept_batch("macw2", struct.pack("<I", 1) + bad_wild)
+    check("tampered wild DP rejected as verify_wild",
+          n == 0 and s2.last_reject_counts.get("verify_wild") == 1,
+          f"n={n} rejects={s2.last_reject_counts}")
+    check("verify-fail sample captured",
+          len(s2.verify_samples) == 1
+          and s2.verify_samples[0]["type"] == J.DP_TYPE_WILD,
+          f"samples={s2.verify_samples}")
 
 
 def main():

@@ -471,6 +471,9 @@ class PoolState:
         self.tame = {}             # x_be -> dp
         self.wild = {}             # x_be -> dp (with convention + effective d)
         self.last_reject_counts = {}
+        self.last_accept_types = {"tame": 0, "wild": 0}
+        self.verify_samples = []   # first few verify-failed DPs, for diagnosis
+        self.verify_samples_printed = 0
         self.total_dps = 0
         self.started = time.time()
         self.solution = None
@@ -532,6 +535,7 @@ class PoolState:
             return 0, "no assignment"
 
         accepted = 0
+        accept_types = {"tame": 0, "wild": 0}
         rejects = {}
 
         def reject(reason):
@@ -581,7 +585,12 @@ class PoolState:
                     self.target, self.range_start, preferred=preferred,
                     spec_base=self.spec_base)
                 if not ok:
-                    reject("verify")
+                    reject("verify_tame" if dp_type == DP_TYPE_TAME
+                           else "verify_wild")
+                    if len(self.verify_samples) < 8:
+                        self.verify_samples.append(
+                            {"type": dp_type, "x": x_be.hex(),
+                             "d": d_be.hex(), "seq": seq})
                     continue
 
                 high = max(high, seq)
@@ -596,6 +605,7 @@ class PoolState:
                 }
                 accepted += 1
                 self.total_dps += 1
+                accept_types["tame" if dp_type == DP_TYPE_TAME else "wild"] += 1
 
                 if dp_type == DP_TYPE_TAME:
                     self.tame[x_be] = dp
@@ -623,6 +633,7 @@ class PoolState:
                             }
 
             self.last_reject_counts = rejects
+            self.last_accept_types = accept_types
             self.dp_seq_high[seq_key] = high
             w = self.workers.setdefault(worker, {"dps": 0, "last": 0, "dp_seq_high": -1})
             w["dps"] += accepted
@@ -722,10 +733,22 @@ class Handler(socketserver.BaseRequestHandler):
                                                 v3=(mtype == DP_BATCH_V3))
                     sock.sendall(pack_frame(DP_ACK, struct.pack("<I", n)))
                     if n:
-                        print(f"[dp] {worker} accepted {n}", flush=True)
+                        at = state.last_accept_types
+                        print(f"[dp] {worker} accepted {n} "
+                              f"(tame={at['tame']} wild={at['wild']}) "
+                              f"stored tame={len(state.tame)} "
+                              f"wild={len(state.wild)}", flush=True)
+                        if state.last_reject_counts:
+                            print(f"[dp] {worker} also rejected "
+                                  f"{state.last_reject_counts}", flush=True)
                     elif state.last_reject_counts:
                         print(f"[dp] {worker} accepted 0 "
                               f"rejects={state.last_reject_counts}", flush=True)
+                    while state.verify_samples_printed < len(state.verify_samples):
+                        s = state.verify_samples[state.verify_samples_printed]
+                        state.verify_samples_printed += 1
+                        print(f"[dp] verify-fail sample type={s['type']} "
+                              f"seq={s['seq']} x={s['x']} d={s['d']}", flush=True)
                     if err:
                         print(f"[dp] {worker} rejected: {err}", flush=True)
                     if state.solution:
