@@ -31,13 +31,37 @@ STATE="${HOME}/.collider/pool-status.state"
 WATCH=0
 INTERVAL=300
 
+usage() {
+    cat <<'USAGE'
+pool-status.sh - is the Collision Protocol pool actually up right now?
+
+Run this BEFORE starting the miner. It answers one question: is there a
+listener on the JLP port? Nothing else you do matters if the answer is no.
+
+Usage:
+  pool-status.sh                        check once
+  pool-status.sh --watch                block until the pool returns
+  pool-status.sh --watch --interval 120 poll every 2 minutes instead of 5
+  pool-status.sh --host H --port N      check a different endpoint
+
+Exit codes: 0 = pool reachable, 1 = pool down, 2 = usage error.
+
+Failure modes it separates:
+  Connection refused  a machine answered, nothing listening. Server-side.
+  Timed out           packets dropped. Your firewall, VPN, or ISP.
+  Could not resolve   DNS. Your network, or the domain is gone.
+
+Safe to pipe:  curl -fsSL <url> | bash -s -- --watch
+USAGE
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --host) HOST="${2:-}"; shift 2 ;;
         --port) PORT="${2:-}"; shift 2 ;;
         --watch) WATCH=1; shift ;;
         --interval) INTERVAL="${2:-}"; shift 2 ;;
-        -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
