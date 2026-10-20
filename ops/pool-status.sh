@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
         --port) PORT="${2:-}"; shift 2 ;;
         --watch) WATCH=1; shift ;;
         --interval) INTERVAL="${2:-}"; shift 2 ;;
-        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+        -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
