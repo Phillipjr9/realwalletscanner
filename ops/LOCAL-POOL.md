@@ -202,6 +202,12 @@ Full detail in `PROTOCOL-notes.md`. The three that bite:
    client download a binary over HTTPS, verify its sha256, and replace itself.
    A self-hosted pool has no business doing that. The server sends a
    zero-payload `AUTH_OK`.
+4. **The stock Mac client's wild herd is broken.** Its wild seeds are built
+   with an aliased EC addition that corrupts Y, so wild DPs never verify
+   (`stored wild=0`, `verify_wild` rejects). This is a client bug, not a
+   protocol issue; see `COLLIDER-WILD-BUG.md` for the proof and the
+   one-header patch (`collider-ecadd-alias.patch`) needed to build a working
+   Mac client.
 
 ## Exposing it to other machines
 
