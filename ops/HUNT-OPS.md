@@ -46,6 +46,35 @@ do not buy a Pro license (see issue #12, activation broken, also open).
 
 ---
 
+## 0b. When the pool comes back: pool-await.sh
+
+`ops/pool-await.sh` is the "continue with the pool" path. It does not pretend
+the pool is up; it waits for it and starts mining the moment it answers.
+
+```bash
+./ops/pool-await.sh --worker bc1q... --binary ~/puzzle/collider
+```
+
+What it does, in order:
+
+1. Validates the payout address and refuses to start on a placeholder or a
+   typo - the only irreversible mistake in this whole setup.
+2. Probes the endpoint every `--interval` seconds (default 300).
+3. On a real answer, launches
+   `collider --pool jlps://... --worker <addr> --verbose`, teeing to a log.
+4. Supervises: a crash while the pool is up restarts after 30s; if the pool
+   has gone away again it returns to waiting instead of reconnect-spamming.
+
+Flags: `--dry-run` (validate + probe, never start), `--once` (single pass),
+`--log FILE`, `--extra "..."` for additional collider flags.
+
+Note: the pool has no alternate endpoints (`pool2`, `eu`, `us`, `api` do not
+resolve), and the reference server source the docs link to
+(`github.com/hevnsnt/collision-protocol`) returns 404, so self-hosting is not
+currently possible. Waiting is the only option that is in your control.
+
+---
+
 ## 1. What the tab can and cannot do
 
 There is no web miner, no "launch app" mining session, and no cloud fallback.
