@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. Do not copy this by hand - ops/install-launchd.sh substitutes the
+  __PLACEHOLDER__ values and installs it to /Library/LaunchDaemons (daemon
+  mode) or ~/Library/LaunchAgents (agent mode).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>__LABEL__</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__WRAPPER__</string>
+    </array>
+
+    <!-- Start at boot (daemon) or login (agent). -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart on any exit, but never faster than every 60s. A permanent
+         failure (IP ban, UPGRADE_REQUIRED) will loop slowly and be visible in
+         the log instead of spinning the CPU. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <!-- Daemon mode only; removed by the installer in agent mode. The client
+         needs no privileges, so it runs as you, not as root. -->
+    <key>UserName</key>
+    <string>__USER__</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKDIR__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>COLLIDER_ENV</key>
+        <string>__ENV_FILE__</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_DIR__/collider.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG_DIR__/collider.err.log</string>
+
+    <!-- Do not let launchd deprioritise a compute job. -->
+    <key>LowPriorityIO</key>
+    <false/>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

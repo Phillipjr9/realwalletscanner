@@ -141,27 +141,36 @@ so queued DPs flush.
 Registers a boot-time SYSTEM task with restart-on-failure and no time limit.
 `-PreventSleep` disables standby/hibernate on AC.
 
-### macOS
+### macOS (Apple Silicon)
 
-Apple Silicon runs the Metal backend. Use launchd so it survives logout:
+Metal backend, launchd, and a sleep problem `caffeinate` cannot solve. Full
+playbook, including multi-MacBook fleets and thermal limits: [`MACBOOKS.md`](MACBOOKS.md).
 
-```xml
-<!-- ~/Library/LaunchAgents/com.collider.pool.plist -->
-<key>ProgramArguments</key>
-<array>
-  <string>/Applications/collider/collider</string>
-  <string>--pool</string><string>jlps://pool.collisionprotocol.com:17403</string>
-  <string>--worker</string><string>36vjpBDd2yT6XwuBJPXgr7ksPBxhyCk4aP</string>
-  <string>--no-tui</string>
-</array>
-<key>KeepAlive</key><true/>
-<key>RunAtLoad</key><true/>
-<key>StandardOutPath</key><string>/tmp/collider.log</string>
+```bash
+sudo ./ops/install-launchd.sh \
+    --worker 36vjpBDd2yT6XwuBJPXgr7ksPBxhyCk4aP \
+    --binary ~/puzzle/collider \
+    --user "$USER" \
+    --prevent-sleep
 ```
 
-Then `launchctl load ~/Library/LaunchAgents/com.collider.pool.plist`.
-A laptop is a poor rig: thermals throttle the walk rate and lid-close drops
-the TLS session (the client reconnects, but you lose the gap).
+Four things that are specific to laptops:
+
+- **`caffeinate` does not survive a lid close.** It holds a power assertion, and
+  a lid close is an explicit sleep request, not idleness. Only
+  `sudo pmset -a disablesleep 1` (or true clamshell mode) covers it — and that
+  flag persists across reboots until you set it back to `0`.
+- **`caffeinate -s` is AC-only** and silently does nothing on battery. Keep
+  MacBooks plugged in; the installer's wrapper passes `-i -s`.
+- **Lid closed throttles hard.** The lid and keyboard deck are part of the
+  thermal path; a saturated GPU with the lid shut has nowhere to dump heat. Lid
+  open, hard surface, screen allowed to blank.
+- **FileVault breaks unattended reboots.** A rebooted Mac sits at the pre-boot
+  unlock screen, launchd never runs, and the worker stays down until someone
+  types the password. Use `sudo fdesetup authrestart` for planned restarts.
+
+The accrual unit is the address, not the machine, so point every MacBook at the
+same `--worker` and their DPs add up under one rank.
 
 ### No service manager (tmux / WSL / weird hosts)
 
