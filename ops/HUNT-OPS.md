@@ -340,6 +340,24 @@ unchanged, and your accrued total continues.
 The pool itself has run out of disk before under heavy submission volume, so if
 every worker stalls at once it is probably not you.
 
+### Fetching these scripts: raw.githubusercontent caches
+
+`raw.githubusercontent.com` serves a cached copy for up to ~5 minutes after a
+push, so a `curl` right after an update can quietly give you the previous
+version - which fails with errors like `unknown argument: --watch`. Bust it:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/Phillipjr9/realwalletscanner/<branch>/ops/pool-status.sh?v=$(date +%s)" -o ~/ps.sh
+```
+
+Always check the byte count after downloading. Or skip the download entirely -
+the whole check is one line:
+
+```bash
+while ! nc -z -w 5 pool.collisionprotocol.com 17403; do sleep 300; done
+printf '\a'; echo "POOL IS UP $(date)"
+```
+
 ### Diagnosing "no resolved address answered"
 
 That message means `getaddrinfo` returned at least one address and every
