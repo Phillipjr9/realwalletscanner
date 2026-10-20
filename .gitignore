@@ -31,3 +31,7 @@ WebWorkstation/ever_held_wallets.txt
 
 
 
+
+# Python (ops/ tooling)
+__pycache__/
+*.pyc

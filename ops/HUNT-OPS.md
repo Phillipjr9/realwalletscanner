@@ -1,11 +1,11 @@
 # Collision Protocol — hunt operations
 
 Runbook for keeping a pool worker alive on a real machine, and for knowing
-whether "alive" is actually earning anything. Written against theCollider
+whether "alive" is actually earning anything. Written against the Collider
 **v1.5.6 / JLP v3** (pool protocol v3; v1.4.x clients are refused with
 `UPGRADE_REQUIRED`).
 
-Worker in this kit: `36vjpBDd2yT6XwuBJPXgr7ksPBxhyCk4aP`
+Worker in this kit: `bc1qcaugv5gdawqjxw3dm3uyx5gw5m9uqak9ues7wd`
 
 ---
 
@@ -43,6 +43,47 @@ The pool is offline, and it is not a client problem:
 Conclusion: multiple users, several platforms, no maintainer reply for weeks.
 Nothing on the client side can fix this. Use `ops/pool-status.sh` to check, and
 do not buy a Pro license (see issue #12, activation broken, also open).
+
+### 0a. Since the pool is not coming back on its own: we rebuilt it
+
+`hevnsnt/collision-protocol` (the reference server the spec links to) is a
+**404**, but `docs/JLP-PROTOCOL.md` is intact — 562 lines, every struct with
+byte offsets. That is enough to write the server, and it has been written:
+
+| File | What it is |
+| --- | --- |
+| `ops/jlp_server.py` | JLP v4-compatible pool server, no dependencies |
+| `ops/test_jlp_server.py` | 30 checks, no GPU, ~2 s |
+| `ops/demo-solve.py` | spawns the server, solves a 24-bit puzzle over TCP |
+| `ops/make-puzzle.py` | builds a puzzle small enough to actually finish |
+| `ops/check-solution.py` | independently verifies a recovered key |
+| `ops/PROTOCOL-notes.md` | wire spec, corrected against the client's own parser |
+| `ops/LOCAL-POOL.md` | runbook |
+
+Read `LOCAL-POOL.md` before running it. The one-paragraph version: this is
+**your** pool, not the official one. It does not restore your dashboard entry,
+your 23.21K DPs, or the 388.97M pool-wide count, and it does not make #140
+solvable — 139 bits is still ~21,789 years at the pool's own 2.6 DP/s. What it
+does give you is a working protocol implementation, a real hunt with a finish
+line if you generate a small puzzle, and a decisive way to prove your client
+and network are healthy while the maintainer is chased.
+
+Three findings from reading the shipped client's parser that the spec gets
+wrong or omits — these are the ones that would have burned a day:
+
+1. The doc says the server negotiates `min(client_flags, 4)`. The client
+   **hard-disconnects** on any inbound frame whose version byte != 4.
+2. `WORK_ASN` must be *exactly* 126 bytes; the client rejects other lengths.
+3. A populated `AUTH_OK` advert triggers in-band auto-update — the client will
+   download, checksum, and replace itself. A self-hosted pool must send a
+   zero-payload `AUTH_OK`.
+
+Status of the work: framing, AUTH, work assignment, DP validation, collision
+recovery, stats, and the key round-trip are all verified over TCP. The one
+thing that is **not** verified is the real `collider` binary against this
+server — this sandbox is Linux with no GPU and no Metal, so the binary cannot
+run here. Every struct size was checked against the client's `static_assert`s,
+but expect first contact on a Mac to be a debugging session.
 
 ---
 
