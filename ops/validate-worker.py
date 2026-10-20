@@ -126,11 +126,27 @@ def _convertbits(data, frombits: int, tobits: int, pad: bool = False):
     return ret
 
 
+PLACEHOLDERS = (
+    "1yourfreshbitcoinaddress",
+    "1yourbitcoinaddressforrewards",
+    "1yourbitcoinaddress",
+    "yourbitcoinaddresshere",
+    "bc1qyourbtcaddress",
+)
+
+
 def classify(addr: str):
     """Return (kind, detail) or raise ValueError with a human reason."""
     addr = addr.strip()
     if not addr:
         raise ValueError("empty address")
+    if addr.lower() in PLACEHOLDERS or "yourbitcoinaddress" in addr.lower() \
+            or "freshbitcoinaddress" in addr.lower():
+        raise ValueError(
+            "this is a PLACEHOLDER copied from a sample config, not a wallet.\n"
+            "      Every DP sent under it is credited to a bucket nobody owns.\n"
+            "      Replace it with an address from a wallet whose seed you hold."
+        )
     if len(addr) > 64:
         raise ValueError("longer than the 64-byte worker_name field on the wire")
 

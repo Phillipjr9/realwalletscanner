@@ -1,0 +1,21 @@
+# ~/.collider/pool-mode.yml - working pool config for Collision Protocol.
+#
+# Copy to ~/.collider/pool-mode.yml and REPLACE the worker value with an
+# address from a wallet whose seed you hold. The value shipped in the official
+# example config is "1YourFreshBitcoinAddress", which is not a wallet: every DP
+# sent under it is credited to a bucket nobody can ever spend.
+#
+# Validate before running:
+#     python3 ops/validate-worker.py <your-address>
+# Then prove control with a spend round-trip (HUNT-OPS.md section 4).
+
+pool:
+  worker: "REPLACE_WITH_YOUR_ADDRESS"
+  url: "jlps://pool.collisionprotocol.com:17403"
+
+# NOTE: jlps:// (with the s) is required. A bare "host:17403" is parsed as
+# plaintext by parse_pool_url, and port 17403 is TLS-only, so the connection is
+# reset and the client reports "Failed to connect to pool".
+#
+# The puzzle: section only matters in standalone (non-pool) mode. It is
+# harmless here but does nothing while a pool URL is set.
