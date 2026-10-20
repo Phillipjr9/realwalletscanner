@@ -141,6 +141,41 @@ Also:
 - The address is public and shows on the leaderboard. That is fine — it cannot
   be spent from without your key. It is not a secret; treat it as a username.
 
+### If you do not control the address (do this in order)
+
+1. **Stop the worker now.** Every DP you submit is credited to that string and
+   cannot be moved afterwards.
+   ```bash
+   sudo launchctl bootout system/com.collider.pool          # macOS
+   systemctl stop collider-pool                             # Linux
+   Stop-ScheduledTask -TaskName 'Collider Pool Worker'      # Windows
+   ```
+   Or Ctrl+C if you launched it by hand.
+
+2. **Create an address in a wallet whose seed you hold.** Electrum or Sparrow on
+   the Mac, or a hardware wallet. Write the seed down twice, stored separately.
+   Never an exchange deposit address — they rotate and may refuse an inbound
+   payout.
+
+3. **Test it before you trust it.** Send ~5,000 sats to the new address, then
+   send it back out to a different address you control. Confirmed outbound = you
+   own the key. Only then restart the worker with it.
+
+4. **The old bucket is gone.** The docs say the operator cannot fix this, and
+   separately that switching addresses "splits your accrual across two buckets,
+   and the pool's payout policy is unlikely to merge them retroactively." Email
+   the operator if you like — it is free — but nothing proves the old bucket was
+   yours, so expect a no.
+
+5. **If someone gave you the address or a ready-made command, you were mining
+   for them.** Do not send money, do not install a build they supplied, and do
+   not share a seed. See section 11.
+
+**Why it is not as expensive as it feels:** those DPs were worth ~0.0004 BTC
+*if the pool ever solves*, which is ~0.02% likely. You lost work, not a real
+balance. Fix the address before the next long run and the mistake costs nothing
+more.
+
 ---
 
 ## 5. Start it and keep it up
