@@ -49,7 +49,24 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -n "$WORKER" ]] || die "--worker <btc-address> is required"
+# Worker resolution: --worker flag > $COLLIDER_WORKER > ./config.yml.
+# Keeping the address in the config means it never has to be retyped (and never
+# gets mangled on paste) once it is set in one place.
+if [[ -z "$WORKER" ]]; then
+    WORKER="${COLLIDER_WORKER:-}"
+fi
+if [[ -z "$WORKER" ]]; then
+    here_cfg="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$here_cfg/config.yml" ]]; then
+        WORKER="$(awk -F'"' '/^[[:space:]]*worker:/ {print $2; exit}' "$here_cfg/config.yml")"
+        [[ -n "$WORKER" ]] && echo "using worker from $here_cfg/config.yml"
+    elif [[ -f "$HOME/.collider/pool-mode.yml" ]]; then
+        WORKER="$(awk -F'"' '/^[[:space:]]*worker:/ {print $2; exit}' "$HOME/.collider/pool-mode.yml")"
+        [[ -n "$WORKER" ]] && echo "using worker from ~/.collider/pool-mode.yml"
+    fi
+fi
+
+[[ -n "$WORKER" ]] || die "--worker <btc-address> is required (or set worker: in config.yml)"
 [[ -n "$BINARY" ]] || die "--binary <path to collider> is required"
 [[ -x "$BINARY" ]] || die "not executable: $BINARY"
 

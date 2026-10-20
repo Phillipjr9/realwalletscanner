@@ -12,7 +12,7 @@
 
 pool:
   url: "jlps://pool.collisionprotocol.com:17403"   # TLS. Do not use jlp:// over the internet.
-  worker: "36vjpBDd2yT6XwuBJPXgr7ksPBxhyCk4aP"
+  worker: "bc1qcaugv5gdawqjxw3dm3uyx5gw5m9uqak9ues7wd"
   # password: ""        # public pool ignores this
   # api_key: ""         # HTTP-only pool variants only
 
