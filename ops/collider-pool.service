@@ -1,0 +1,40 @@
+[Unit]
+Description=theCollider pool worker (Collision Protocol / JLP v3)
+Documentation=https://collisionprotocol.com/docs https://github.com/hevnsnt/collider
+# Wait for a usable network and a synced clock. AUTH rejects >30s clock drift,
+# so starting before time sync produces avoidable AUTH_FAIL loops.
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+# Never give up restarting: v1.5.6's own reconnect supervisor retries forever,
+# but a crash or an UPGRADE_REQUIRED still exits the process.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Runs as a dedicated unprivileged user created by install-systemd.sh.
+User=collider
+Group=collider
+# GPU device nodes are owned by video/render on most distros.
+SupplementaryGroups=video render
+WorkingDirectory=/opt/collider
+EnvironmentFile=/etc/collider/collider.env
+# No --no-update here on purpose: auto-update is left at its default so a
+# JLP protocol bump (v1.4 -> v1.5 style) does not strand the worker on
+# UPGRADE_REQUIRED. Pin instead by adding --no-update to ExecStart, and then
+# watch the release notes yourself.
+ExecStart=/opt/collider/collider --pool ${COLLIDER_POOL_URL} --worker ${COLLIDER_WORKER} --no-tui --verbose
+Restart=always
+RestartSec=15
+# Give it 30s to flush queued DPs on stop (SIGTERM flushes best-effort).
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Nice=10
+# GPU is the bottleneck; keep the CPU scheduler from starving the host.
+CPUWeight=50
+IOWeight=50
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=collider
+
+[Install]
+WantedBy=multi-user.target
