@@ -107,6 +107,7 @@ def main():
     print(f"  range       {hex(r0)} .. {hex(r1)}")
     print(f"  dp_bits     {dp_bits}")
     print(f"  secret      kept in {args.out} - do not lose it, do not share it")
+    print(f"              and do not commit it: {args.out} holds a private key")
     print()
     print("Run the pool:")
     print(f"  python3 ops/jlp_server.py --pubkey {pub33.hex()} \\")
