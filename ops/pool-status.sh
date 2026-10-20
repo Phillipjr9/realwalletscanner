@@ -6,6 +6,13 @@
 #
 #   ./ops/pool-status.sh
 #   ./ops/pool-status.sh --host pool.collisionprotocol.com --port 17403
+#   ./ops/pool-status.sh --watch            # block until the pool returns
+#   ./ops/pool-status.sh --watch --interval 120
+#
+# --watch polls every --interval seconds (default 300) and exits as soon as the
+# port answers, with a desktop notification on macOS. Start it in a terminal and
+# forget about it; it tells you the moment the pool is back instead of you
+# checking by hand.
 #
 # Exit codes: 0 = pool reachable, 1 = pool down, 2 = usage error.
 #
@@ -21,15 +28,54 @@ set -uo pipefail
 HOST="pool.collisionprotocol.com"
 PORT="17403"
 STATE="${HOME}/.collider/pool-status.state"
+WATCH=0
+INTERVAL=300
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --host) HOST="${2:-}"; shift 2 ;;
         --port) PORT="${2:-}"; shift 2 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        --watch) WATCH=1; shift ;;
+        --interval) INTERVAL="${2:-}"; shift 2 ;;
+        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+tcp_state() {
+    local err rc
+    err=$(nc -vz -w 6 "$1" "$2" 2>&1); rc=$?
+    if [[ $rc -eq 0 ]]; then echo open; return; fi
+    case "$err" in
+        *"Connection refused"*)                   echo refused ;;
+        *"Timed out"*|*"timed out"*)              echo timeout ;;
+        *"Could not resolve"*|*"nodename"*)       echo dns ;;
+        *)                                        echo error ;;
+    esac
+}
+
+notify() {
+    printf '\a'
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        osascript -e "display notification \"$2\" with title \"$1\"" >/dev/null 2>&1 || true
+    fi
+}
+
+if [[ $WATCH -eq 1 ]]; then
+    echo "Watching $HOST:$PORT every ${INTERVAL}s. Ctrl+C to stop."
+    echo "You will get a notification when it answers."
+    while true; do
+        state=$(tcp_state "$HOST" "$PORT")
+        if [[ "$state" == "open" ]]; then
+            echo
+            echo "[$(date '+%H:%M:%S')] POOL IS UP - $HOST:$PORT is answering"
+            notify "Collision Protocol" "Pool is back up. Safe to start the miner."
+            exit 0
+        fi
+        printf '.'
+        sleep "$INTERVAL"
+    done
+fi
 
 echo "Checking $HOST:$PORT"
 echo
