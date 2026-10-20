@@ -43,7 +43,39 @@ Two implications:
 
 ---
 
-## 2. Where you actually stand
+## 2. Is anything left actually solvable?
+
+Run `python3 ops/feasibility.py --rate <your DP/s>` for the live table. At the
+measured ~1.5 DP/s (a MacBook-class GPU), using the pool's own published
+expectation of 1.789T DPs for #140:
+
+| Puzzle | Net prize | Expected DPs | Time at 1.5 DP/s |
+| --- | --- | --- | --- |
+| #140 | 13.30 BTC | 1.79T | 38,000 years |
+| #145 | 13.78 BTC | 10.12T | 214,000 years |
+| #150 | 14.25 BTC | 57.22T | 1.2 million years |
+| #155 | 14.73 BTC | 323.70T | 6.8 million years |
+| #160 | 15.20 BTC | 1.83Q | 38.7 million years |
+
+Everything smaller (#71, #72, #73, #74, #76-79, #81-84, …) has **no exposed
+public key**, so kangaroo does not apply — you would brute-force 2^(N-1) keys.
+Even #71, the easiest of those, is ~37,000 years at 1 GKey/s.
+
+There is no "slightly easier" target to step down to. #140 is the smallest
+unsolved puzzle that is attackable at all, and it needs ~4,600× the pool's
+entire output to date.
+
+**What #140 would require:** 56,664 DP/s for a year ≈ 1,889 RTX-4090s ≈ 21,794×
+the pool's current 2.6 DP/s. For a 10-year horizon: 5,666 DP/s ≈ 2,179× today.
+
+**What your uptime is worth:** one year at 1.5 DP/s is 0.00273% of the expected
+total, so if the pool ever solves, ~0.000362 BTC against ~$79 of electricity.
+Ten years gets you to ~0.0008 BTC *before* adjusting for the pool's 0.0218%
+coverage — after that adjustment it is ~7.7e-07 BTC.
+
+---
+
+## 3. Where you actually stand
 
 The dashboard's "Est. Payout" is a projection conditional on the pool solving
 #140. It is not a balance that grows.
@@ -77,7 +109,7 @@ Two structural facts worth knowing before you commit serious uptime:
 
 ---
 
-## 3. The only irreversible mistake: the payout address
+## 4. The only irreversible mistake: the payout address
 
 The pool docs are explicit: *"The server does not validate the address format
 (so a typo will not bounce AUTH); it just uses the string as a key."* The client
@@ -111,7 +143,7 @@ Also:
 
 ---
 
-## 4. Start it and keep it up
+## 5. Start it and keep it up
 
 ### Linux (recommended for a dedicated rig)
 
@@ -189,7 +221,7 @@ over it. Run once with `--debug` to see the resolved configuration.
 
 ---
 
-## 5. Sleep, reboots, Windows Update
+## 6. Sleep, reboots, Windows Update
 
 | Event | Effect | Mitigation |
 | --- | --- | --- |
@@ -204,7 +236,7 @@ in-flight work is lost.
 
 ---
 
-## 6. Updates and version pinning
+## 7. Updates and version pinning
 
 The client can self-update in pool mode. That keeps you compatible (the v1.5
 protocol bump hard-refused every v1.4 client), but it also means a binary you
@@ -225,7 +257,7 @@ decision, not a formality.
 
 ---
 
-## 7. Monitoring: is it actually earning?
+## 8. Monitoring: is it actually earning?
 
 Three independent checks; any one failing means you are offline:
 
@@ -243,7 +275,7 @@ means the socket or the GPU died.
 
 ---
 
-## 8. Stopping cleanly
+## 9. Stopping cleanly
 
 ```bash
 systemctl stop collider-pool        # SIGTERM, flushes queued DPs, 30s grace
@@ -255,7 +287,7 @@ unchanged, and your accrued total continues.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -273,7 +305,7 @@ every worker stalls at once it is probably not you.
 
 ---
 
-## 10. Security and phishing
+## 11. Security and phishing
 
 Nothing about joining this pool requires a secret. Memorise the rule:
 
@@ -297,7 +329,7 @@ Specifically:
 
 ---
 
-## 11. Scope of this kit
+## 12. Scope of this kit
 
 This repo (`realwalletscanner`) is a Windows WPF wallet-recovery/scanning
 application. It is **not** a kangaroo solver and cannot contribute DPs, so

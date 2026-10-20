@@ -8,7 +8,7 @@
 # the scheduled-task arguments (Windows) rather than in git. If you fork this
 # repo publicly, strip the line below and let the env file supply it.
 # Change it only if you have proven you can spend from the new address
-# (see HUNT-OPS.md section 3).
+# (see HUNT-OPS.md section 4).
 
 pool:
   url: "jlps://pool.collisionprotocol.com:17403"   # TLS. Do not use jlp:// over the internet.
