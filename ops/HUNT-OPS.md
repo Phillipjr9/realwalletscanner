@@ -26,6 +26,26 @@ already has. Everything below is about the machine with the GPU.
 
 ---
 
+## 0. Known status (checked 2026-10-20)
+
+The pool is offline, and it is not a client problem:
+
+- `pool.collisionprotocol.com:17403` returns **Connection refused** from the
+  Mac, and from external nodes in the US, EU, and Asia.
+- The stats page serves a **frozen snapshot**: the "Last updated" clock ticks
+  while DPs, worker count and uptime (3d 20h 8m) stay byte-identical for hours.
+- Upstream: [`collider` issue #14](https://github.com/hevnsnt/collider/issues/14),
+  *"Stalling on both Mac and Linux. Does not work at all"*, open since
+  2026-08-29 with no maintainer response. A Pro customer reports on 2026-09-15
+  that on Mac M1 **and** M4, "Pool version exits ... Pool url does not exist".
+- Last `collider` commit: 2026-06-15.
+
+Conclusion: multiple users, several platforms, no maintainer reply for weeks.
+Nothing on the client side can fix this. Use `ops/pool-status.sh` to check, and
+do not buy a Pro license (see issue #12, activation broken, also open).
+
+---
+
 ## 1. What the tab can and cannot do
 
 There is no web miner, no "launch app" mining session, and no cloud fallback.
