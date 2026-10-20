@@ -326,6 +326,8 @@ unchanged, and your accrued total continues.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `Failed to resolve hostname` | DNS broken | check network/VPN, `dig pool.collisionprotocol.com` |
+| `Failed to connect ... (no resolved address answered)` | DNS worked, TCP blocked - firewall, VPN, or ISP filtering port 17403 | see below |
 | `AUTH_FAIL` immediately | clock drift > 30 s | `sudo systemctl restart systemd-timesyncd`, `w32tm /resync` |
 | `AUTH_FAIL: UPGRADE_REQUIRED` | client is v1.4.x | update to ≥ v1.5.0 |
 | TLS "missing trust anchor" | no CA bundle | `apt install ca-certificates` |
@@ -337,6 +339,25 @@ unchanged, and your accrued total continues.
 
 The pool itself has run out of disk before under heavy submission volume, so if
 every worker stalls at once it is probably not you.
+
+### Diagnosing "no resolved address answered"
+
+That message means `getaddrinfo` returned at least one address and every
+`connect()` failed. DNS is not the problem; the TCP path is. Isolate it:
+
+1. `nc -vz pool.collisionprotocol.com 17403` - if this succeeds but the client
+   fails, an application firewall (Little Snitch, LuLu) is blocking `collider`
+   specifically. Allow it, or check System Settings > Network > Firewall.
+2. `nc -vz pool.collisionprotocol.com 443` - if 443 works and 17403 does not,
+   something between you and the pool filters that port. VPNs and some ISPs
+   (mobile/CGNAT especially) drop non-standard outbound ports.
+3. Repeat step 1 on a phone hotspot. Works there but fails at home = ISP block.
+   Then use a VPN with unrestricted TCP egress, or a different network.
+4. `ifconfig | grep utun` - a VPN tunnel is up. Some VPN providers block
+   non-web ports; test with the VPN off.
+
+The pool listens only on 17403; there is no alternate port or HTTP variant to
+fall back to.
 
 ---
 
