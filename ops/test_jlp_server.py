@@ -378,6 +378,38 @@ def test_strict_client_compat():
     srv.server_close()
 
 
+def test_seq_window_per_work_id():
+    print("\n[seq window is per (worker, work_id)]")
+    dp_bits = 8
+    r0 = 1 << 19
+    secret = r0 + 42424
+    Q = J.pt_mul(secret)
+    pub33 = J.compress(Q)
+    dw = find_distinguished(secret, r0, dp_bits)
+    check("found a distinguished point", dw is not None)
+    if dw is None:
+        return
+    dt = (secret - r0) + dw
+    x = J.pt_mul(dt)[0].to_bytes(32, "big")
+
+    s = J.PoolState(pub33, r0, (1 << 20) - 1, dp_bits)
+    a1 = s.assign("wseq")                       # work_id 1, tame
+    # Push the chunk-1 high-water far past the 1024 window.
+    tame_dp = J.DP_V2.pack(a1["work_id"], 5000, x, dt.to_bytes(32, "big"),
+                           J.DP_TYPE_TAME, dp_bits)
+    n, _ = s.accept_batch("wseq", struct.pack("<I", 1) + tame_dp)
+    check("chunk-1 DP at seq 5000 accepted", n == 1, f"n={n}")
+
+    a2 = s.assign("wseq")                       # work_id 2, wild; client seq resets to 0
+    wild_dp = J.DP_V2.pack(a2["work_id"], 0, x, dw.to_bytes(32, "big"),
+                           J.DP_TYPE_WILD, dp_bits)
+    n, _ = s.accept_batch("wseq", struct.pack("<I", 1) + wild_dp)
+    check("chunk-2 DP at seq 0 not rejected as replay",
+          n == 1, f"n={n} rejects={s.last_reject_counts}")
+    check("cross-chunk collision still solves",
+          s.solution is not None and s.solution["key"] == secret)
+
+
 def test_metal_convention():
     print("\n[metal/cpu convention + BOTH assignment]")
     dp_bits = 8
@@ -442,7 +474,7 @@ def main():
     print("JLP v3 server test suite")
     test_curve(); test_ripemd(); test_framing(); test_helpers(); test_key_math()
     test_verify_dp(); test_end_to_end(); test_strict_client_compat()
-    test_metal_convention()
+    test_seq_window_per_work_id(); test_metal_convention()
     print(f"\n{'=' * 46}")
     if FAILS:
         print(f"\033[31m{len(FAILS)} FAILED\033[0m: {', '.join(FAILS)}")

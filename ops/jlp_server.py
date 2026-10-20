@@ -467,6 +467,7 @@ class PoolState:
         self.lock = threading.Lock()
         self.workers = {}          # worker_name -> stats
         self.assignments = {}      # worker_name -> dict
+        self.dp_seq_high = {}      # (worker_name, work_id) -> highest seq accepted
         self.tame = {}             # x_be -> dp
         self.wild = {}             # x_be -> dp (with convention + effective d)
         self.last_reject_counts = {}
@@ -537,7 +538,11 @@ class PoolState:
             rejects[reason] = rejects.get(reason, 0) + 1
 
         with self.lock:
-            high = self.workers.get(worker, {}).get("dp_seq_high", -1)
+            # Sequence high-water is per (worker, work_id): the client resets
+            # its counter to 0 on every new assignment, so carrying one mark
+            # across work_ids rejects a fresh chunk as a replay.
+            seq_key = (worker, asn["work_id"])
+            high = self.dp_seq_high.get(seq_key, -1)
             for i in range(count):
                 off = 4 + i * rec.size
                 if v3:
@@ -618,6 +623,7 @@ class PoolState:
                             }
 
             self.last_reject_counts = rejects
+            self.dp_seq_high[seq_key] = high
             w = self.workers.setdefault(worker, {"dps": 0, "last": 0, "dp_seq_high": -1})
             w["dps"] += accepted
             w["last"] = time.time()
