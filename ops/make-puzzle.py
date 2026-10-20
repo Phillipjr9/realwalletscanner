@@ -124,9 +124,9 @@ def main():
     print(f"  ./collider --pool jlp://127.0.0.1:17403 \\")
     print(f"      --worker bc1qcaugv5gdawqjxw3dm3uyx5gw5m9uqak9ues7wd --verbose")
     print()
-    print("Verify a result independently:")
+    print("Verify a result independently (after the server writes it):")
     print(f"  python3 {os.path.join(HERE, 'check-solution.py')} \\")
-    print(f"      --puzzle {out_abs} --key <hex from the server>")
+    print(f"      --puzzle {out_abs} --key-file {solved_abs}")
 
 
 if __name__ == "__main__":

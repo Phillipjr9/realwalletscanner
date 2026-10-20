@@ -36,6 +36,49 @@ deliberately:
    and it is the thing to point at while you chase the maintainer. It also
    means that if the official pool returns, you have lost nothing.
 
+## Getting the files
+
+If you have never cloned it:
+
+```bash
+git clone -b arena/118369ec-realwalletscanner \
+  https://github.com/Phillipjr9/realwalletscanner.git ~/rws
+```
+
+If `~/rws` already exists from an earlier attempt, it is an **old checkout of
+this same repo** and will not have the new files. A plain `git clone` refuses
+with *"destination path already exists and is not an empty directory"*, which
+is what happens, and then `make-puzzle.py` is missing. Update it in place:
+
+```bash
+git -C ~/rws fetch origin
+git -C ~/rws checkout arena/118369ec-realwalletscanner
+git -C ~/rws reset --hard origin/arena/118369ec-realwalletscanner
+```
+
+`reset --hard` discards any local edits inside `~/rws`. If you have work
+there you care about, clone somewhere else instead (`~/jlp`) and leave `~/rws`
+alone.
+
+### Python and OpenSSL
+
+`hashlib.new("ripemd160")` is **not** guaranteed to work. OpenSSL 3.x moved
+RIPEMD-160 into its legacy provider, so Homebrew Python (`python3.14` here)
+often raises instead of returning a digest, and P2PKH address derivation fails
+with an unhelpful error. The tooling carries a pure-Python RIPEMD-160 that is
+used automatically when OpenSSL cannot provide one, so this should not block
+you. To check which path your machine is on:
+
+```bash
+python3 -c "import hashlib; print(hashlib.new('ripemd160', b'').hexdigest())"
+```
+
+To force the fallback (useful for testing):
+
+```bash
+JLP_FORCE_RIPEMD_FALLBACK=1 python3 ops/make-puzzle.py --bits 40
+```
+
 ## Quick start — a puzzle you can actually finish
 
 On any machine (a laptop is fine):
