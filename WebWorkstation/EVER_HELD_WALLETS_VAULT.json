@@ -1,7 +1,7 @@
 [
   {
-    "detectedAt": "2026-10-21T14:40:22.320Z",
-    "source": "History Inspector • 12-Word BIP39 Seed",
+    "detectedAt": "2026-10-21T15:01:43.167Z",
+    "source": "Seed Inspector",
     "input": "army van defense carry jealous true garbage claim echo media make crunch",
     "mnemonic": "army van defense carry jealous true garbage claim echo media make crunch",
     "isMnemonicSeed": true,
@@ -28,8 +28,8 @@
     "mnemonicPhrase": "army van defense carry jealous true garbage claim echo media make crunch"
   },
   {
-    "detectedAt": "2026-10-21T14:23:45.029Z",
-    "source": "History Inspector • Brainwallet SHA-256 Passphrase",
+    "detectedAt": "2026-10-21T14:55:09.021Z",
+    "source": "Seed Inspector",
     "input": "brain:\"correct horse battery staple\"",
     "mnemonic": "brain:\"correct horse battery staple\"",
     "isMnemonicSeed": false,
