@@ -33,6 +33,8 @@ collider binary is UNVERIFIED - it could not be run in the build environment
 
 import argparse
 import hashlib
+import html
+import json
 import os
 import secrets
 import socket
@@ -724,6 +726,100 @@ class PoolState:
             }
 
 
+# ---------------------------------------------------------------------------
+# Same-port HTTP status (for browsers / preview proxies health-checking 17403)
+#
+# The pool port speaks raw binary JLP (magic "KANG"). A browser or an HTTP
+# preview proxy connecting to it sends "GET ..." instead, which previously
+# died as "bad magic b'GET '" and surfaced to the user as a Cloudflare 502.
+# We peek the first bytes: HTTP gets a tiny status page, everything else is
+# treated as JLP exactly as before. Collider clients are unaffected.
+# ---------------------------------------------------------------------------
+
+_HTTP_PREFIXES = (b"GET ", b"HEAD", b"POST", b"OPTI")
+
+
+def _looks_http(peek: bytes) -> bool:
+    return len(peek) >= 4 and peek[:4] in _HTTP_PREFIXES
+
+
+def _http_response(state, method="GET", path="/"):
+    st = state.stats("")
+    status = "SOLVED" if state.solution else "searching"
+    if path.startswith("/health") or path.startswith("/status.json"):
+        body = json.dumps({
+            "status": "ok",
+            "pool_status": status,
+            "dp_bits": state.dp_bits,
+            "assignment": state.assignment_mode,
+            "total_dps": st["total_dps"],
+            "stored_tame": len(state.tame),
+            "stored_wild": len(state.wild),
+            "workers": st["total_workers"],
+            "active_workers": st["active_workers"],
+            "uptime_seconds": st["uptime"],
+        }).encode()
+        ctype = "application/json"
+    else:
+        rows = [
+            ("status", status),
+            ("target pubkey", state.pub33.hex()),
+            ("range", f"{state.range_start:#x} .. {state.range_end:#x}"),
+            ("dp_bits", str(state.dp_bits)),
+            ("assignment", state.assignment_mode),
+            ("total DPs accepted", str(st["total_dps"])),
+            ("stored tame DPs", str(len(state.tame))),
+            ("stored wild DPs", str(len(state.wild))),
+            ("workers (active/total)",
+             f"{st['active_workers']}/{st['total_workers']}"),
+            ("uptime (s)", str(st["uptime"])),
+        ]
+        trs = "".join(
+            f"<tr><th>{html.escape(k)}</th><td>{html.escape(v)}</td></tr>"
+            for k, v in rows)
+        body = f"""<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<title>Local JLP Pool</title></head>
+<body style=\"font-family:system-ui,monospace;background:#111;color:#ddd;
+margin:2rem;overflow-wrap:anywhere\">
+<h1>Local JLP Pool</h1>
+<p>This port speaks the binary JLP pool protocol for <code>collider</code>
+clients. Browsers get this status page instead of a dropped connection.</p>
+<table cellpadding=\"6\" cellspacing=\"0\" border=\"1\" style=\"border-collapse:collapse\">{trs}</table>
+<p>Connect a worker with:
+<code>collider --pool jlp://127.0.0.1:17403 --worker &lt;addr&gt; --verbose</code></p>
+<p>Machine-readable: <code>/health</code></p>
+</body></html>
+""".encode()
+        ctype = "text/html; charset=utf-8"
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        f"Content-Type: {ctype}\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        "Cache-Control: no-store\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode()
+    return headers + (b"" if method == "HEAD" else body)
+
+
+def _handle_http(sock, state):
+    data = b""
+    while b"\r\n\r\n" not in data and len(data) < 16384:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    first = (data.split(b"\r\n", 1)[0] if data else b"").decode(
+        "iso-8859-1", "replace")
+    parts = first.split()
+    method = parts[0].upper() if parts else "GET"
+    path = parts[1] if len(parts) > 1 else "/"
+    sock.sendall(_http_response(state, method, path))
+    print(f"[http] {method} {path}", flush=True)
+
+
 class Handler(socketserver.BaseRequestHandler):
     def handle(self):
         srv = self.server
@@ -733,6 +829,16 @@ class Handler(socketserver.BaseRequestHandler):
         peer = self.client_address
         worker = None
         try:
+            # Browsers/preview proxies health-checking this port speak HTTP;
+            # collider speaks JLP. Peek (without consuming) to tell them apart.
+            try:
+                peek = sock.recv(4, socket.MSG_PEEK)
+            except OSError:
+                peek = b""
+            if _looks_http(peek):
+                _handle_http(sock, state)
+                return
+
             # ---- AUTH ---------------------------------------------------
             frame = read_frame(sock)
             if frame is None:

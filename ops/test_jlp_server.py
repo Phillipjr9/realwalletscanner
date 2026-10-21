@@ -539,6 +539,54 @@ def test_dp_persistence():
             os.unlink(path)
 
 
+def test_http_status():
+    print("\n[http status on the same port]")
+    r0 = 1 << 19
+    secret = r0 + 2222
+    pub33 = J.compress(J.pt_mul(secret))
+    state = J.PoolState(pub33, r0, (1 << 20) - 1, 8, assignment_mode="both")
+    srv = J.Server(("127.0.0.1", 0), state)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        def fetch(request):
+            s = socket.create_connection(("127.0.0.1", port), timeout=10)
+            s.sendall(request)
+            out = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                out += chunk
+            s.close()
+            return out
+
+        resp = fetch(b"GET / HTTP/1.1\r\nHost: preview\r\n\r\n")
+        check("GET / returns HTTP 200", resp.startswith(b"HTTP/1.1 200"),
+              f"got {resp[:40]!r}")
+        check("GET / returns the status page", b"Local JLP Pool" in resp)
+        health = fetch(b"GET /health HTTP/1.1\r\nHost: preview\r\n\r\n")
+        check("GET /health returns JSON ok", b'"status": "ok"' in health,
+              f"got {health[:120]!r}")
+        head = fetch(b"HEAD / HTTP/1.1\r\nHost: preview\r\n\r\n")
+        body = head.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in head else b"?"
+        check("HEAD / returns headers only", head.startswith(b"HTTP/1.1 200")
+              and body == b"", f"body={body[:40]!r}")
+
+        # JLP on the very same listening socket still works after HTTP hits.
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+        auth = J.AUTH_V2.pack(b"whttp".ljust(64, b"\x00"), b"\x00" * 32,
+                              int(time.time() * 1000), b"\x66" * 16)
+        s.sendall(J.pack_frame(J.AUTH, auth))
+        mt, flags, _ = J.read_frame(s)
+        check("JLP AUTH still works after HTTP", mt == J.AUTH_OK and flags == 4,
+              f"mt={mt!r} flags={flags!r}")
+        s.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def main():
     global FAILS
     t0 = time.time()
@@ -546,6 +594,7 @@ def main():
     test_curve(); test_ripemd(); test_framing(); test_helpers(); test_key_math()
     test_verify_dp(); test_end_to_end(); test_strict_client_compat()
     test_seq_window_per_work_id(); test_metal_convention(); test_dp_persistence()
+    test_http_status()
     print(f"\n{'=' * 46}")
     if FAILS:
         print(f"\033[31m{len(FAILS)} FAILED\033[0m: {', '.join(FAILS)}")
