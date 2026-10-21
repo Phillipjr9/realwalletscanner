@@ -34,7 +34,6 @@ const KNOWN_TEST_VECTORS = new Set([
   'letter advice cage absurd amount doctor acoustic avoid letter advice cage above',
   'void come effort suffer camp survey warrior heavy shoot primary clutch crush',
   'void come effort suffer camp survey warrior heavy shoot primary clutch absurd',
-  'army van defense carry jealous true garbage claim echo media make crunch',
   'gravity machine north sort system female filter attitude volume fold club abuse',
   'planet crystal ocean velvet silver canyon harvest timber shadow marble winter acid',
   'all all all all all all all all all all all all',
@@ -232,13 +231,18 @@ function getWalletIdentityKeys(item) {
 }
 
 function isWalletAlreadyScannedEmpty(item) {
-  if (isRestrictedTrivialMnemonic(item.mnemonic || item.input || '')) {
-    totalDuplicatesPrevented++;
-    return true;
-  }
+  // Never block a currently-funded target — check whitelist + live funded snapshot BEFORE trivial guard
   const keys = getWalletIdentityKeys(item);
   for (const k of keys) {
     if (fundedWhitelist.has(k)) return false;
+  }
+  try {
+    const knownFunded = checkTargetAddressMatch(item);
+    if (knownFunded && Number(knownFunded.usd || 0) > 0) return false;
+  } catch (_) {}
+  if (isRestrictedTrivialMnemonic(item.mnemonic || item.input || '')) {
+    totalDuplicatesPrevented++;
+    return true;
   }
   for (const k of keys) {
     if (scannedEmptySet.has(k) || isKeyInSharedBloom(k)) {
