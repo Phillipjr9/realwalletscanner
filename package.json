@@ -1,10 +1,12 @@
 {
   "name": "realwalletscanner",
   "version": "1.0.0",
+  "description": "CodeHaven Quantum Wallet Recovery Suite — Institutional Workstation (BTC/ETH/SOL) with Cognitive Brain Engine",
   "engines": { "node": "22.x" },
   "scripts": {
     "start": "node WebWorkstation/server.js",
-    "vercel-build": "echo vercel build"
+    "dev": "node WebWorkstation/server.js",
+    "vercel-build": "echo 'CodeHaven Workstation — no build step (Node http server)'"
   },
   "dependencies": {
     "bip39": "^3.1.2"

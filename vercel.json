@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "WebWorkstation/server.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/live-balance", "dest": "WebWorkstation/server.js" },
+    { "src": "/api/(.*)", "dest": "WebWorkstation/server.js" },
+    { "src": "/(.*)", "dest": "WebWorkstation/server.js" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [{ "key": "Access-Control-Allow-Origin", "value": "*" }, { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" }, { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization" }]
+    }
+  ]
+}

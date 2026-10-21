@@ -2657,6 +2657,11 @@ const server = http.createServer((req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`CodeHaven Quantum Wallet Recovery Suite Live Workstation listening on http://0.0.0.0:${PORT}`);
-});
+// Vercel serverless: export handler; locally: listen on PORT
+if (process.env.VERCEL) {
+  module.exports = server;
+} else {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`CodeHaven Quantum Wallet Recovery Suite Live Workstation listening on http://0.0.0.0:${PORT}`);
+  });
+}
