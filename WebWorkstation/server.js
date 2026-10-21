@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const tls = require('tls');
 const crypto = require('crypto');
@@ -1214,6 +1215,41 @@ function applyWalletHistoryMetadata(item, known) {
   if (everHeld) {
     enrichWalletAccessKeys(item);
   }
+  // preserve live source if present
+  if (known && known._live) { item._liveSource = known._liveSource; item._live = true; }
+}
+
+// Shared live fetch helper — 1.4s timeout so offline preview never hangs; returns merged known-like object
+function fetchJsonLive(url, headers={}) { return new Promise((resolve, reject) => {
+  const lib = url.startsWith('https') ? https : http;
+  const req = lib.get(url, { headers, timeout: 1400 }, r => {
+    let b=''; r.on('data', c=>b+=c); r.on('end',()=>{ try{ resolve(JSON.parse(b)); } catch(e){ resolve({ _raw:b, _status:r.statusCode }); } });
+  }); req.on('error', reject); req.on('timeout', ()=>{ req.destroy(); reject(new Error('timeout')); });
+}); }
+async function resolveLiveBalanceForWallet(wallet, snapshotKnown) {
+  const candidates = [wallet.btcLegacy, wallet.btcSegwit, wallet.btcNestedSegwit, wallet.btcTaproot, wallet.ethAddress].filter(Boolean);
+  if (candidates.length === 0) return snapshotKnown;
+  // Overall hard cap 1.9s so Arena preview never stalls; on Vercel with real internet this is plenty for mempool
+  const hardDeadline = Date.now() + 1900;
+  const tryOne = async (addr) => {
+    if (Date.now() > hardDeadline) throw new Error('deadline');
+    if (addr.startsWith('1') || addr.startsWith('3') || addr.startsWith('bc1')) {
+      try { const m = await fetchJsonLive(`https://mempool.space/api/address/${addr}`); if (m && m.chain_stats) { const balSat = Number(m.chain_stats.funded_txo_sum||0) - Number(m.chain_stats.spent_txo_sum||0); const btc = balSat/1e8; const txCount = Number(m.chain_stats.tx_count||0); const btcPrice=68000; const usd = btc*btcPrice; const base = snapshotKnown ? {...snapshotKnown} : {}; base.btc = btc; base.usd = usd; base.historicalTx = txCount||base.historicalTx||1; base._live = true; base._liveSource = 'mempool.space'; base.everHeldCrypto = true; base.label = base.label ? base.label.replace('Offline preview fallback','Live mempool.space') : `Live BTC ${btc} BTC ($${usd.toFixed(2)})`; return base; } } catch(_){}
+      if (apiKeysConfig.blockCypherApiKey && Date.now() <= hardDeadline) { try { const b = await fetchJsonLive(`https://api.blockcypher.com/v1/btc/main/addrs/${addr}/balance?token=${apiKeysConfig.blockCypherApiKey}`); if (b && typeof b.balance==='number') { const btc=b.balance/1e8; const txCount=b.n_tx||1; const usd=btc*68000; const base=snapshotKnown?{...snapshotKnown}:{}; base.btc=btc; base.usd=usd; base.historicalTx=txCount; base._live=true; base._liveSource='BlockCypher'; base.everHeldCrypto=true; return base; } } catch(_){ } }
+    }
+    if (addr.startsWith('0x') && apiKeysConfig.etherscanApiKey && Date.now() <= hardDeadline) {
+      try { const e = await fetchJsonLive(`https://api.etherscan.io/v2/api?chainid=1&module=account&action=balance&address=${addr}&tag=latest&apikey=${apiKeysConfig.etherscanApiKey}`); if (e && e.result!==undefined) { const eth=Number(e.result)/1e18; const txCount= eth>0?1:0; const usd=eth*2600; const base=snapshotKnown?{...snapshotKnown}:{}; base.eth=eth; base.usd=usd; base.historicalTx=txCount||base.historicalTx||1; base._live=true; base._liveSource='Etherscan V2'; base.everHeldCrypto=true; return base; } } catch(_){ }
+    }
+    return null;
+  };
+  try {
+    const race = Promise.race([
+      (async ()=>{ const results = await Promise.allSettled(candidates.map(tryOne)); for (const r of results) if (r.status==='fulfilled' && r.value && r.value._live) return r.value; return snapshotKnown; })(),
+      new Promise(res => setTimeout(()=>res(snapshotKnown), 1900))
+    ]);
+    const got = await race;
+    return got || snapshotKnown;
+  } catch(_) { return snapshotKnown; }
 }
 
 function saveEverHeldWalletToVault(item) {
@@ -2468,7 +2504,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/check-ever-held' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { input, passphrase } = JSON.parse(body || '{}');
         const raw = String(input || '').trim();
@@ -2495,9 +2531,11 @@ const server = http.createServer((req, res) => {
           inputType = 'Brainwallet SHA-256 Passphrase';
         }
 
-        const known = checkTargetAddressMatch(wallet) ||
+        let known = checkTargetAddressMatch(wallet) ||
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcLegacy) ||
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcSegwit);
+        // LIVE override: try mempool.space / BlockCypher / Etherscan (3.5s each) — falls back to snapshot in Arena preview sandbox
+        try { const liveKnown = await resolveLiveBalanceForWallet(wallet, known); if (liveKnown) known = liveKnown; } catch(_){}
         applyWalletHistoryMetadata(wallet, known);
         if (wallet.everHeldCrypto) {
           saveEverHeldWalletToVault({ ...wallet, source: `History Inspector • ${inputType}` });
@@ -2516,6 +2554,7 @@ const server = http.createServer((req, res) => {
           balanceUsd: wallet.balanceUsd,
           historicalLabel: wallet.historicalLabel || (wallet.everHeldCrypto ? 'Historically Active Wallet' : 'Never Used on Chain (0 Historical TX)'),
           deepSweepStatus: wallet.deepSweepStatus,
+          liveSource: wallet._liveSource || (known && known._liveSource) || (known && known._live ? 'live' : 'snapshot'),
           wallet
         }));
       } catch (e) {
@@ -2529,7 +2568,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/inspect-seed' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { mnemonic, passphrase } = JSON.parse(body || '{}');
         const raw = (mnemonic || '').trim();
@@ -2554,9 +2593,10 @@ const server = http.createServer((req, res) => {
           wallet.input = clean;
         }
         const alreadyScannedEmpty = isWalletAlreadyScannedEmpty(wallet);
-        const known = checkTargetAddressMatch(wallet) ||
+        let known = checkTargetAddressMatch(wallet) ||
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcLegacy) ||
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcSegwit);
+        try { const liveKnown = await resolveLiveBalanceForWallet(wallet, known); if (liveKnown) known = liveKnown; } catch(_){}
         applyWalletHistoryMetadata(wallet, known);
         if (wallet.everHeldCrypto) {
           saveEverHeldWalletToVault({ ...wallet, source: 'Seed Inspector' });
@@ -2564,7 +2604,7 @@ const server = http.createServer((req, res) => {
           markWalletScannedEmpty(wallet);
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ isValid, isRestricted, alreadyScannedEmpty, wallet, known }));
+        res.end(JSON.stringify({ isValid, isRestricted, alreadyScannedEmpty, wallet, known, liveSource: wallet._liveSource || (known && known._liveSource) || (known && known._live ? 'live' : 'snapshot') }));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
@@ -2581,10 +2621,9 @@ const server = http.createServer((req, res) => {
     // Try live fetch with timeout; fallback to snapshot usd if offline (Arena sandbox blocks mempool.space)
     (async () => {
       try {
-        const https = require('https'); const http = require('http');
         const fetchJson = (u, headers={}) => new Promise((resolve, reject) => {
           const lib = u.startsWith('https') ? https : http;
-          const req = lib.get(u, { headers, timeout: 3500 }, r => {
+          const req = lib.get(u, { headers, timeout: 1400 }, r => {
             let b=''; r.on('data', c=>b+=c); r.on('end',()=>{ try{ resolve(JSON.parse(b)); } catch(e){ resolve({ _raw:b, _status:r.statusCode }); } });
           }); req.on('error', reject); req.on('timeout', ()=>{ req.destroy(); reject(new Error('timeout')); });
         });
