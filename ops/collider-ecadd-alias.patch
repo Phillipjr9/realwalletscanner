@@ -1,0 +1,90 @@
+diff --git a/src/core/crypto_cpu.hpp b/src/core/crypto_cpu.hpp
+index 02ac1d2..7d7d800 100644
+--- a/src/core/crypto_cpu.hpp
++++ b/src/core/crypto_cpu.hpp
+@@ -777,18 +777,23 @@ inline void ec_double(ECPoint& R, const ECPoint& P) {
+         return;
+     }
+ 
++    // Alias safety: callers may pass R == P (in-place doubling). Snapshot the
++    // inputs before writing any component of R, otherwise the Z' computation
++    // below would read the already-overwritten R.Y instead of the input Y.
++    const uint256_t inX = P.X, inY = P.Y, inZ = P.Z;
++
+     uint256_t S, M, T, Y2;
+ 
+     // Y^2
+-    mod_mul(Y2, P.Y, P.Y);
++    mod_mul(Y2, inY, inY);
+ 
+     // S = 4 * X * Y^2
+-    mod_mul(S, P.X, Y2);
++    mod_mul(S, inX, Y2);
+     mod_add(S, S, S);
+     mod_add(S, S, S);
+ 
+     // M = 3 * X^2 (a=0 for secp256k1)
+-    mod_mul(M, P.X, P.X);
++    mod_mul(M, inX, inX);
+     mod_add(T, M, M);
+     mod_add(M, T, M);
+ 
+@@ -807,7 +812,7 @@ inline void ec_double(ECPoint& R, const ECPoint& P) {
+     mod_sub(R.Y, T, Y2);
+ 
+     // Z' = 2 * Y * Z
+-    mod_mul(R.Z, P.Y, P.Z);
++    mod_mul(R.Z, inY, inZ);
+     mod_add(R.Z, R.Z, R.Z);
+ }
+ 
+@@ -820,14 +825,21 @@ inline void ec_add(ECPoint& R, const ECPoint& P, const uint256_t& Qx, const uint
+         return;
+     }
+ 
++    // Alias safety: callers pass R == P for in-place addition (e.g. the
++    // wild-kangaroo seed builders: ec_add(wp, wp, ox, oy)). The formulas
++    // below write R.X/R.Y before the last reads of P.X/P.Y, so without a
++    // snapshot an aliased call silently produces a point with the correct
++    // X but a corrupted, off-curve Y. Snapshot the inputs first.
++    const uint256_t inX = P.X, inY = P.Y, inZ = P.Z;
++
+     uint256_t Z1Z1, U2, S2, H, HH, I, J, r, V;
+ 
+-    mod_mul(Z1Z1, P.Z, P.Z);
++    mod_mul(Z1Z1, inZ, inZ);
+     mod_mul(U2, Qx, Z1Z1);
+-    mod_mul(S2, Qy, P.Z);
++    mod_mul(S2, Qy, inZ);
+     mod_mul(S2, S2, Z1Z1);
+-    mod_sub(H, U2, P.X);
+-    mod_sub(r, S2, P.Y);
++    mod_sub(H, U2, inX);
++    mod_sub(r, S2, inY);
+     mod_add(r, r, r);
+ 
+     if (H.is_zero()) {
+@@ -845,7 +857,7 @@ inline void ec_add(ECPoint& R, const ECPoint& P, const uint256_t& Qx, const uint
+     mod_add(I, HH, HH);
+     mod_add(I, I, I);
+     mod_mul(J, H, I);
+-    mod_mul(V, P.X, I);
++    mod_mul(V, inX, I);
+ 
+     // X3 = r^2 - J - 2*V
+     mod_mul(R.X, r, r);
+@@ -856,12 +868,12 @@ inline void ec_add(ECPoint& R, const ECPoint& P, const uint256_t& Qx, const uint
+     // Y3 = r * (V - X3) - 2 * Y1 * J
+     mod_sub(V, V, R.X);
+     mod_mul(R.Y, r, V);
+-    mod_mul(J, P.Y, J);
++    mod_mul(J, inY, J);
+     mod_add(J, J, J);
+     mod_sub(R.Y, R.Y, J);
+ 
+     // Z3 = 2 * Z1 * H
+-    mod_mul(R.Z, P.Z, H);
++    mod_mul(R.Z, inZ, H);
+     mod_add(R.Z, R.Z, R.Z);
+ }
+ 

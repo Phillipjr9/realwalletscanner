@@ -1,0 +1,29 @@
+# theCollider v1.5.x - pool worker config
+#
+# Copy to the machine that has the GPU, as ./config.yml beside the binary
+# (or to ~/.collider/config.yml / %USERPROFILE%\.collider\config.yml).
+#
+# Precedence: CLI flags > this file > built-in defaults.
+# The installers keep this address in /etc/collider/collider.env (Linux) or in
+# the scheduled-task arguments (Windows) rather than in git. If you fork this
+# repo publicly, strip the line below and let the env file supply it.
+# Change it only if you have proven you can spend from the new address
+# (see HUNT-OPS.md section 4).
+
+pool:
+  url: "jlps://pool.collisionprotocol.com:17403"   # TLS. Do not use jlp:// over the internet.
+  worker: "bc1qcaugv5gdawqjxw3dm3uyx5gw5m9uqak9ues7wd"
+  # password: ""        # public pool ignores this
+  # api_key: ""         # HTTP-only pool variants only
+
+gpu:
+  # devices: [0]        # pin GPUs explicitly on multi-GPU boxes
+  # batch_size: 0       # 0 = auto-calibrated
+  force_calibrate: false
+
+tui:
+  enabled: false        # TUI auto-disables when output is redirected; explicit false for headless
+
+settings:
+  verbose: true         # per-DP submit lines; noisy but proves liveness in logs
+  debug: false          # true once at first start to dump the resolved config

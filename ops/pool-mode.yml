@@ -1,0 +1,26 @@
+# theCollider pool config - READY TO USE
+#
+# Copy this to ~/.collider/pool-mode.yml on the Mac:
+#     mkdir -p ~/.collider && cp ops/pool-mode.yml ~/.collider/pool-mode.yml
+#
+# Then start it with either:
+#     ~/puzzle/collider -c ~/.collider/pool-mode.yml --verbose
+#     ops/pool-await.sh --binary ~/puzzle/collider      (waits for the pool first)
+#
+# Payout address below was checksum-validated with ops/validate-worker.py.
+# It is a public identifier, not a secret - it cannot be spent from without the
+# seed phrase. The seed must be backed up before any long run: DPs credited to
+# an address whose seed is lost are unrecoverable and the pool operator cannot
+# restore them.
+
+pool:
+  worker: "bc1qcaugv5gdawqjxw3dm3uyx5gw5m9uqak9ues7wd"
+  # jlps:// is required. A bare "host:17403" is parsed as plaintext and the
+  # TLS-only port resets the connection.
+  url: "jlps://pool.collisionprotocol.com:17403"
+
+gpu:
+  # devices: [0]
+
+tui:
+  enabled: false

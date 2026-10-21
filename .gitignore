@@ -31,3 +31,13 @@ WebWorkstation/ever_held_wallets.txt
 
 
 
+
+# Python (ops/ tooling)
+__pycache__/
+*.pyc
+
+# Local pool puzzle material - holds private keys, never commit
+puzzle.json
+solved.txt
+*-solved.txt
+*-dps.tsv
