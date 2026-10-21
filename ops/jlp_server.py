@@ -453,7 +453,7 @@ def reconstruct_key(dp_tame, dp_wild, range_start_int, convention="spec"):
 
 class PoolState:
     def __init__(self, target_pub33, range_start, range_end, dp_bits,
-                 seq_window=1024, assignment_mode="alternate"):
+                 seq_window=1024, assignment_mode="alternate", dp_store_path=None):
         if assignment_mode not in ("alternate", "both", "tame", "wild"):
             raise ValueError(f"unknown assignment_mode {assignment_mode!r}")
         self.target = decompress(target_pub33)
@@ -482,6 +482,90 @@ class PoolState:
         self._timestamps = []
         self.puzzle_path = None
         self.solved_path = "solved.txt"
+        self.dp_store_path = dp_store_path
+        self._dp_store_fh = None
+        self.loaded_dps = self._load_dp_store()
+
+    # -- DP storage / persistence -------------------------------------------
+    def _maybe_solve(self, tame_dp, wild_dp):
+        if self.solution is not None:
+            return
+        k = reconstruct_key(tame_dp, wild_dp, self.range_start,
+                            wild_dp.get("convention") or "spec")
+        if pt_mul(k) == self.target:
+            self.solution = {
+                "key": k,
+                "worker_tame": tame_dp.get("worker"),
+                "worker_wild": wild_dp.get("worker"),
+            }
+
+    def _store_dp(self, dp, persist=True):
+        table = self.tame if dp["type"] == DP_TYPE_TAME else self.wild
+        is_new = dp["x"] not in table
+        table[dp["x"]] = dp
+        if persist and is_new:
+            self._persist_dp(dp)
+        if dp["type"] == DP_TYPE_TAME:
+            hit = self.wild.get(dp["x"])
+            if hit:
+                self._maybe_solve(dp, hit)
+        else:
+            hit = self.tame.get(dp["x"])
+            if hit:
+                self._maybe_solve(hit, dp)
+        return is_new
+
+    def _persist_dp(self, dp):
+        if not self.dp_store_path:
+            return
+        try:
+            if self._dp_store_fh is None:
+                self._dp_store_fh = open(self.dp_store_path, "a")
+            conv = dp.get("convention") or "-"
+            self._dp_store_fh.write(
+                f"{dp['type']}\t{dp['x'].hex()}\t{dp['d'].hex()}\t{conv}\t"
+                f"{dp.get('worker') or ''}\n")
+            self._dp_store_fh.flush()
+        except OSError as exc:
+            print(f"[dp-store] disabled: {exc}", flush=True)
+            self.dp_store_path = None
+
+    def _load_dp_store(self):
+        """Reload persisted DPs (trusted local file; format-checked only)."""
+        if not self.dp_store_path or not os.path.exists(self.dp_store_path):
+            return 0
+        loaded = 0
+        try:
+            with open(self.dp_store_path) as fh:
+                for line in fh:
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) < 4:
+                        continue
+                    try:
+                        dp_type = int(parts[0])
+                        x_be = bytes.fromhex(parts[1])
+                        d_be = bytes.fromhex(parts[2])
+                    except ValueError:
+                        continue
+                    if dp_type not in (DP_TYPE_TAME, DP_TYPE_WILD):
+                        continue
+                    if len(x_be) != 32 or len(d_be) != 32:
+                        continue
+                    if not has_leading_zero_bits(x_be, self.dp_bits):
+                        continue
+                    dp = {
+                        "x": x_be, "d": d_be, "raw_d": d_be, "type": dp_type,
+                        "work_id": 0,
+                        "worker": parts[4] if len(parts) > 4 and parts[4] else None,
+                        "convention": None if parts[3] == "-" else parts[3],
+                    }
+                    if self._store_dp(dp, persist=False):
+                        loaded += 1
+        except OSError as exc:
+            print(f"[dp-store] load failed: {exc}", flush=True)
+            return 0
+        self.total_dps += loaded
+        return loaded
 
     def assign(self, worker):
         with self.lock:
@@ -607,30 +691,7 @@ class PoolState:
                 self.total_dps += 1
                 accept_types["tame" if dp_type == DP_TYPE_TAME else "wild"] += 1
 
-                if dp_type == DP_TYPE_TAME:
-                    self.tame[x_be] = dp
-                    hit = self.wild.get(x_be)
-                    if hit and self.solution is None:
-                        k = reconstruct_key(dp, hit, self.range_start,
-                                            hit.get("convention") or "spec")
-                        if pt_mul(k) == self.target:
-                            self.solution = {
-                                "key": k,
-                                "worker_tame": worker,
-                                "worker_wild": hit.get("worker"),
-                            }
-                else:
-                    self.wild[x_be] = dp
-                    hit = self.tame.get(x_be)
-                    if hit and self.solution is None:
-                        k = reconstruct_key(hit, dp, self.range_start,
-                                            convention or "spec")
-                        if pt_mul(k) == self.target:
-                            self.solution = {
-                                "key": k,
-                                "worker_tame": hit.get("worker"),
-                                "worker_wild": worker,
-                            }
+                self._store_dp(dp)
 
             self.last_reject_counts = rejects
             self.last_accept_types = accept_types
@@ -863,6 +924,10 @@ def main(argv=None):
     ap.add_argument("--puzzle", help="puzzle.json from make-puzzle.py; also writes "
                                      "solved.txt on success")
     ap.add_argument("--solved", default="solved.txt")
+    ap.add_argument("--dp-store",
+                    help="append-only DP persistence file; accepted DPs are "
+                         "written here and reloaded on startup so a server "
+                         "restart resumes instead of losing all progress")
     ap.add_argument("--check-known-answer", action="store_true",
                     help="offline self-test: prove the key math on a known key")
     args = ap.parse_args(argv)
@@ -883,7 +948,8 @@ def main(argv=None):
         sys.exit("--dp-bits must be 8..32")
 
     state = PoolState(pub33, r0, r1, args.dp_bits,
-                      assignment_mode=args.assignment)
+                      assignment_mode=args.assignment,
+                      dp_store_path=args.dp_store)
     state.puzzle_path = args.puzzle
     state.solved_path = args.solved
     server = Server((args.listen, args.port), state)
@@ -897,6 +963,18 @@ def main(argv=None):
               "reject kangaroo_type=0 (use --assignment alternate for CUDA)")
     if args.puzzle:
         print(f"  puzzle   {args.puzzle}")
+    if args.dp_store:
+        print(f"  dp_store {args.dp_store} (loaded {state.loaded_dps} DPs: "
+              f"tame={len(state.tame)} wild={len(state.wild)})")
+    if state.solution:
+        key = state.solution["key"]
+        print(f"  [SOLVED] key recovered from DP store = {key:064x}")
+        try:
+            with open(state.solved_path, "w") as fh:
+                fh.write(f"{key:064x}\n")
+            print(f"  [SOLVED] written to {state.solved_path}")
+        except OSError as exc:
+            print(f"  [SOLVED] could not write solved file: {exc}")
     print(f"  client   ./collider --pool jlp://127.0.0.1:{args.port} "
           f"--worker <addr> --verbose")
     print("  Ctrl+C to stop\n", flush=True)

@@ -118,7 +118,9 @@ def main():
     print(f"  python3 {os.path.join(HERE, 'jlp_server.py')} \\")
     print(f"      --pubkey {pub33.hex()} \\")
     print(f"      --range-start {hex(r0)} --range-end {hex(r1)} --dp-bits {dp_bits} \\")
-    print(f"      --assignment both --puzzle {out_abs} --solved {solved_abs}")
+    dps_abs = os.path.splitext(out_abs)[0] + "-dps.tsv"
+    print(f"      --assignment both --puzzle {out_abs} --solved {solved_abs} \\")
+    print(f"      --dp-store {dps_abs}")
     print()
     print("Then point collider at it:")
     print(f"  ./collider --pool jlp://127.0.0.1:17403 \\")

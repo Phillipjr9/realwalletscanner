@@ -12,9 +12,11 @@ Exit: 0 all tests pass, 1 failure.
 """
 
 import hashlib
+import os
 import socket
 import struct
 import sys
+import tempfile
 import threading
 import time
 
@@ -486,13 +488,64 @@ def test_metal_convention():
           f"samples={s2.verify_samples}")
 
 
+def test_dp_persistence():
+    print("\n[dp persistence across restart]")
+    dp_bits = 8
+    r0 = 1 << 19
+    secret = r0 + 13579
+    Q = J.pt_mul(secret)
+    pub33 = J.compress(Q)
+    dw = find_distinguished(secret, r0, dp_bits)
+    check("found a distinguished point", dw is not None)
+    if dw is None:
+        return
+    dt = (secret - r0) + dw
+    x = J.pt_mul(dt)[0].to_bytes(32, "big")
+
+    fd, path = tempfile.mkstemp(suffix="-dps.tsv")
+    os.close(fd)
+    os.unlink(path)  # server must create it via appends
+    try:
+        s = J.PoolState(pub33, r0, (1 << 20) - 1, dp_bits, dp_store_path=path)
+        a1 = s.assign("wp")                     # tame
+        tame_dp = J.DP_V2.pack(a1["work_id"], 0, x, dt.to_bytes(32, "big"),
+                               J.DP_TYPE_TAME, dp_bits)
+        n, _ = s.accept_batch("wp", struct.pack("<I", 1) + tame_dp)
+        check("tame DP accepted with store on", n == 1, f"n={n}")
+        check("store file written", os.path.exists(path) and os.path.getsize(path) > 0)
+
+        # Simulate a server restart: brand-new state, same store file.
+        s2 = J.PoolState(pub33, r0, (1 << 20) - 1, dp_bits, dp_store_path=path)
+        check("tame DP reloaded after restart",
+              len(s2.tame) == 1 and s2.loaded_dps == 1,
+              f"tame={len(s2.tame)} loaded={s2.loaded_dps}")
+        a2 = s2.assign("wp")                    # tame again (work_id restarts)
+        a3 = s2.assign("wp")                    # wild
+        wild_dp = J.DP_V2.pack(a3["work_id"], 0, x, dw.to_bytes(32, "big"),
+                               J.DP_TYPE_WILD, dp_bits)
+        n, _ = s2.accept_batch("wp", struct.pack("<I", 1) + wild_dp)
+        check("wild DP after restart collides with persisted tame",
+              n == 1 and s2.solution is not None and s2.solution["key"] == secret,
+              f"n={n} solution={s2.solution}")
+
+        # A third restart over a store containing both sides recovers the key
+        # at load time.
+        s3 = J.PoolState(pub33, r0, (1 << 20) - 1, dp_bits, dp_store_path=path)
+        check("solution recovered from store at load",
+              s3.solution is not None and s3.solution["key"] == secret,
+              f"solution={s3.solution}")
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
 def main():
     global FAILS
     t0 = time.time()
     print("JLP v3 server test suite")
     test_curve(); test_ripemd(); test_framing(); test_helpers(); test_key_math()
     test_verify_dp(); test_end_to_end(); test_strict_client_compat()
-    test_seq_window_per_work_id(); test_metal_convention()
+    test_seq_window_per_work_id(); test_metal_convention(); test_dp_persistence()
     print(f"\n{'=' * 46}")
     if FAILS:
         print(f"\033[31m{len(FAILS)} FAILED\033[0m: {', '.join(FAILS)}")

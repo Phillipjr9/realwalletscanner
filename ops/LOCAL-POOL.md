@@ -104,13 +104,18 @@ Start the pool in one terminal:
 python3 jlp_server.py \
   --pubkey 03c857... \
   --range-start 0x8000000000 --range-end 0xffffffffff --dp-bits 13 \
-  --assignment both --puzzle puzzle.json
+  --assignment both --puzzle puzzle.json --dp-store puzzle-dps.tsv
 ```
 
 `--assignment both` is the macOS Metal/CPU mode: those backends always run
 both herds, and a one-sided TAME_ONLY/WILD_ONLY assignment makes the client
 drop the other herd's DPs before they reach the server. CUDA workers reject
 BOTH and should use the server default, `--assignment alternate`.
+
+`--dp-store` appends every accepted DP to a file and reloads it on startup,
+so a server restart (sleep, crash, Ctrl+C, reboot) resumes with the tame/wild
+tables intact instead of losing all progress. Always use the same store file
+for the same puzzle; never reuse one across different puzzles.
 
 Point the client at it in another:
 
