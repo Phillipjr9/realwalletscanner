@@ -2182,6 +2182,9 @@ const server = http.createServer((req, res) => {
       items.push(item);
     }
 
+    const totalFoundUsd = foundWalletsVault.reduce((s, w) => s + Number(w.balanceUsd || 0), 0);
+    const totalEverHeldUsd = everHeldWalletsVault.reduce((s, w) => s + Number(w.balanceUsd || 0), 0);
+    const totalEverHeldBtc = everHeldWalletsVault.reduce((s, w) => s + Number(w.totalEverReceivedBtc || 0), 0);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       items,
@@ -2193,7 +2196,11 @@ const server = http.createServer((req, res) => {
       targetAddressesCount: targetAddressMap.size,
       foundVaultCount: foundWalletsVault.length,
       everHeldWalletsCount: everHeldWalletsVault.length,
+      totalFoundUsd,
+      totalEverHeldUsd,
+      totalEverHeldBtc,
       everHeldVault: everHeldWalletsVault.slice(0, 15),
+      foundVault: foundWalletsVault.slice(0, 15),
       apiQuotaSavedCount,
       keyedApiCallsUsed,
       serverDaemonScanned,
@@ -2278,9 +2285,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/found-vault' && req.method === 'GET') {
+    const totalFoundUsd = foundWalletsVault.reduce((s, w) => s + Number(w.balanceUsd || 0), 0);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       count: foundWalletsVault.length,
+      totalFoundUsd,
       items: foundWalletsVault
     }));
   }
@@ -2434,10 +2443,14 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/ever-held-wallets' && req.method === 'GET') {
     const combined = everHeldWalletsVault.slice(0, 60).map(enrichWalletAccessKeys);
+    const totalFoundUsd = foundWalletsVault.reduce((s, w) => s + Number(w.balanceUsd || 0), 0);
+    const totalEverHeldUsd = everHeldWalletsVault.reduce((s, w) => s + Number(w.balanceUsd || 0), 0);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       count: everHeldWalletsVault.length,
       fundedCount: foundWalletsVault.length,
+      totalFoundUsd,
+      totalEverHeldUsd,
       txtFilePath: EVER_HELD_TXT_FILE,
       wallets: combined
     }));
