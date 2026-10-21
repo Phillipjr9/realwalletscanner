@@ -44,13 +44,23 @@ def main():
     ap.add_argument("--key-file", help="file containing the key hex")
     args = ap.parse_args()
 
-    with open(args.puzzle) as fh:
-        p = json.load(fh)
+    try:
+        with open(args.puzzle) as fh:
+            p = json.load(fh)
+    except FileNotFoundError:
+        sys.exit(f"puzzle file not found: {args.puzzle}")
 
     key_hex = args.key
     if not key_hex and args.key_file:
-        with open(args.key_file) as fh:
-            key_hex = fh.read().strip().split()[-1]
+        try:
+            with open(args.key_file) as fh:
+                tokens = fh.read().strip().split()
+        except FileNotFoundError:
+            sys.exit(f"not solved yet: {args.key_file} does not exist "
+                     "(the server creates it when it prints [SOLVED])")
+        if not tokens:
+            sys.exit(f"not solved yet: {args.key_file} is empty")
+        key_hex = tokens[-1]
     if not key_hex:
         sys.exit("--key or --key-file is required")
 
