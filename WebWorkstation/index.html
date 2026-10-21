@@ -895,11 +895,11 @@
           <span id="QuickStatsQuotaSavedText" class="metric-val" style="color:#34D399;">0</span>
         </div>
         <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets scanned that have EVER held crypto (historical TX > 0 or total_received > 0)">
-          <span class="metric-label">Ever Held Crypto</span>
+          <span class="metric-label">Ever Held (incl $)</span>
           <span id="QuickStatsEverHeldText" class="metric-val" style="color:#FCD34D;">0</span>
         </div>
         <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets with a current unspent balance > $0.00">
-          <span class="metric-label">Funded Now</span>
+          <span class="metric-label">Funded Now (incl $)</span>
           <span id="QuickStatsFoundText" class="metric-val" style="color:#34D399;">0</span>
         </div>
         <div class="metric-item">
@@ -2095,10 +2095,12 @@
         watchlistItems.size
       );
       const fundedNowCount = typeof data.foundVaultCount === 'number' ? data.foundVaultCount : 0;
+      const totalFoundUsd = typeof data.totalFoundUsd === 'number' ? data.totalFoundUsd : 0;
+      const totalEverHeldUsd = typeof data.totalEverHeldUsd === 'number' ? data.totalEverHeldUsd : 0;
       const everHeldEl = document.getElementById('QuickStatsEverHeldText');
-      if (everHeldEl) everHeldEl.textContent = everHeldCount.toLocaleString();
-      document.getElementById('QuickStatsFoundText').textContent = fundedNowCount.toLocaleString();
-      document.getElementById('ModalHits').textContent = `${fundedNowCount} (${everHeldCount} Ever Held)`;
+      if (everHeldEl) everHeldEl.textContent = `${everHeldCount.toLocaleString()} ($${totalEverHeldUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})})`;
+      document.getElementById('QuickStatsFoundText').textContent = `${fundedNowCount.toLocaleString()} ($${totalFoundUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})})`;
+      document.getElementById('ModalHits').textContent = `${fundedNowCount} ($${totalFoundUsd.toLocaleString()}) / ${everHeldCount} Ever Held ($${totalEverHeldUsd.toLocaleString()})`;
       renderWatchlist();
 
       if (data.brain) {
@@ -2308,7 +2310,7 @@
     const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
     const wk = (item.btcLegacy || item.ethAddress || item.input || '').replace(/'/g, "\\'");
     if (isFunded) {
-      return `<span class="pill pill-emerald" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString()}) • 🔑 Keys</span>`;
+      return `<span class="pill pill-emerald" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}) • 🔑 Keys</span>`;
     }
     if (isEverHeld) {
       const rcvBtc = Number(item.totalEverReceivedBtc || 0);
@@ -2316,7 +2318,7 @@
       const rcvSummary = rcvBtc > 0
         ? `${rcvBtc} BTC rcvd`
         : (rcvEth > 0 ? `${rcvEth} ETH rcvd` : `${item.historicalTx} TX`);
-      return `<span class="pill pill-amber" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary}) • 🔑 Keys</span>`;
+      return `<span class="pill pill-amber" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary} • $${Number(item.balanceUsd||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}) • 🔑 Keys</span>`;
     }
     return `<span style="color:var(--text-muted);">0 TX • Never Held</span>`;
   }
@@ -2464,10 +2466,11 @@
         pinnedBody.appendChild(ptr);
       }
     }
-    document.getElementById('VaultBadgeCount').textContent = watchlistItems.size;
-    document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS`;
+    const totalWatchUsd = Array.from(watchlistItems.values()).reduce((s,w)=>s+Number(w.balanceUsd||0),0);
+    document.getElementById('VaultBadgeCount').textContent = `${watchlistItems.size} ($${totalWatchUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})})`;
+    document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS • $${totalWatchUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}`;
     const pinnedBadge = document.getElementById('SmartPinnedCountBadge');
-    if (pinnedBadge) pinnedBadge.textContent = `${watchlistItems.size} SAVED`;
+    if (pinnedBadge) pinnedBadge.textContent = `${watchlistItems.size} SAVED • $${totalWatchUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}`;
   }
 
   async function runWildcardSolver() {
