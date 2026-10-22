@@ -738,6 +738,14 @@
             <span class="nav-badge" style="color:#34D399;">AI</span>
           </button>
 
+          <button class="tab-btn" data-tab="PrivateVault" data-title="Private Vault — Personal Lattice & Time-Machine (Your Memory Only)" onclick="switchTab('PrivateVault')" style="border:1px solid rgba(245,158,11,0.5); background:linear-gradient(90deg, rgba(245,158,11,0.14) 0%, rgba(251,146,60,0.14) 100%);">
+            <span class="tab-btn-left">
+              <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+              <span style="color:#FCD34D; font-weight:700;">🔒 Private Vault — A+B</span>
+            </span>
+            <span class="nav-badge" style="color:#FCD34D; background:rgba(245,158,11,0.18);">PRIVATE</span>
+          </button>
+
           <button class="tab-btn" onclick="openModal('settingsModal')" style="border:1px solid rgba(16,185,129,0.45); background:rgba(16,185,129,0.12);">
             <span class="tab-btn-left">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -895,11 +903,11 @@
           <span id="QuickStatsQuotaSavedText" class="metric-val" style="color:#34D399;">0</span>
         </div>
         <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets scanned that have EVER held crypto (historical TX > 0 or total_received > 0)">
-          <span class="metric-label">Ever Held Crypto</span>
+          <span class="metric-label">Ever Held (incl $)</span>
           <span id="QuickStatsEverHeldText" class="metric-val" style="color:#FCD34D;">0</span>
         </div>
         <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets with a current unspent balance > $0.00">
-          <span class="metric-label">Funded Now</span>
+          <span class="metric-label">Funded Now (incl $)</span>
           <span id="QuickStatsFoundText" class="metric-val" style="color:#34D399;">0</span>
         </div>
         <div class="metric-item">
@@ -1371,6 +1379,58 @@
         </div>
       </div>
 
+      <!-- ──────────── TAB 12: PRIVATE VAULT — PERSONAL LATTICE (A) + TIME-MACHINE (B) — YOUR MEMORY ONLY ──────────── -->
+      <div id="tab-PrivateVault" class="tab-pane">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+          <span class="pill" style="background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.42); color:#FCD34D; font-weight:700;">🔒 PRIVATE — Never Pushed, Never Public</span>
+          <span id="PrivateVaultStatus" class="mono" style="font-size:11px; color:#34D399;">Ready — your hints stay in personal_vault.json on this server only</span>
+        </div>
+        <div class="layout-2col">
+          <!-- A) Personal Lattice -->
+          <div class="card" style="border-color:rgba(245,158,11,0.32);">
+            <div class="card-header">
+              <span class="card-title">A) Personal Lattice — Your Memory + Names + Passwords You Actually Used</span>
+              <span id="PersonalHintsCountBadge" class="pill pill-amber mono">0 hints</span>
+            </div>
+            <p class="card-desc">Add names, nicknames, old passwords, pet names, slang, dates you actually reuse (one per line). The Brain builds a <b>private arm PersonalLattice (1.45 weight)</b> that mixes them like <span class="mono">sunshine1997! + Lagos01</span> → SHA256 → addresses. This lattice is <b>100% yours</b> — not in any public wordlist.</p>
+            <textarea id="PersonalHintsInput" class="input-box mono" rows="8" placeholder="sunshine&#10;Phillip&#10;Bubu&#10;Lagos&#10;1997&#10;smokie1969&#10;Atlantic&#10;... one hint per line"></textarea>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button class="btn" style="flex:1; border-color:rgba(245,158,11,0.45); color:#FCD34D; font-weight:700;" onclick="savePersonalVault()">💾 Save Private Lattice &amp; Activate Personal Arm</button>
+              <button class="btn" onclick="loadPersonalVault()">↻ Reload</button>
+            </div>
+            <div id="PersonalLatticePreview" class="mono" style="font-size:10.5px; color:#FCD34D; margin-top:8px; min-height:18px;">No hints yet — add 5+ to activate.</div>
+            <div class="divider"></div>
+            <label class="check-row"><input type="checkbox" data-vector="personal" checked onchange="onVectorSelectionChanged()" /> <span style="color:#FCD34D; font-weight:600;">Enable Private Personal Lattice Vector in Smart Hunter</span></label>
+            <div style="font-size:10.5px; color:#94A3B8; margin-top:4px;">When enabled, Smart Hunter will dedicate ~1 in 8 threads to <span class="mono">brain:"yourHint+year+!"</span> combos (your pattern, not public).</div>
+          </div>
+          <!-- B) Time-Machine -->
+          <div class="card" style="border-color:rgba(56,189,248,0.32);">
+            <div class="card-header">
+              <span class="card-title">B) Time-Machine PRNG — Rebuild 2013-2016 Broken Random</span>
+              <span id="TimeMachineStatusBadge" class="pill pill-cyan mono">Broad 2014→2024</span>
+            </div>
+            <p class="card-desc">If you know *when* the wallet was created (e.g. <span class="mono">Dec 2015 on Android</span>), we narrow PRNG from 10 years to <b>±21 days</b> around that date with device-specific salt (<span class="mono">android_secure_random_fallback</span> vs <span class="mono">ios_arc4random_stir</span>). This rebuilds old <span class="mono">blockchain.info / bitaddress.org / Android SecureRandom bug</span> entropy — not brute-force.</p>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px;">
+              <div><label style="font-size:10px; color:#94A3B8;">Approx Creation Date (YYYY-MM-DD)</label><input id="TimeMachineDateInput" class="input-box mono" placeholder="2015-12-15" value="" /></div>
+              <div><label style="font-size:10px; color:#94A3B8;">Device / Browser</label><select id="TimeMachineDeviceInput" class="input-box mono"><option value="unknown">unknown / web</option><option value="android">Android (SecureRandom bug)</option><option value="ios">iOS (arc4random stir bug)</option><option value="chrome58">Chrome 58 / bitaddress.org</option><option value="blockchaininfo">Blockchain.info 2014 wallet</option></select></div>
+            </div>
+            <div style="margin-top:8px;"><label style="font-size:10px; color:#94A3B8;">Timezone at creation</label><input id="TimeMachineTzInput" class="input-box mono" value="Africa/Lagos" placeholder="Africa/Lagos" /></div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="savePersonalVault()">💾 Save Timeline &amp; Activate Time-Machine</button>
+              <button class="btn" onclick="document.getElementById('TimeMachineDateInput').value='2015-12-15'; document.getElementById('TimeMachineDeviceInput').value='android';">Set Example</button>
+            </div>
+            <div id="TimeMachinePreview" class="mono" style="font-size:10.5px; color:#7DD3FC; margin-top:8px; min-height:18px;">No date set — using broad 2014-2024 scan. Set a date to narrow to ±21 days (100× faster).</div>
+            <div class="divider"></div>
+            <label class="check-row"><input type="checkbox" data-vector="timemachine" checked onchange="onVectorSelectionChanged()" /> <span style="color:#7DD3FC; font-weight:600;">Enable Private Time-Machine Vector in Smart Hunter</span></label>
+            <div style="font-size:10.5px; color:#94A3B8; margin-top:4px;">When enabled, engine rebuilds <span class="mono">sha256(SESSION_HEX:deviceSalt:ts:timezone)</span> entropy in that 42-day window — unique to your story.</div>
+          </div>
+        </div>
+        <div class="card" style="background:rgba(245,158,11,0.06); border-color:rgba(245,158,11,0.22);">
+          <div style="font-size:11px; font-weight:700; color:#FCD34D;">Why this has value: Public scanners brute-force 3×10³⁸ random words. You don't. You rebuild *your* 42-day / 5-hint window that no one else can guess. That's the moat.</div>
+          <div style="font-size:11px; color:#94A3B8; margin-top:4px;">personal_vault.json is <b>never committed</b> (add to .gitignore) and never sent to Vercel. It's your private key to the private keys.</div>
+        </div>
+      </div>
+
     </main>
 
     <!-- SINGLE COMPACT 38PX BOTTOM LIVE TELEMETRY BAR -->
@@ -1662,6 +1722,33 @@
     if (tag === 'Adv2' && document.getElementById('ForensicsOutput').children.length === 0) {
       renderForensicsMatrix();
     }
+    if (tag === 'PrivateVault') loadPersonalVault();
+  }
+
+  // === PRIVATE VAULT A+B — Your Memory Only (never public) ===
+  async function loadPersonalVault(){
+    try{
+      const r=await fetch('/api/personal-vault'); const j=await r.json();
+      if(j.ok && j.vault){
+        document.getElementById('PersonalHintsInput').value = (j.vault.hints||[]).join('\n');
+        document.getElementById('TimeMachineDateInput').value = j.vault.timeline?.approxDate || '';
+        document.getElementById('TimeMachineDeviceInput').value = j.vault.timeline?.device || 'unknown';
+        document.getElementById('TimeMachineTzInput').value = j.vault.timeline?.timezone || 'Africa/Lagos';
+        document.getElementById('PersonalHintsCountBadge').textContent = `${(j.vault.hints||[]).length} hints`;
+        document.getElementById('PrivateVaultStatus').textContent = j.vault.updatedAt ? `Saved ${j.vault.updatedAt.slice(0,19).replace('T',' ')} • PersonalLattice+TimeMachine ACTIVE` : 'Loaded';
+        document.getElementById('PersonalLatticePreview').textContent = (j.vault.hints||[]).length ? `Preview: brain:"${j.vault.hints[0]}2017!" + brain:"${j.vault.hints[1]||j.vault.hints[0]}1997" → private arm weight 1.45` : 'No hints yet — add 5+ to activate.';
+        document.getElementById('TimeMachineStatusBadge').textContent = j.vault.timeline?.approxDate ? `Narrow ±21d around ${j.vault.timeline.approxDate} (${j.vault.timeline.device})` : 'Broad 2014→2024';
+        document.getElementById('TimeMachinePreview').textContent = j.vault.timeline?.approxDate ? `Time-Machine window: ${j.vault.timeline.approxDate} ±21d on ${j.vault.timeline.device} (${j.vault.timeline.timezone}) → 100× narrower than public scan` : 'No date set — using broad 2014-2024 scan. Set a date to narrow to ±21 days (100× faster).';
+        if (j.arms) { const tb=document.getElementById('BrainArmBadge'); if(tb && j.vault.hints?.length) tb.textContent = `PRIVATE: PersonalLattice + TimeMachine ACTIVE`; }
+      }
+    }catch(e){}
+  }
+  async function savePersonalVault(){
+    const hints = document.getElementById('PersonalHintsInput').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    const timeline = { approxDate: document.getElementById('TimeMachineDateInput').value.trim(), device: document.getElementById('TimeMachineDeviceInput').value, timezone: document.getElementById('TimeMachineTzInput').value.trim()||'Africa/Lagos' };
+    const r=await fetch('/api/personal-vault',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hints, timeline})});
+    const j=await r.json();
+    if(j.ok){ document.getElementById('PrivateVaultStatus').textContent = '✅ Saved — Personal arm weight 1.45 + Time-Machine narrow window ACTIVE'; document.getElementById('PersonalHintsCountBadge').textContent=`${hints.length} hints`; loadPersonalVault(); } else { document.getElementById('PrivateVaultStatus').textContent='❌ Save failed: '+j.error; }
   }
 
   function openModal(id) {
@@ -2095,10 +2182,12 @@
         watchlistItems.size
       );
       const fundedNowCount = typeof data.foundVaultCount === 'number' ? data.foundVaultCount : 0;
+      const totalFoundUsd = typeof data.totalFoundUsd === 'number' ? data.totalFoundUsd : 0;
+      const totalEverHeldUsd = typeof data.totalEverHeldUsd === 'number' ? data.totalEverHeldUsd : 0;
       const everHeldEl = document.getElementById('QuickStatsEverHeldText');
-      if (everHeldEl) everHeldEl.textContent = everHeldCount.toLocaleString();
-      document.getElementById('QuickStatsFoundText').textContent = fundedNowCount.toLocaleString();
-      document.getElementById('ModalHits').textContent = `${fundedNowCount} (${everHeldCount} Ever Held)`;
+      if (everHeldEl) everHeldEl.textContent = `${everHeldCount.toLocaleString()} ($${totalEverHeldUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})})`;
+      document.getElementById('QuickStatsFoundText').textContent = `${fundedNowCount.toLocaleString()} ($${totalFoundUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})})`;
+      document.getElementById('ModalHits').textContent = `${fundedNowCount} ($${totalFoundUsd.toLocaleString()}) / ${everHeldCount} Ever Held ($${totalEverHeldUsd.toLocaleString()})`;
       renderWatchlist();
 
       if (data.brain) {
@@ -2308,7 +2397,7 @@
     const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
     const wk = (item.btcLegacy || item.ethAddress || item.input || '').replace(/'/g, "\\'");
     if (isFunded) {
-      return `<span class="pill pill-emerald" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString()}) • 🔑 Keys</span>`;
+      return `<span class="pill pill-emerald" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">💰 FUNDED ($${Number(item.balanceUsd).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}) • 🔑 Keys</span>`;
     }
     if (isEverHeld) {
       const rcvBtc = Number(item.totalEverReceivedBtc || 0);
@@ -2316,7 +2405,7 @@
       const rcvSummary = rcvBtc > 0
         ? `${rcvBtc} BTC rcvd`
         : (rcvEth > 0 ? `${rcvEth} ETH rcvd` : `${item.historicalTx} TX`);
-      return `<span class="pill pill-amber" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary}) • 🔑 Keys</span>`;
+      return `<span class="pill pill-amber" style="cursor:pointer;" onclick="openWalletAccessModal('${wk}')" title="Click to view Mnemonic &amp; Private Keys">📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary} • $${Number(item.balanceUsd||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}) • 🔑 Keys</span>`;
     }
     return `<span style="color:var(--text-muted);">0 TX • Never Held</span>`;
   }
@@ -2464,10 +2553,11 @@
         pinnedBody.appendChild(ptr);
       }
     }
-    document.getElementById('VaultBadgeCount').textContent = watchlistItems.size;
-    document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS`;
+    const totalWatchUsd = Array.from(watchlistItems.values()).reduce((s,w)=>s+Number(w.balanceUsd||0),0);
+    document.getElementById('VaultBadgeCount').textContent = `${watchlistItems.size} ($${totalWatchUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})})`;
+    document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS • $${totalWatchUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}`;
     const pinnedBadge = document.getElementById('SmartPinnedCountBadge');
-    if (pinnedBadge) pinnedBadge.textContent = `${watchlistItems.size} SAVED`;
+    if (pinnedBadge) pinnedBadge.textContent = `${watchlistItems.size} SAVED • $${totalWatchUsd.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}`;
   }
 
   async function runWildcardSolver() {
