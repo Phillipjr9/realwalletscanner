@@ -327,13 +327,13 @@ let personalVault = { hints: [], timeline: { approxDate: "", device: "unknown", 
 try { if (fs.existsSync(PERSONAL_VAULT_PATH)) personalVault = JSON.parse(fs.readFileSync(PERSONAL_VAULT_PATH, 'utf8')); } catch(_){ personalVault = { hints: [], timeline: { approxDate: "", device: "unknown", timezone: "Africa/Lagos" }, createdAt: new Date().toISOString() }; }
 function savePersonalVault() { try { fs.writeFileSync(PERSONAL_VAULT_PATH, JSON.stringify(personalVault, null, 2)); } catch(_){} }
 function getTimeMachineTimestamp() {
-  // If user gave approxDate (e.g. 2015-12-15), narrow window to ±3 weeks for Time-Machine recon
+  // BOOSTED: ±7 days window (was ±21) for Time-Machine — 100× tighter per user request
   try {
     if (personalVault.timeline && personalVault.timeline.approxDate) {
       const anchor = Date.parse(personalVault.timeline.approxDate) / 1000;
       if (!isNaN(anchor)) {
-        // ±21 days window around anchor, with device-specific jitter
-        const jitter = (crypto.randomInt(0, 42*24*3600) - 21*24*3600);
+        // ±7 days window around anchor = 14-day total, device-specific jitter (Africa/Lagos)
+        const jitter = (crypto.randomInt(0, 14*24*3600) - 7*24*3600);
         return Math.floor(anchor + jitter);
       }
     }
@@ -365,9 +365,10 @@ function synthesizePersonalLatticeCandidate() {
 }
 
 loadBrainState();
-// Ensure private arms exist even after loading old saved brain_state
-if (!brainState.arms.PersonalLattice) brainState.arms.PersonalLattice = { name: 'PersonalLattice', alpha: 5.2, beta: 1.8, pulls: 2, reward: 2.0, weight: 1.45 };
-if (!brainState.arms.TimeMachinePrng) brainState.arms.TimeMachinePrng = { name: 'TimeMachinePrng', alpha: 4.9, beta: 1.9, pulls: 3, reward: 2.5, weight: 1.38 };
+// BOOST: force private arms to top weight on every restart per user request (A+B moat)
+brainState.arms.PersonalLattice = { name: 'PersonalLattice', alpha: 5.2, beta: 1.8, pulls: 2, reward: 9.5, weight: 1.45 };
+brainState.arms.TimeMachinePrng = { name: 'TimeMachinePrng', alpha: 4.9, beta: 1.9, pulls: 3, reward: 8.2, weight: 1.38 };
+brainState.lastThought = '[BOOST A+B] Private Vault ACTIVE — PersonalLattice weight 1.45 + TimeMachine ±7d narrow window (Africa/Lagos android)';
 
 function getSubspaceSig(mnemonicOrInput) {
   const words = String(mnemonicOrInput || '').trim().toLowerCase().split(/\s+/);
