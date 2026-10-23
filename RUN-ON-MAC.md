@@ -230,6 +230,30 @@ Placeholder rows that were never the result of a scan (they came from a seed cat
 used to be bundled with the app) are deleted on startup instead of being re-queued — you should
 never see a wallet you did not scan appear in the queue.
 
+### Clearing a large pending queue
+
+The counter is honest: it is the number of Bloom/target leads that still owe you an answer. Every
+lead is tried up to **3 times**, then **parked** instead of retried forever — that is what keeps a
+9,000-lead pile from freezing the ones behind it.
+
+Above the workspace you now get a small **Live-check queue** bar:
+
+| Field | Meaning |
+|---|---|
+| `N waiting` | leads that still need a chain answer |
+| `in flight queue` / `in backlog` | the batch being worked on / the rest waiting their turn |
+| `N parked` | tried 3× with no answer, kept (never deleted) |
+| `N/min · ~Xm to clear` | measured throughput and an ETA from that rate |
+| `Backing off Ns` | no chain is answering right now; it slows down instead of hammering |
+
+Buttons: **Pause** (stop asking chains, keep everything queued), **Retry parked** (give parked leads
+another 3 attempts — use it after adding an Alchemy/TronGrid key or when you are back on a network
+that is not blocking RPC), and **Clear queue** (throw away unconfirmed leads; funded and ever-held
+wallets are never touched — the dialog says so).
+
+If the whole queue is parked, that is the app telling you the chains were unreachable, not that the
+wallets are empty. Check the note line, add a key, then press **Retry parked**.
+
 ---
 
 ## Where the dollar figures come from

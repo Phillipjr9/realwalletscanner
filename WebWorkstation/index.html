@@ -1259,6 +1259,23 @@
     </header>
 
 
+    <!-- VERIFICATION QUEUE PANEL (only when there is work) -->
+    <div id="VerifyQueuePanel" class="mono" style="display:none; margin:0 18px 0 18px; padding:10px 12px; border-radius:9px; background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.35); font-size:10.5px; color:var(--text-secondary);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span id="VerifyQueueTitle" style="color:#FCD34D; font-weight:700;">⏳ Live-check queue</span>
+          <span id="VerifyQueueCounts"></span>
+          <span id="VerifyQueueRate"></span>
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button id="VerifyPauseBtn" class="btn" style="height:23px; padding:0 9px; font-size:10px;" onclick="verificationAction(document.getElementById('VerifyPauseBtn').dataset.paused === '1' ? 'resume' : 'pause')">Pause</button>
+          <button id="VerifyRetryBtn" class="btn" style="height:23px; padding:0 9px; font-size:10px; display:none;" onclick="verificationAction('retry-deferred')">Retry parked</button>
+          <button class="btn" style="height:23px; padding:0 9px; font-size:10px; border-color:rgba(251,113,133,0.5); color:#FB7185;" onclick="verificationAction('clear')">Clear queue</button>
+        </div>
+      </div>
+      <div id="VerifyQueueNote" style="margin-top:5px; color:var(--text-muted); font-size:10px;"></div>
+    </div>
+
     <!-- MAIN WORKSPACE -->
     <main class="workspace">
 
@@ -4434,6 +4451,74 @@
     }
   }
 
+  let verifyStatusCache = null;
+
+  async function refreshVerificationPanel() {
+    try {
+      const s = await fetch('/api/verification-status').then(r => r.json());
+      verifyStatusCache = s;
+      updateVerificationBadge(s.pending);
+      const panel = document.getElementById('VerifyQueuePanel');
+      if (!panel) return;
+      const active = Number(s.pending || 0);
+      const parked = Number(s.deferredLeads || 0);
+      if (active === 0 && parked === 0) { panel.style.display = 'none'; return; }
+      panel.style.display = 'block';
+
+      const n = v => Number(v || 0).toLocaleString();
+      document.getElementById('VerifyQueueCounts').textContent =
+        `${n(active)} waiting — ${n(s.queueDepth)} in flight queue, ${n(s.persistedLeads)} in backlog`
+        + (parked > 0 ? `, ${n(parked)} parked` : '');
+
+      const rate = Number(s.ratePerMin || 0);
+      const eta = Number(s.etaSeconds || 0);
+      const fmtEta = (sec) => {
+        if (!sec || sec <= 0) return '—';
+        if (sec < 90) return `${Math.round(sec)}s`;
+        if (sec < 5400) return `${Math.round(sec / 60)}m`;
+        return `${(sec / 3600).toFixed(1)}h`;
+      };
+      document.getElementById('VerifyQueueRate').textContent = s.paused
+        ? '⏸ paused'
+        : (rate > 0 ? `${n(rate)}/min · ~${fmtEta(eta)} to clear` : 'no chain answering yet');
+
+      const pauseBtn = document.getElementById('VerifyPauseBtn');
+      pauseBtn.dataset.paused = s.paused ? '1' : '0';
+      pauseBtn.textContent = s.paused ? 'Resume' : 'Pause';
+
+      const retryBtn = document.getElementById('VerifyRetryBtn');
+      retryBtn.style.display = parked > 0 ? 'inline-block' : 'none';
+
+      let note = '';
+      if (s.backoffMs > 0) note = `Backing off ${Math.round(s.backoffMs / 1000)}s between batches — the public RPCs are not answering.`;
+      else if (s.stats && s.stats.lastError) note = String(s.stats.lastError).slice(0, 180);
+      else if (parked > 0) note = 'Parked leads were retried 3 times with no chain answer. They are kept, not deleted — retry them when you are online, or clear them.';
+      else note = 'Every lead is checked against BTC, ETH/L2, TRON, XRP, LTC, DOGE and SOL before anything is reported.';
+      document.getElementById('VerifyQueueNote').textContent = note;
+    } catch (_) {}
+  }
+
+  async function verificationAction(action) {
+    if (action === 'clear') {
+      const s = verifyStatusCache || {};
+      const total = Number(s.pending || 0) + Number(s.deferredLeads || 0);
+      if (!confirm(`Clear ${total.toLocaleString()} pending lead(s)?\n\nThese are Bloom/target matches that were never confirmed on chain. Clearing them does not delete any funded or ever-held wallet.`)) return;
+    }
+    try {
+      const r = await fetch('/api/verification-control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      }).then(x => x.json());
+      if (r.ok) toast(r.message, 'success');
+      else toast(r.error || 'Action failed', 'error');
+    } catch (e) {
+      toast('Action failed: ' + e.message, 'error');
+    }
+    // Await so the button label and counts reflect the action immediately.
+    await refreshVerificationPanel();
+  }
+
   function updateVerificationBadge(pending) {
     const el = document.getElementById('VerificationPendingBadge');
     if (!el) return;
@@ -5613,6 +5698,8 @@
   setInterval(() => refreshLivePrices().then(renderPriceStatus), 180000);
   refreshTelegramBotStatus();
   setInterval(refreshTelegramBotStatus, 15000);
+  refreshVerificationPanel();
+  setInterval(refreshVerificationPanel, 5000);
 
   loadFundedVault(true);
   setInterval(() => loadFundedVault(false), 20000);
