@@ -290,9 +290,14 @@ even when the browser window is closed.
 
 1. Settings → **Alerts & Integrations** → Telegram Bot → paste the token from
    **@BotFather** → **Save channels**.
-2. Open Telegram and send **/start** to your bot.
+2. Open Telegram and send **/start** to your bot **from a private chat**.
 3. That message links the chat automatically — the app records its chat ID and
    shows `● Listening as @your_bot • chat ••••1234` under the token field.
+
+You do not have to look the ID up. Groups and channels are deliberately *not*
+linked automatically (they can contain other people); for those, paste the
+numeric ID — channels start with `-100` — and add the bot as an administrator
+with **Post messages**. Send `/whoami` at any time to see the linked ID.
 
 The token lives in `~/Library/Application Support/CodeHaven Workstation/PersistentState/alert_channels.json`,
 never inside the app bundle, and is not written to any repository.

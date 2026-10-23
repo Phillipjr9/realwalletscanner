@@ -3291,7 +3291,11 @@ function telegramErrorHint(message) {
   const m = String(message || '');
   if (/401|Unauthorized/i.test(m)) return 'The bot token is wrong or was revoked — copy it again from @BotFather.';
   // "chat not found" also contains "not found", so it must be tested first.
-  if (/chat not found/i.test(m)) return 'The chat ID is unknown to this bot — press START on the bot first, or use @userinfobot to get your numeric ID.';
+  // "chat not found" also contains "not found", so it must be tested first.
+  if (/chat not found/i.test(m)) {
+    return 'This bot cannot see that chat yet. For a personal chat or group: open it, press START (or add the bot to the group). '
+      + 'For a channel: add the bot as an administrator with "Post messages", then paste the channel ID that starts with -100…';
+  }
   if (/404|Not Found/i.test(m)) return 'Telegram did not recognise this bot token (404). Check for a missing ":" or extra characters.';
   if (/403|bot was blocked|not enough rights/i.test(m)) return 'The bot is blocked or lacks permission to post in that chat. Unblock it, or make the bot an admin of the channel.';
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(m)) return 'DNS lookup for api.telegram.org failed — check this machine\'s internet connection.';
@@ -3743,9 +3747,20 @@ async function handleTelegramCommand(message) {
   }
 
   if (!configured && command === 'start') {
+    const chatType = (message.chat && message.chat.type) || 'private';
+    if (chatType !== 'private') {
+      // A group/channel could contain other people. Never let one adopt the
+      // alert stream by typing /start — the operator must paste its ID.
+      await telegramSend(
+        `⛔ This is a ${chatType}. For privacy I will not link a group or channel automatically.\n\n`
+        + 'Paste its numeric chat ID in CodeHaven → Settings → Alerts → Chat / channel ID, save, then send /start here again.',
+        { chatId }
+      );
+      return;
+    }
     alertChannelsConfig.telegramChatId = chatId;
     saveAlertChannelsConfig();
-    console.log(`[Telegram] linked chat ${chatId}`);
+    console.log(`[Telegram] linked private chat ${chatId}`);
   }
 
   telegramBotRuntime.commandsHandled++;
