@@ -362,10 +362,32 @@ after a restart, so `/funded` is the reliable way to catch up.
 
 1. Open the **Bloom Importer** tab.
 2. Choose your `.tsv.gz` / `.txt.gz` / `.tsv` / `.csv` file and click **Stream & Import**.
-   Compressed files are decompressed in the browser and streamed to the server in chunks —
-   the file never has to fit in memory.
+   Compressed files are uploaded as-is and decompressed **on the scanner** — nothing is
+   buffered in memory, so there is no size ceiling (a 10 GB dump is fine).
 3. The status line ends with the real number of addresses now in the filter, plus the
    false-positive rate. **The number must be greater than 0.**
+
+### If a large `.gz` fails to import
+
+Browsers decode gzip with `DecompressionStream`, which rejects **multi-member archives**
+(concatenated gzip files — common for big dumps) with
+`The compressed data was not valid: invalid literal/length code`, and gets unreliable past
+about 2 GB. That is why 2.6.3 moved decompression to the server:
+
+| File | What happens |
+|---|---|
+| normal `.gz` | streamed to `/api/bloom-import-gz`, gunzipped by Node, 0 buffering |
+| multi-member `.gz` | same — Node walks every member |
+| `.zip` renamed to `.gz` | rejected instantly by magic bytes, before uploading gigabytes |
+| truncated download | "The gzip stream ended early after N MB — the download is truncated" |
+| not gzip at all | "This is not a gzip file." |
+
+Progress is shown from both sides while it runs: bytes uploaded by the browser and lines
+read / addresses added by the server. A failed import is **rolled back** — a half-finished
+file cannot leave phantom addresses in the filter, and only one import can run at a time.
+
+If you import through the hosted preview, very large uploads can still be capped by the
+preview proxy; on your Mac the request goes straight to localhost with no proxy in between.
 4. The "Funded Addresses in RAM" tile shows the running total and the timestamp of the last
    import. Both survive a restart (the filter is saved to `.runtime_state/`).
 

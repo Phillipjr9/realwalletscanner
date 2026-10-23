@@ -5,6 +5,8 @@ const tls = require('tls');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const { Writable } = require('stream');
 const { spawn } = require('child_process');
 const os = require('os');
 const { Worker } = require('worker_threads');
@@ -269,6 +271,7 @@ function saveFundedBloomStore() {
  * only trusted when the bit array is present and complete.
  */
 let fundedBloomIntegrity = { ok: true, detail: 'no dump loaded' };
+let bloomGzipImport = { running: false, bytesIn: 0, linesParsed: 0, added: 0, startedAt: null, finishedAt: null, error: null };
 
 (function loadFundedBloomStore() {
   let bitsLoaded = false;
@@ -4195,6 +4198,13 @@ function startForensicRecoveryPool(payload) {
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Drop a stalled connection after 3 minutes of silence, but never time out a
+  // request that is actively streaming (a multi-GB dump upload can legitimately
+  // take much longer than Node's default 5-minute request timeout).
+  req.setTimeout(180000, () => {
+    try { req.destroy(new Error('Request idle timeout')); } catch (_) {}
+  });
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -4254,7 +4264,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.6.2',
+      version: '2.6.3',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
@@ -5157,8 +5167,155 @@ const server = http.createServer((req, res) => {
         ? 'False-positive rate is above 0.1% — leads are confirmed on-chain before being reported, but consider importing a smaller dump or using exact target addresses.'
         : null,
       integrity: fundedBloomIntegrity,
+      gzipImport: bloomGzipImport,
       ...fundedBloomMeta
     }));
+  }
+
+  /* ── Streaming gzip import ────────────────────────────────────────────────
+   * Browsers hand .gz files to DecompressionStream, which rejects multi-member
+   * archives ("The compressed data was not valid: invalid literal/length code")
+   * and struggles past ~2 GB. Node's gunzip handles both, so the raw bytes are
+   * streamed here and decompressed on the fly — nothing is buffered in memory,
+   * which is what makes multi-gigabyte dumps practical.
+   */
+  if (url.pathname === '/api/bloom-import-gz' && req.method === 'POST') {
+    if (bloomGzipImport.running) {
+      res.writeHead(409, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        ok: false,
+        error: 'Another dump import is already running. Wait for it to finish before starting a new one.'
+      }));
+    }
+    const startedAt = Date.now();
+    let bytesIn = 0;
+    let linesParsed = 0;
+    let added = 0;
+    let finished = false;
+    let remainder = Buffer.alloc(0);
+    let head = Buffer.alloc(0);
+
+    bloomGzipImport = {
+      running: true, bytesIn: 0, linesParsed: 0, added: 0,
+      startedAt: new Date().toISOString(), finishedAt: null, error: null
+    };
+
+    // A failed import must not leave half a dump in the shared filter: keep a
+    // copy of the bits and put them back if anything goes wrong.
+    const bloomSnapshot = Buffer.from(sharedFundedBloomBytes);
+    const restoreSnapshot = () => {
+      try { sharedFundedBloomBytes.set(bloomSnapshot); } catch (_) {}
+    };
+
+    const gunzip = zlib.createGunzip({ chunkSize: 1 << 20 });
+
+    const processLine = (line) => {
+      if (!line) return;
+      const firstCol = line.trim().split(/[,\t; ]+/)[0];
+      if (!firstCol || firstCol === 'address' || firstCol.startsWith('#')) return;
+      linesParsed++;
+      if (addAddressToFundedBloom(firstCol)) added++;
+    };
+
+    const sink = new Writable({
+      write(chunk, _enc, cb) {
+        let buf = remainder.length ? Buffer.concat([remainder, chunk]) : chunk;
+        let start = 0;
+        let idx;
+        while ((idx = buf.indexOf(10, start)) !== -1) {
+          processLine(buf.toString('utf8', start, idx));
+          start = idx + 1;
+        }
+        remainder = buf.subarray(start);
+        // A "line" that never ends means this is not a text dump.
+        if (remainder.length > 8 * 1024 * 1024) {
+          remainder = Buffer.alloc(0);
+        }
+        cb();
+      }
+    });
+
+    const fail = (status, message, extra = {}) => {
+      if (finished) return;
+      finished = true;
+      bloomGzipImport.running = false;
+      bloomGzipImport.error = message;
+      bloomGzipImport.finishedAt = new Date().toISOString();
+      restoreSnapshot();
+      try {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: false, error: message, bytesIn, linesParsed, added,
+          totalImported: fundedBloomMeta.totalImported, ...extra
+        }));
+      } catch (_) {}
+    };
+
+    req.on('data', (chunk) => {
+      bytesIn += chunk.length;
+      bloomGzipImport.bytesIn = bytesIn;
+      if (head.length < 4) head = Buffer.concat([head, chunk.subarray(0, 4 - head.length)]);
+    });
+
+    req.on('aborted', () => {
+      gunzip.destroy();
+      sink.destroy();
+      restoreSnapshot();
+      bloomGzipImport.running = false;
+      bloomGzipImport.error = 'upload aborted';
+    });
+
+    gunzip.on('error', (err) => {
+      const isZip = head.length >= 2 && head[0] === 0x50 && head[1] === 0x4B;
+      const isTruncated = /unexpected end of file/i.test(err.message);
+      let msg;
+      if (isZip) {
+        msg = 'This file is a ZIP archive (.zip), not gzip. Extract the .tsv/.txt inside it and import that, or download the .gz version.';
+      } else if (isTruncated) {
+        const seen = bytesIn >= 1e6 ? `${(bytesIn / 1e6).toFixed(1)} MB` : `${(bytesIn / 1e3).toFixed(0)} KB`;
+        msg = `The gzip stream ended early after ${seen} — the download is truncated. Download the dump again and retry.`;
+      } else if (/incorrect header check|unknown compression method/i.test(err.message)) {
+        msg = 'This is not a gzip file. Import a .gz or a plain .tsv/.txt/.csv address list.';
+      } else {
+        msg = `Could not decompress the file: ${err.message}`;
+      }
+      fail(400, msg, { kind: isZip ? 'zip' : (isTruncated ? 'truncated' : 'corrupt') });
+    });
+
+    sink.on('error', (err) => fail(500, `Import failed: ${err.message}`));
+
+    sink.on('finish', () => {
+      if (finished) return;
+      finished = true;
+      processLine(remainder.toString('utf8')); // last line without a trailing newline
+      remainder = Buffer.alloc(0);
+      fundedBloomMeta.chunksImported++;
+      fundedBloomMeta.lastImportedAt = new Date().toISOString();
+      fundedBloomIntegrity = {
+        ok: true,
+        detail: `${fundedBloomMeta.totalImported.toLocaleString()} addresses verified on disk`
+      };
+      saveFundedBloomStore();
+      bloomGzipImport.running = false;
+      bloomGzipImport.finishedAt = new Date().toISOString();
+      bloomGzipImport.added = added;
+      bloomGzipImport.linesParsed = linesParsed;
+      console.log(`[Bloom] gzip import: ${(bytesIn / 1e6).toFixed(1)} MB in ${((Date.now() - startedAt) / 1000).toFixed(1)}s -> ${linesParsed.toLocaleString()} lines, ${added.toLocaleString()} new (${fundedBloomMeta.totalImported.toLocaleString()} total)`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        bytesIn,
+        linesParsed,
+        added,
+        totalImported: fundedBloomMeta.totalImported,
+        falsePositiveRate: fundedBloomFalsePositiveRate(),
+        byChain: fundedBloomMeta.byChain,
+        elapsedMs: Date.now() - startedAt
+      }));
+    });
+
+    req.pipe(gunzip).pipe(sink);
+    return;
   }
 
   if (url.pathname === '/api/bloom-clear' && req.method === 'POST') {
@@ -5451,6 +5608,9 @@ server.on('error', (err) => {
 const PORT = HTTP_PORT_TARGET;
 // Bind loopback for desktop/private use (HOST=0.0.0.0 keeps container previews working)
 const HOST = process.env.HOST || '0.0.0.0';
+// A multi-gigabyte upload must not be killed by the global request deadline.
+server.requestTimeout = 0;
+
 server.listen(PORT, HOST, () => {
   console.log(`CodeHaven Quantum Wallet Recovery Suite Live Workstation listening on http://${HOST}:${PORT}`);
 

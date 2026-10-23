@@ -4997,6 +4997,70 @@
       `<span style="color:#FB7185;">❌ Import stopped — ${String(err.message || err).replace(/</g, '&lt;')}</span>`;
   }
 
+  /** First bytes of a file, without loading it. */
+  async function sniffFileHeader(file, n = 4) {
+    try {
+      const buf = new Uint8Array(await file.slice(0, n).arrayBuffer());
+      return Array.from(buf);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * Upload a .gz dump as raw bytes and let the server decompress it.
+   *
+   * Browsers decode gzip with DecompressionStream, which rejects multi-member
+   * archives ("invalid literal/length code") and struggles past ~2 GB. The
+   * server's zlib handles both, streams without buffering, and reports progress
+   * through /api/bloom-status while the upload runs.
+   */
+  function uploadGzipToServer(file) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/bloom-import-gz');
+      xhr.setRequestHeader('Content-Type', 'application/gzip');
+      xhr.timeout = 0; // an import may legitimately run for hours
+
+      const bar = document.getElementById('BloomUploadProgressBar');
+      const label = document.getElementById('BloomUploadStatusText');
+      let lastLines = 0;
+      const poll = setInterval(async () => {
+        try {
+          const b = await fetch('/api/bloom-status').then(r => r.json());
+          const gz = b.gzipImport || {};
+          if (gz.running && gz.linesParsed !== lastLines) {
+            lastLines = gz.linesParsed;
+            const pct = file.size > 0 ? Math.round((gz.bytesIn / file.size) * 100) : 0;
+            label.innerHTML = `<span style="color:#7DD3FC;">Decompressing on the server — ${pct}% sent, `
+              + `${Number(gz.linesParsed).toLocaleString()} addresses read, `
+              + `${Number(gz.added).toLocaleString()} new</span>`;
+          }
+        } catch (_) {}
+      }, 2000);
+
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const pct = Math.round((e.loaded / e.total) * 100);
+        if (bar) bar.style.width = `${pct}%`;
+        label.innerHTML = `<span style="color:#7DD3FC;">Uploading ${pct}% `
+          + `(${(e.loaded / 1e9).toFixed(2)} / ${(e.total / 1e9).toFixed(2)} GB) — server is decompressing as it arrives…</span>`;
+      };
+
+      xhr.onload = () => {
+        clearInterval(poll);
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch (_) {}
+        if (xhr.status >= 200 && xhr.status < 300 && data && data.ok) resolve(data);
+        else reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+      };
+      xhr.onerror = () => { clearInterval(poll); reject(new Error('Network error while uploading the dump.')); };
+      xhr.onabort = () => { clearInterval(poll); reject(new Error('Upload cancelled.')); };
+      xhr.ontimeout = () => { clearInterval(poll); reject(new Error('Upload timed out.')); };
+      xhr.send(file);
+    });
+  }
+
   async function streamUploadFundedDumpFile() {
     const fileInput = document.getElementById('BloomDumpFileInput');
     const file = fileInput && fileInput.files && fileInput.files[0];
@@ -5008,7 +5072,31 @@
       const barEl = document.getElementById('BloomUploadProgressBar');
       if (barEl) { barEl.style.width = '0%'; barEl.style.background = ''; }
 
-    // Native browser streaming GZIP decompression when uploading raw .gz files from gz.blockchair.com or addresses.loyce.club!
+    // Decide by content, not just by extension: plenty of "*.gz" downloads are
+    // really ZIPs or plain text.
+    const magic = await sniffFileHeader(file, 4);
+    const isGzipMagic = magic[0] === 0x1f && magic[1] === 0x8b;
+    const isZipMagic = magic[0] === 0x50 && magic[1] === 0x4b;
+
+    if (isZipMagic) {
+      throw new Error('This is a ZIP archive (.zip), not gzip. Extract the .tsv/.txt/.csv inside it and import that file — or download the .gz version of the dump.');
+    }
+
+    if (isGzipMagic || (file.name.toLowerCase().endsWith('.gz') && magic.length === 0)) {
+      document.getElementById('BloomUploadStatusText').textContent =
+        `Uploading & decompressing ${file.name} (${(file.size / 1e9).toFixed(2)} GB) on the server…`;
+      const result = await uploadGzipToServer(file);
+      await refreshBloomStatus();
+      const total = Number(result.totalImported || 0);
+      const fp = Number(result.falsePositiveRate || 0);
+      document.getElementById('BloomUploadStatusText').innerHTML = total > 0
+        ? `<span style="color:#6EE7B7;">✅ ${file.name} imported — ${total.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>`
+          + `<span style="color:var(--text-muted);"> (${Number(result.linesParsed).toLocaleString()} lines read, `
+          + `${Number(result.added).toLocaleString()} new, false-positive rate ${fp < 0.01 ? fp.toExponential(2) : fp.toFixed(2)}%)</span>`
+        : '<span style="color:#FCD34D;">⚠️ The file decompressed but no addresses were recognised — is it an address list (one per line / CSV with address first)?</span>';
+      return;
+    }
+
     if (file.name.toLowerCase().endsWith('.gz') && typeof DecompressionStream !== 'undefined') {
       document.getElementById('BloomUploadStatusText').textContent = `Decompressing & streaming ${file.name} directly in RAM...`;
       const ds = file.stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream());
