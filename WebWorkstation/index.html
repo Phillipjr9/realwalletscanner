@@ -2089,6 +2089,30 @@
                     <span id="TelegramTestStatus" class="mono" style="font-size:10.5px; color:var(--text-muted);"></span>
                   </div>
                   <div id="TelegramTestDetail" class="mono" style="display:none; font-size:10px; line-height:1.6; color:var(--text-secondary); background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:7px; padding:8px; margin-top:6px; max-height:150px; overflow-y:auto;"></div>
+
+                  <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-hairline);">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                      <div>
+                        <div style="font-size:11px; font-weight:700; color:var(--text-primary);">Live push while you are away</div>
+                        <div style="font-size:9.5px; color:var(--text-muted); margin-top:2px;">Runs on the scanner itself — the browser can be closed and results still arrive.</div>
+                      </div>
+                      <label class="check-row" style="white-space:nowrap;"><input type="checkbox" id="TelegramBotEnabledChk" checked onchange="tgBotToggleEnabled(this.checked)" /> Enabled</label>
+                    </div>
+                    <div id="TelegramBotStateLine" class="mono" style="font-size:10px; color:var(--text-muted); margin-top:7px;">checking bot…</div>
+                    <div class="mono" id="TelegramBotDetailLine" style="font-size:9.5px; color:var(--text-muted); margin-top:2px;"></div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:7px;">
+                      <button class="btn" style="font-size:10px; height:24px;" onclick="tgBotAction('start')">Start bot</button>
+                      <button class="btn" style="font-size:10px; height:24px;" onclick="tgBotAction('restart')">Restart</button>
+                      <button class="btn" style="font-size:10px; height:24px;" onclick="tgBotAction('stop')">Stop</button>
+                      <button class="btn" style="font-size:10px; height:24px;" onclick="tgBotAction('mute')">Mute pushes</button>
+                      <button class="btn" style="font-size:10px; height:24px;" onclick="tgBotAction('unmute')">Unmute</button>
+                      <button class="btn" style="font-size:10px; height:24px;" onclick="refreshTelegramBotStatus()">↻ Refresh</button>
+                    </div>
+                    <label class="check-row" id="KeepAwakeRow" style="display:none; margin-top:9px; font-size:10.5px;">
+                      <input type="checkbox" id="KeepAwakeChk" onchange="tgSetKeepAwake(this.checked)" />
+                      Keep this Mac awake while scanning <span style="color:var(--text-muted);">(a sleeping laptop runs no scans)</span>
+                    </label>
+                  </div>
                 </div>
 
                 <div class="settings-block">
@@ -5123,11 +5147,19 @@
       browserPushEnabled: document.getElementById('AlertPushEnabledChk').checked,
       notifyOnEverHeld: document.getElementById('AlertEverHeldChk').checked
     };
+    const botChk = document.getElementById('TelegramBotEnabledChk');
+    if (botChk) cfg.telegramBotEnabled = botChk.checked;
     const r = await fetch('/api/alert-channels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg)
     }).then(x => x.json());
+    // A new token or chat id must take effect without restarting the app.
+    if (cfg.telegramBotToken) {
+      await tgBotAction(cfg.telegramBotEnabled ? 'restart' : 'stop');
+    } else {
+      await tgBotAction('stop');
+    }
     document.getElementById('AlertDeliveryLogBox').innerHTML = `<span style="color:#34D399;">✅ Saved multi-channel alert settings (${new Date().toLocaleTimeString()}).</span>`;
     return r.config || cfg;
   }
@@ -5192,6 +5224,86 @@
       } catch (e) { browserDeliveries.push('Custom Webhook CORS: ' + e.message); }
     }
     return browserDeliveries;
+  }
+
+  /* ── Server-side Telegram bot: status + controls ───────────────────── */
+  async function refreshTelegramBotStatus() {
+    const line = document.getElementById('TelegramBotStateLine');
+    const detail = document.getElementById('TelegramBotDetailLine');
+    const chk = document.getElementById('TelegramBotEnabledChk');
+    if (!line) return;
+    try {
+      const b = await fetch('/api/telegram-bot').then(r => r.json());
+      if (chk && document.activeElement !== chk) chk.checked = b.enabled !== false;
+      if (!b.tokenPresent) {
+        line.innerHTML = '<span style="color:#FCD34D;">● Not configured — paste a bot token and click Save channels</span>';
+        detail.textContent = '';
+        return;
+      }
+      if (b.running && !b.lastError) {
+        line.innerHTML = `<span style="color:#6EE7B7;">● Listening${b.botUsername ? ` as @${b.botUsername}` : ''}</span>`
+          + (b.linked ? `<span style="color:var(--text-muted);"> • chat ${b.chatIdMasked}</span>`
+                      : '<span style="color:#FCD34D;"> • no chat linked yet — send /start to the bot</span>')
+          + (b.muted ? '<span style="color:#FCD34D;"> • 🔇 muted</span>' : '');
+      } else if (b.running && b.lastError) {
+        line.innerHTML = `<span style="color:#FCD34D;">● Retrying — ${String(b.lastError).replace(/</g, '&lt;')}</span>`;
+      } else {
+        line.innerHTML = '<span style="color:#FB7185;">● Stopped</span>';
+      }
+      const awakeRow = document.getElementById('KeepAwakeRow');
+      const awakeChk = document.getElementById('KeepAwakeChk');
+      if (awakeRow) {
+        awakeRow.style.display = (b.keepAwake && b.keepAwake.supported) ? 'flex' : 'none';
+        if (awakeChk && document.activeElement !== awakeChk) awakeChk.checked = Boolean(b.keepAwake && b.keepAwake.active);
+      }
+
+      const bits = [];
+      if (b.pushesSent) bits.push(`${b.pushesSent} result${b.pushesSent === 1 ? '' : 's'} pushed`);
+      if (b.commandsHandled) bits.push(`${b.commandsHandled} command${b.commandsHandled === 1 ? '' : 's'} answered`);
+      if (b.lastPushAt) bits.push(`last push ${new Date(b.lastPushAt).toLocaleTimeString('en-US', { hour12: false })}`);
+      if (b.lastError && b.running) bits.push('retrying with backoff');
+      detail.textContent = bits.join(' • ');
+    } catch (e) {
+      line.textContent = 'bot status unavailable';
+    }
+  }
+
+  async function tgBotAction(action) {
+    try {
+      const r = await fetch('/api/telegram-bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      }).then(x => x.json());
+      if (action === 'mute' || action === 'unmute') {
+        toast(action === 'mute' ? 'Telegram pushes muted' : 'Telegram pushes resumed', 'success');
+      }
+      await refreshTelegramBotStatus();
+      return r;
+    } catch (e) {
+      toast('Bot action failed: ' + e.message, 'error');
+    }
+  }
+
+  async function tgSetKeepAwake(on) {
+    const r = await fetch('/api/telegram-bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepAwake: on })
+    }).then(x => x.json()).catch(() => null);
+    if (r && r.keepAwake && r.keepAwake.supported && r.keepAwake.active !== on) {
+      toast(on ? 'macOS blocked caffeinate — check Console for details' : 'Sleep prevention stopped', 'error');
+    }
+    await refreshTelegramBotStatus();
+  }
+
+  async function tgBotToggleEnabled(on) {
+    await fetch('/api/telegram-bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: on, action: on ? 'start' : 'stop' })
+    }).catch(() => {});
+    await refreshTelegramBotStatus();
   }
 
   /**
@@ -5404,6 +5516,8 @@
   // shows coin amounts only — it never falls back to a hardcoded rate.
   refreshLivePrices().then(renderPriceStatus);
   setInterval(() => refreshLivePrices().then(renderPriceStatus), 180000);
+  refreshTelegramBotStatus();
+  setInterval(refreshTelegramBotStatus, 15000);
 
   loadFundedVault(true);
   setInterval(() => loadFundedVault(false), 20000);

@@ -280,6 +280,79 @@ delivers real funded-wallet alerts, so a green test means alerts will arrive.
 
 ---
 
+## Telegram bot — results while you are away
+
+The Telegram integration is not just a "test" button: the scanner runs a bot inside
+the same process that does the scanning, so confirmed results reach your phone
+even when the browser window is closed.
+
+**One-time link**
+
+1. Settings → **Alerts & Integrations** → Telegram Bot → paste the token from
+   **@BotFather** → **Save channels**.
+2. Open Telegram and send **/start** to your bot.
+3. That message links the chat automatically — the app records its chat ID and
+   shows `● Listening as @your_bot • chat ••••1234` under the token field.
+
+The token lives in `~/Library/Application Support/CodeHaven Workstation/PersistentState/alert_channels.json`,
+never inside the app bundle, and is not written to any repository.
+
+**What it sends**
+
+A message per confirmed wallet — funded first, then ever-held:
+
+```
+🟢 FUNDED WALLET CONFIRMED
+💰 0.421300 ETH  ($1,042.11)
+
+bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh
+EVM 0x8Ba1f109551bD432803012645Ac136ddd64DBA72
+
+Source: Bloom dump + live RPC
+Verified: live chain RPC • 2026-10-23 12:29:53 UTC
+
+🔗 Etherscan • 🔗 mempool.space
+
+🔐 Keys stay on your laptop — open CodeHaven → Funded to copy them.
+```
+
+Seed phrases and private keys are **never** sent to Telegram — chats are not
+end-to-end encrypted, and a leaked seed is an instant loss of funds. The app is
+where keys are shown.
+
+Each wallet is announced once per outcome; re-confirming it does not spam you.
+
+**Commands** (send them to the bot)
+
+| Command | Reply |
+|---|---|
+| `/status` | scanned count, funded, ever-held, pending, dump size, prices, bot uptime |
+| `/funded [n]` | latest funded wallets with balances |
+| `/everheld [n]` | latest ever-held wallets |
+| `/bloom` | addresses loaded + false-positive rate |
+| `/price` | live BTC/ETH/… prices |
+| `/mute` / `/unmute` | pause or resume pushes (scanning continues) |
+| `/whoami` | the chat ID |
+| `/help` | the command list |
+
+Only the linked chat may issue commands; any other chat gets a refusal.
+
+**If the laptop sleeps, scanning stops.** macOS suspends the app when the lid
+closes, and a suspended app sends nothing. Two options:
+
+- Settings → Alerts → **Keep this Mac awake while scanning** — runs
+  `caffeinate -i -w <scanner pid>` for exactly as long as the app is running
+  (the display can still sleep). Off by default; it does use battery.
+- Or set **System Settings → Battery → Options → Prevent automatic sleeping on
+  power adapter** while plugged in.
+
+If the bot cannot reach Telegram (offline, VPN, firewall) the panel says
+`● Retrying — …` and it backs off to one attempt a minute; scans keep running
+and pushes resume when the connection returns. A missed push is not retried
+after a restart, so `/funded` is the reliable way to catch up.
+
+---
+
 ## Verifying a Bloom dump import
 
 1. Open the **Bloom Importer** tab.

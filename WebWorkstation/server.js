@@ -5,6 +5,7 @@ const tls = require('tls');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const os = require('os');
 const { Worker } = require('worker_threads');
 
@@ -1689,6 +1690,7 @@ function saveEverHeldWalletToVault(item) {
       } else {
         everHeldWalletsVault.push(record);
       }
+      telegramNotifyDiscovery(record, 'everheld').catch(() => {});
       // Confirmed ever-held wallets are evidence — keep a generous history.
       if (everHeldWalletsVault.length > 1000) everHeldWalletsVault.pop();
     } else {
@@ -2063,6 +2065,7 @@ function saveFoundWalletToVault(item) {
     if (existingIdx === -1) {
       foundWalletsVault.unshift(record);
       dispatchMultiChannelHitAlert(record, false).catch(() => {});
+      telegramNotifyDiscovery(record, 'funded').catch(() => {});
     } else {
       foundWalletsVault[existingIdx] = { ...foundWalletsVault[existingIdx], ...record };
     }
@@ -3252,6 +3255,9 @@ let alertChannelsConfig = {
   soundEnabled: true,
   browserPushEnabled: true,
   notifyOnEverHeld: true,
+  telegramBotEnabled: true,
+  telegramNotifyFunded: true,
+  telegramNotifyEverHeld: true,
   alertsSentCount: 0,
   lastAlertLog: []
 };
@@ -3385,6 +3391,539 @@ async function verifyTelegramIntegration(tokenOverride, chatOverride, opts = {})
   }
 
   return result;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TELEGRAM BOT
+   Push every confirmed discovery to a Telegram chat and answer a handful of
+   commands, so results arrive while the laptop is closed and the operator is
+   away. Runs entirely server-side: the browser does not have to be open.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const TELEGRAM_API_BASE = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+const TELEGRAM_POLL_TIMEOUT_SEC = 25;
+const TELEGRAM_MAX_BACKOFF_MS = 60000;
+
+let telegramBotRuntime = {
+  running: false,
+  muted: false,
+  offset: 0,
+  botUsername: null,
+  botName: null,
+  lastError: null,
+  lastOkAt: null,
+  lastPushAt: null,
+  commandsHandled: 0,
+  pushesSent: 0,
+  consecutiveErrors: 0,
+  startedAt: null
+};
+
+const telegramPushedKeys = new Set();
+
+/* ── Keep the Mac awake while scanning ────────────────────────────────────
+ * A sleeping laptop runs no scans, so no results reach the bot. Opt-in only:
+ * `caffeinate -i -w <pid>` keeps the machine awake (display may still sleep)
+ * for exactly as long as this server process lives.
+ */
+let caffeinateChild = null;
+
+function applyKeepAwake(enabled) {
+  if (process.platform !== 'darwin') {
+    return { ok: false, supported: false, active: false, reason: 'Only available on macOS' };
+  }
+  if (enabled) {
+    if (!caffeinateChild) {
+      try {
+        caffeinateChild = spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' });
+        caffeinateChild.on('error', (err) => {
+          console.warn('[Power] caffeinate unavailable:', err.message);
+          caffeinateChild = null;
+        });
+        caffeinateChild.on('exit', () => { caffeinateChild = null; });
+        console.log('[Power] keeping the Mac awake while the scanner runs');
+      } catch (e) {
+        console.warn('[Power] could not start caffeinate:', e.message);
+      }
+    }
+  } else if (caffeinateChild) {
+    try { caffeinateChild.kill(); } catch (_) {}
+    caffeinateChild = null;
+    console.log('[Power] normal sleep behaviour restored');
+  }
+  return { ok: true, supported: true, active: Boolean(caffeinateChild) };
+}
+
+function telegramApiUrl(method) {
+  const token = normalizeTelegramToken(alertChannelsConfig.telegramBotToken);
+  return `${TELEGRAM_API_BASE}/bot${token}/${method}`;
+}
+
+/** One Telegram API call. Throws with Telegram's own description on failure. */
+async function telegramCall(method, params = {}, timeoutMs = 15000) {
+  const token = normalizeTelegramToken(alertChannelsConfig.telegramBotToken);
+  if (!token) throw new Error('No Telegram bot token configured');
+  let url = telegramApiUrl(method);
+  let payload = null;
+  if (method === 'getUpdates' || method === 'getMe') {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
+    if (qs.toString()) url += `?${qs}`;
+  } else {
+    payload = params;
+  }
+  const data = await httpsJsonRequest(url, payload ? 'POST' : 'GET', payload, timeoutMs);
+  if (!data || data.ok !== true) {
+    throw new Error((data && data.description) || `${method} failed`);
+  }
+  return data.result;
+}
+
+const tgEscape = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function telegramChatId() {
+  return normalizeTelegramChatId(alertChannelsConfig.telegramChatId);
+}
+
+function telegramEnabled() {
+  return Boolean(
+    normalizeTelegramToken(alertChannelsConfig.telegramBotToken) &&
+    telegramChatId() &&
+    alertChannelsConfig.telegramBotEnabled !== false
+  );
+}
+
+async function telegramSend(text, opts = {}) {
+  const chatId = opts.chatId || telegramChatId();
+  if (!chatId) throw new Error('No Telegram chat linked yet — send /start to the bot');
+  return telegramCall('sendMessage', {
+    chat_id: chatId,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true
+  }, opts.timeoutMs || 15000);
+}
+
+/** Human list of explorer links for whichever addresses a record carries. */
+function telegramExplorerLines(rec) {
+  const links = [];
+  const push = (label, addr, url) => {
+    if (addr) links.push(`🔗 <a href="${url}">${label}</a>`);
+  };
+  push('Etherscan', rec.ethAddress, `https://etherscan.io/address/${rec.ethAddress}`);
+  push('mempool.space', rec.btcSegwit || rec.btcLegacy, `https://mempool.space/address/${rec.btcSegwit || rec.btcLegacy}`);
+  push('Tronscan', rec.trxAddress, `https://tronscan.org/#/address/${rec.trxAddress}`);
+  push('XRPSCAN', rec.xrpAddress, `https://xrpscan.com/account/${rec.xrpAddress}`);
+  push('Solscan', rec.solAddress, `https://solscan.io/account/${rec.solAddress}`);
+  return links.slice(0, 4);
+}
+
+function formatBalanceSummary(record) {
+  const entries = Object.entries(record.balances || {}).filter(([, v]) => Number(v) > 0);
+  if (entries.length === 0) return '';
+  return entries
+    .slice(0, 4)
+    .map(([k, v]) => {
+      const sym = String(k).split('_').pop();
+      return `${Number(v).toFixed(6)} ${tgEscape(sym)}`;
+    })
+    .join(' • ');
+}
+
+/**
+ * A discovery message. Deliberately carries no seed phrase and no private key:
+ * Telegram chats are not end-to-end encrypted, so keys stay on the laptop.
+ */
+function formatDiscoveryMessage(record, kind) {
+  const usd = Number(record.balanceUsd || 0);
+  const usdStr = usd > 0
+    ? `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : null;
+  const balances = formatBalanceSummary(record);
+  const stamp = record.foundAt || record.detectedAt;
+  const when = (stamp ? new Date(stamp) : new Date()).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  const lines = [];
+
+  if (kind === 'funded') {
+    lines.push('🟢 <b>FUNDED WALLET CONFIRMED</b>');
+    if (balances) lines.push(`💰 <b>${balances}</b>${usdStr ? `  (${usdStr})` : ''}`);
+    else if (usdStr) lines.push(`💰 <b>${usdStr}</b>`);
+  } else {
+    lines.push('🟡 <b>EVER-HELD WALLET CONFIRMED</b>');
+    const tx = Number(record.historicalTx || 0);
+    const parts = [];
+    if (record.totalEverReceivedBtc) parts.push(`${Number(record.totalEverReceivedBtc).toFixed(6)} BTC received`);
+    if (record.totalEverReceivedEth) parts.push(`${Number(record.totalEverReceivedEth).toFixed(6)} ETH received`);
+    if (parts.length) lines.push(`📜 ${tgEscape(parts.join(' • '))}`);
+    else if (tx) lines.push(`📜 ${tx} transaction${tx === 1 ? '' : 's'} on chain`);
+    lines.push('<i>Balance already swept — history only.</i>');
+  }
+
+  const addr = record.btcSegwit || record.btcLegacy || record.ethAddress || record.input || '';
+  if (addr) lines.push(`\n<code>${tgEscape(addr)}</code>`);
+
+  const otherAddrs = [
+    record.ethAddress && record.ethAddress !== addr ? `EVM ${record.ethAddress}` : null,
+    record.trxAddress ? `TRX ${record.trxAddress}` : null
+  ].filter(Boolean);
+  if (otherAddrs.length) lines.push(otherAddrs.map(a => `<code>${tgEscape(a)}</code>`).join('\n'));
+
+  if (record.source) lines.push(`\nSource: ${tgEscape(String(record.source).slice(0, 90))}`);
+  const verified = record.verification === 'confirmed' ? 'live chain RPC' : 'unconfirmed';
+  lines.push(`Verified: ${verified} • ${when}`);
+
+  const links = telegramExplorerLines(record);
+  if (links.length) lines.push('\n' + links.join(' • '));
+  lines.push(kind === 'funded'
+    ? '\n🔐 Keys stay on your laptop — open CodeHaven → Funded to copy them.'
+    : '\n🔐 Keys stay on your laptop — open CodeHaven → Ever-held to copy them.');
+  return lines.join('\n');
+}
+
+/** Push a confirmed discovery. Silently does nothing when unconfigured/muted. */
+async function telegramNotifyDiscovery(record, kind) {
+  try {
+    if (!telegramEnabled() || telegramBotRuntime.muted) return { skipped: true, reason: 'disabled' };
+    if (!record) return { skipped: true, reason: 'no record' };
+    if (kind === 'everheld' && alertChannelsConfig.telegramNotifyEverHeld === false) return { skipped: true, reason: 'ever-held muted' };
+    if (kind === 'funded' && alertChannelsConfig.telegramNotifyFunded === false) return { skipped: true, reason: 'funded muted' };
+
+    // One chat message per wallet per outcome, no matter how often the scan
+    // re-confirms it.
+    const addr = record.btcSegwit || record.btcLegacy || record.ethAddress || record.input || '';
+    const dedupeKey = `${kind}:${addr}`;
+    if (telegramPushedKeys.has(dedupeKey)) return { skipped: true, reason: 'already pushed' };
+    telegramPushedKeys.add(dedupeKey);
+    if (telegramPushedKeys.size > 4000) {
+      const trimmed = Array.from(telegramPushedKeys).slice(-2000);
+      telegramPushedKeys.clear();
+      for (const k of trimmed) telegramPushedKeys.add(k);
+    }
+
+    await telegramSend(formatDiscoveryMessage(record, kind));
+    telegramBotRuntime.pushesSent++;
+    telegramBotRuntime.lastPushAt = new Date().toISOString();
+    console.log(`[Telegram] pushed ${kind} discovery ${addr.slice(0, 12)}…`);
+    return { ok: true };
+  } catch (e) {
+    // A push failing must never break a scan.
+    telegramBotRuntime.lastError = e.message;
+    console.warn('[Telegram] push failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+/* ── Commands ───────────────────────────────────────────────────────────── */
+
+function telegramUptimeText() {
+  if (!telegramBotRuntime.startedAt) return 'not running';
+  const sec = Math.floor((Date.now() - Date.parse(telegramBotRuntime.startedAt)) / 1000);
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function telegramStatusText() {
+  const lines = [];
+  lines.push('📊 <b>CodeHaven scanner — live status</b>');
+  lines.push('');
+  lines.push(`Scanned: <b>${scannedEmptySet.size.toLocaleString()}</b> unique wallets`);
+  lines.push(`💰 Funded (confirmed): <b>${foundWalletsVault.length}</b>`);
+  lines.push(`📜 Ever-held (confirmed): <b>${everHeldWalletsVault.length}</b>`);
+  lines.push(`⏳ Pending live check: <b>${pendingVerificationCount()}</b>`);
+  const bloomCount = Number(fundedBloomMeta.totalImported || 0);
+  lines.push(`🗄 Bloom dump: ${bloomCount.toLocaleString()} addresses${bloomCount ? ` (FP ${(fundedBloomFalsePositiveRate() * 100).toFixed(3)}%)` : ' — none loaded'}`);
+  if (livePriceBook.asOf) {
+    const stale = livePriceBook.stale ? ' (stale)' : '';
+    lines.push(`💱 Prices: ${tgEscape(livePriceBook.source)} ${String(livePriceBook.asOf).slice(0, 16).replace('T', ' ')}${stale}`);
+  } else {
+    lines.push('💱 Prices: no live quote');
+  }
+  lines.push(`🤖 Bot uptime: ${telegramUptimeText()}${telegramBotRuntime.muted ? ' • 🔇 muted' : ''}`);
+  const latest = foundWalletsVault[0] || everHeldWalletsVault[0];
+  if (latest) {
+    const when = latest.foundAt || latest.detectedAt || '';
+    lines.push('');
+    lines.push(`Last result: ${when ? tgEscape(String(when).replace('T', ' ').slice(0, 19)) : '—'}`);
+  }
+  return lines.join('\n');
+}
+
+function telegramFundedText(limit) {
+  const rows = foundWalletsVault.slice(0, limit);
+  if (rows.length === 0) return '💰 No funded wallets confirmed yet.\n\nThe scanner only reports a wallet here after a live chain RPC confirms a non-zero balance.';
+  const lines = [`💰 <b>Latest funded wallets</b> (${foundWalletsVault.length} total)`, ''];
+  rows.forEach((r, i) => {
+    const addr = r.btcSegwit || r.btcLegacy || r.ethAddress || r.input || '';
+    const usd = Number(r.balanceUsd || 0);
+    const bal = formatBalanceSummary(r);
+    lines.push(`${i + 1}. <b>${bal || (usd ? '$' + usd.toFixed(2) : 'confirmed')}</b>${usd && bal ? ` — $${usd.toFixed(2)}` : ''}`);
+    lines.push(`   <code>${tgEscape(addr)}</code>`);
+    const when = r.foundAt ? String(r.foundAt).replace('T', ' ').slice(0, 16) : '';
+    if (when) lines.push(`   <i>${tgEscape(when)} UTC</i>`);
+  });
+  lines.push('\nOpen the Funded tab in the app to copy keys.');
+  return lines.join('\n');
+}
+
+function telegramEverHeldText(limit) {
+  const rows = everHeldWalletsVault.slice(0, limit);
+  if (rows.length === 0) return '📜 No ever-held wallets confirmed yet.';
+  const lines = [`📜 <b>Latest ever-held wallets</b> (${everHeldWalletsVault.length} total)`, ''];
+  rows.forEach((r, i) => {
+    const addr = r.btcSegwit || r.btcLegacy || r.ethAddress || r.input || '';
+    const tx = Number(r.historicalTx || 0);
+    const bits = [];
+    if (r.totalEverReceivedBtc) bits.push(`${Number(r.totalEverReceivedBtc).toFixed(6)} BTC rcvd`);
+    if (r.totalEverReceivedEth) bits.push(`${Number(r.totalEverReceivedEth).toFixed(6)} ETH rcvd`);
+    if (!bits.length && tx) bits.push(`${tx} TX`);
+    lines.push(`${i + 1}. ${tgEscape(bits.join(' • ') || 'history')}`);
+    lines.push(`   <code>${tgEscape(addr)}</code>`);
+  });
+  return lines.join('\n');
+}
+
+function telegramPriceText() {
+  if (!livePriceBook.asOf || Object.keys(livePriceBook.usd).length === 0) {
+    return '💱 No live market quote available right now.\nUSD values in the app will show as “unavailable” rather than a guessed number.';
+  }
+  const order = ['btc', 'eth', 'bnb', 'sol', 'xrp', 'trx', 'ltc', 'doge', 'pol', 'avax'];
+  const lines = ['💱 <b>Live prices</b>', ''];
+  for (const k of order) {
+    const px = livePriceBook.usd[k];
+    if (!Number.isFinite(px)) continue;
+    lines.push(`${k.toUpperCase()}: $${px.toLocaleString('en-US', { maximumFractionDigits: px < 10 ? 4 : 2 })}`);
+  }
+  lines.push('');
+  lines.push(`<i>${tgEscape(livePriceBook.source)} • ${String(livePriceBook.asOf).replace('T', ' ').slice(0, 19)} UTC${livePriceBook.stale ? ' • stale' : ''}</i>`);
+  return lines.join('\n');
+}
+
+function telegramHelpText() {
+  return [
+    '🤖 <b>CodeHaven scanner bot</b>',
+    '',
+    'I push every confirmed discovery here, so you can leave the laptop.',
+    '',
+    '<b>Commands</b>',
+    '/status — scan counters and bot health',
+    '/funded [n] — latest funded wallets',
+    '/everheld [n] — latest ever-held wallets',
+    '/bloom — dump size and false-positive rate',
+    '/price — live market prices',
+    '/mute — stop push notifications',
+    '/unmute — resume push notifications',
+    '/whoami — this chat’s ID',
+    '/help — this message',
+    '',
+    '🔐 Seed phrases and private keys are never sent to Telegram. Open the app to copy them.'
+  ].join('\n');
+}
+
+async function handleTelegramCommand(message) {
+  const raw = String(message.text || '').trim();
+  const chatId = String(message.chat && message.chat.id);
+  const fromName = [message.from && message.from.first_name, message.from && message.from.last_name]
+    .filter(Boolean).join(' ') || (message.from && message.from.username) || 'there';
+
+  // "/status@MyBot args" → command "status"
+  const match = raw.match(/^\/([A-Za-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/);
+  const command = match ? match[1].toLowerCase() : '';
+  const args = match && match[2] ? match[2].trim() : '';
+
+  const configured = telegramChatId();
+  if (configured && chatId !== configured) {
+    // Only the linked chat may issue commands.
+    await telegramSend(
+      '⛔ This bot is linked to a different chat.\nIf that is you, open CodeHaven → Settings → Alerts and clear the chat ID, then send /start here.',
+      { chatId }
+    );
+    return;
+  }
+
+  if (!configured && command === 'start') {
+    alertChannelsConfig.telegramChatId = chatId;
+    saveAlertChannelsConfig();
+    console.log(`[Telegram] linked chat ${chatId}`);
+  }
+
+  telegramBotRuntime.commandsHandled++;
+
+  if (!command || command === 'start') {
+    const hello = [
+      `👋 Hello ${tgEscape(fromName)} — this bot is now linked to your scanner.`,
+      '',
+      'You will get a message here every time a wallet is confirmed funded or confirmed ever-held.',
+      'Nothing is reported until a live chain RPC answers, so you will never get a Bloom-filter guess.',
+      '',
+      telegramHelpText()
+    ].join('\n');
+    await telegramSend(hello);
+    return;
+  }
+
+  switch (command) {
+    case 'help':
+      await telegramSend(telegramHelpText());
+      break;
+    case 'status':
+      await telegramSend(telegramStatusText());
+      break;
+    case 'funded': {
+      const n = Math.min(Math.max(parseInt(args, 10) || 5, 1), 15);
+      await telegramSend(telegramFundedText(n));
+      break;
+    }
+    case 'everheld': {
+      const n = Math.min(Math.max(parseInt(args, 10) || 5, 1), 15);
+      await telegramSend(telegramEverHeldText(n));
+      break;
+    }
+    case 'bloom': {
+      const count = Number(fundedBloomMeta.totalImported || 0);
+      const fp = fundedBloomFalsePositiveRate();
+      const lines = [
+        '🗄 <b>Funded dump (Bloom filter)</b>',
+        '',
+        `Addresses loaded: <b>${count.toLocaleString()}</b>`,
+        `False-positive rate: <b>${(fp * 100).toFixed(fp >= 0.01 ? 1 : 4)}%</b>`,
+        `Filter size: ${(FUNDED_BLOOM_TOTAL_BITS / 1e6).toFixed(1)}M bits (${FUNDED_BLOOM_BYTE_LENGTH / (1024 * 1024)} MB)`
+      ];
+      if (fundedBloomIntegrity && fundedBloomIntegrity.ok === false) {
+        lines.push('');
+        lines.push(`⚠️ ${tgEscape(fundedBloomIntegrity.detail)}`);
+      }
+      if (!count) {
+        lines.push('');
+        lines.push('No dump loaded — the scanner can only find target-list addresses until you import one.');
+      }
+      await telegramSend(lines.join('\n'));
+      break;
+    }
+    case 'price':
+      await telegramSend(telegramPriceText());
+      break;
+    case 'mute':
+      telegramBotRuntime.muted = true;
+      await telegramSend('🔇 <b>Muted.</b> Scanning continues; no further result messages until /unmute.');
+      break;
+    case 'unmute':
+      telegramBotRuntime.muted = false;
+      await telegramSend('🔔 <b>Unmuted.</b> New confirmations will be pushed here.');
+      break;
+    case 'whoami':
+      await telegramSend(`🆔 Chat ID: <code>${tgEscape(chatId)}</code>\nName: ${tgEscape(fromName)}`);
+      break;
+    default:
+      await telegramSend(`Unknown command “${tgEscape(command)}”.\n\n` + telegramHelpText());
+  }
+}
+
+async function telegramPollLoop() {
+  while (telegramBotRuntime.running) {
+    try {
+      const updates = await telegramCall('getUpdates', {
+        offset: telegramBotRuntime.offset,
+        timeout: TELEGRAM_POLL_TIMEOUT_SEC,
+        allowed_updates: '["message"]'
+      }, (TELEGRAM_POLL_TIMEOUT_SEC + 10) * 1000);
+
+      const wasErroring = telegramBotRuntime.consecutiveErrors > 0;
+      telegramBotRuntime.consecutiveErrors = 0;
+      telegramBotRuntime.lastError = null;
+      telegramBotRuntime.lastOkAt = new Date().toISOString();
+      if (wasErroring) console.log('[Telegram] bot reconnected');
+
+      if (Array.isArray(updates) && updates.length > 0) {
+        for (const u of updates) {
+          if (typeof u.update_id === 'number') {
+            telegramBotRuntime.offset = Math.max(telegramBotRuntime.offset, u.update_id + 1);
+          }
+          if (u.message && typeof u.message.text === 'string' && u.message.text.trim().startsWith('/')) {
+            try {
+              await handleTelegramCommand(u.message);
+            } catch (cmdErr) {
+              telegramBotRuntime.lastError = cmdErr.message;
+              console.warn('[Telegram] command failed:', cmdErr.message);
+            }
+          }
+        }
+      } else {
+        // Local/mock servers answer instantly; do not spin.
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    } catch (e) {
+      if (!telegramBotRuntime.running) break;
+      telegramBotRuntime.consecutiveErrors++;
+      telegramBotRuntime.lastError = e.message;
+      const backoff = Math.min(5000 * Math.pow(2, Math.min(telegramBotRuntime.consecutiveErrors - 1, 4)), TELEGRAM_MAX_BACKOFF_MS);
+      // Log the first failure of a streak, then once every few minutes.
+      if (telegramBotRuntime.consecutiveErrors === 1 || telegramBotRuntime.consecutiveErrors % 12 === 0) {
+        console.warn(`[Telegram] bot unreachable (${e.message}) — retrying in ${Math.round(backoff / 1000)}s`);
+      }
+      await new Promise(r => setTimeout(r, backoff));
+    }
+  }
+  telegramBotRuntime.running = false;
+}
+
+async function startTelegramBot() {
+  if (telegramBotRuntime.running) return { ok: true, already: true };
+  const token = normalizeTelegramToken(alertChannelsConfig.telegramBotToken);
+  if (!token) {
+    telegramBotRuntime.lastError = 'No bot token configured';
+    return { ok: false, error: telegramBotRuntime.lastError };
+  }
+  telegramBotRuntime.running = true;
+  telegramBotRuntime.startedAt = new Date().toISOString();
+  telegramBotRuntime.consecutiveErrors = 0;
+  console.log('[Telegram] bot starting (long polling)');
+  telegramPollLoop().catch(err => {
+    telegramBotRuntime.running = false;
+    telegramBotRuntime.lastError = err.message;
+  });
+  // Best effort identity lookup; failure is not fatal (the poll loop reports it).
+  telegramCall('getMe', {}, 8000).then(me => {
+    telegramBotRuntime.botUsername = me.username;
+    telegramBotRuntime.botName = me.first_name;
+    console.log(`[Telegram] bot identity @${me.username}`);
+  }).catch(() => {});
+  return { ok: true };
+}
+
+function stopTelegramBot() {
+  telegramBotRuntime.running = false;
+  return { ok: true };
+}
+
+function telegramBotStatus() {
+  const token = normalizeTelegramToken(alertChannelsConfig.telegramBotToken);
+  const chat = telegramChatId();
+  return {
+    ok: true,
+    enabled: alertChannelsConfig.telegramBotEnabled !== false,
+    running: telegramBotRuntime.running,
+    linked: Boolean(token && chat),
+    tokenPresent: Boolean(token),
+    chatIdMasked: chat ? chat.replace(/.(?=.{4})/g, '•') : '',
+    botUsername: telegramBotRuntime.botUsername,
+    botName: telegramBotRuntime.botName,
+    muted: telegramBotRuntime.muted,
+    pushesSent: telegramBotRuntime.pushesSent,
+    commandsHandled: telegramBotRuntime.commandsHandled,
+    lastError: telegramBotRuntime.lastError,
+    lastOkAt: telegramBotRuntime.lastOkAt,
+    lastPushAt: telegramBotRuntime.lastPushAt,
+    startedAt: telegramBotRuntime.startedAt,
+    notifyFunded: alertChannelsConfig.telegramNotifyFunded !== false,
+    notifyEverHeld: alertChannelsConfig.telegramNotifyEverHeld !== false,
+    keepAwake: {
+      enabled: alertChannelsConfig.keepAwake === true,
+      active: Boolean(caffeinateChild),
+      supported: process.platform === 'darwin'
+    }
+  };
 }
 
 async function dispatchMultiChannelHitAlert(walletItem, isTest = false) {
@@ -3700,7 +4239,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.6.1',
+      version: '2.6.2',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
@@ -4734,7 +5273,8 @@ const server = http.createServer((req, res) => {
         const incoming = JSON.parse(body || '{}');
         const allowedKeys = [
           'telegramBotToken', 'telegramChatId', 'discordWebhookUrl',
-          'customWebhookUrl', 'soundEnabled', 'browserPushEnabled', 'notifyOnEverHeld'
+          'customWebhookUrl', 'soundEnabled', 'browserPushEnabled', 'notifyOnEverHeld',
+          'telegramBotEnabled', 'telegramNotifyFunded', 'telegramNotifyEverHeld'
         ];
         for (const k of allowedKeys) {
           if (incoming[k] !== undefined) alertChannelsConfig[k] = incoming[k];
@@ -4786,6 +5326,49 @@ const server = http.createServer((req, res) => {
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message, hint: telegramErrorHint(e.message) }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/telegram-bot' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify(telegramBotStatus()));
+  }
+
+  if (url.pathname === '/api/telegram-bot' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const incoming = JSON.parse(body || '{}');
+        if (incoming.telegramBotToken !== undefined) {
+          alertChannelsConfig.telegramBotToken = normalizeTelegramToken(incoming.telegramBotToken);
+        }
+        if (incoming.telegramChatId !== undefined) {
+          alertChannelsConfig.telegramChatId = normalizeTelegramChatId(incoming.telegramChatId);
+        }
+        if (incoming.notifyFunded !== undefined) alertChannelsConfig.telegramNotifyFunded = Boolean(incoming.notifyFunded);
+        if (incoming.notifyEverHeld !== undefined) alertChannelsConfig.telegramNotifyEverHeld = Boolean(incoming.notifyEverHeld);
+        if (incoming.enabled !== undefined) alertChannelsConfig.telegramBotEnabled = Boolean(incoming.enabled);
+        if (incoming.keepAwake !== undefined) {
+          alertChannelsConfig.keepAwake = Boolean(incoming.keepAwake);
+          applyKeepAwake(alertChannelsConfig.keepAwake);
+        }
+        saveAlertChannelsConfig();
+
+        const action = String(incoming.action || '');
+        if (action === 'start') await startTelegramBot();
+        else if (action === 'stop') stopTelegramBot();
+        else if (action === 'restart') { stopTelegramBot(); await new Promise(r => setTimeout(r, 300)); telegramBotRuntime.offset = 0; await startTelegramBot(); }
+        else if (action === 'mute') telegramBotRuntime.muted = true;
+        else if (action === 'unmute') telegramBotRuntime.muted = false;
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(telegramBotStatus()));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
       }
     });
     return;
@@ -4855,6 +5438,13 @@ const PORT = HTTP_PORT_TARGET;
 const HOST = process.env.HOST || '0.0.0.0';
 server.listen(PORT, HOST, () => {
   console.log(`CodeHaven Quantum Wallet Recovery Suite Live Workstation listening on http://${HOST}:${PORT}`);
+
+  // Server-side bot: results reach Telegram without the browser being open.
+  if (alertChannelsConfig.telegramBotEnabled !== false &&
+      normalizeTelegramToken(alertChannelsConfig.telegramBotToken)) {
+    startTelegramBot().catch(err => console.warn('[Telegram] could not start:', err.message));
+  }
+  if (alertChannelsConfig.keepAwake === true) applyKeepAwake(true);
   console.log(`State directory: ${DATA_DIR}`);
   if (activeSmtpSpoolPort !== PORT) {
     console.log(`Embedded SMTP spool listening on 127.0.0.1:${activeSmtpSpoolPort}`);
