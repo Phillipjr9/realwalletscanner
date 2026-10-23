@@ -48,7 +48,7 @@ printf '%srepo: %s%s\n' "$DIM" "$ROOT" "$RESET"
 [[ "$(uname -s)" == "Darwin" ]] || { fail "Run this on your MacBook (it builds a macOS .app)."; exit 1; }
 
 # ── Node.js ─────────────────────────────────────────────────────────────────
-step "1/5  Checking Node.js"
+step "1/6  Checking Node.js"
 NODE_BIN="$(command -v node || true)"
 for candidate in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.nvm/versions/node"/*/bin/node "$HOME/.volta/bin/node"; do
   [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] && break
@@ -61,7 +61,7 @@ NODE_MAJOR="$("$NODE_BIN" -v | sed 's/^v//' | cut -d. -f1)"
 ok "Node.js $("$NODE_BIN" -v)"
 
 # ── Runtime dependencies ────────────────────────────────────────────────────
-step "2/5  Installing scanner dependencies"
+step "2/6  Installing scanner dependencies"
 cd "$WEB_DIR" || exit 1
 if [[ -d node_modules/bip39 && -d node_modules/@noble/hashes ]]; then
   ok "Dependencies already installed"
@@ -74,7 +74,7 @@ node -e "require('./crypto_engine.js')" >/dev/null 2>&1 \
   || { fail "Crypto engine failed to load"; exit 1; }
 
 # ── App icon ────────────────────────────────────────────────────────────────
-step "3/5  Preparing app icon"
+step "3/6  Preparing app icon"
 mkdir -p "$DESKTOP_DIR/build"
 ICON_OUT="$DESKTOP_DIR/build/icon.icns"
 
@@ -112,19 +112,82 @@ else
 fi
 # electron-builder picks up build/icon.icns automatically when it exists.
 
+# ── Bundled Node runtime ────────────────────────────────────────────────────
+# Electron's BoringSSL has no secp256k1, so `crypto.createECDH('secp256k1')`
+# (used to derive every public key) fails inside the Electron binary. Ship an
+# official Node runtime and run the scanner with that instead.
+step "4/6  Bundling the Node.js runtime"
+NODE_ARCH="$( [ "$(uname -m)" = "arm64" ] && echo arm64 || echo x64 )"
+NODE_BUNDLE_DIR="$DESKTOP_DIR/build/node"
+BUNDLED_NODE="$NODE_BUNDLE_DIR/bin/node"
+
+if [[ -x "$BUNDLED_NODE" ]] && "$BUNDLED_NODE" -e "require('crypto').createECDH('secp256k1')" >/dev/null 2>&1; then
+  ok "Node runtime already bundled ($("$BUNDLED_NODE" -v), $NODE_ARCH)"
+else
+  VERSIONS=()
+  [[ -n "${CODEHAVEN_NODE_VERSION:-}" ]] && VERSIONS+=("${CODEHAVEN_NODE_VERSION#v}")
+  printf '%sLooking up the current Node LTS…%s\n' "$DIM" "$RESET"
+  LATEST_LTS="$(curl -fsSL --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
+    | "$NODE_BIN" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const r=JSON.parse(d).find(x=>x.lts);process.stdout.write(r.version.replace(/^v/,""))}catch(e){}}) ' 2>/dev/null || true)"
+  [[ -n "$LATEST_LTS" ]] && VERSIONS+=("$LATEST_LTS")
+  VERSIONS+=(22.14.0 22.11.0 20.18.3 18.20.4)
+
+  for v in "${VERSIONS[@]}"; do
+    URL="https://nodejs.org/dist/v$v/node-v$v-darwin-$NODE_ARCH.tar.gz"
+    TMP_TAR="$(mktemp "${TMPDIR:-/tmp}/chnode-tar.XXXXXX")"
+    printf '%sDownloading Node %s for %s (one time, ~45 MB)…%s\n' "$DIM" "$v" "$NODE_ARCH" "$RESET"
+    if curl -fL --retry 2 --max-time 600 -o "$TMP_TAR" "$URL" >/dev/null 2>&1; then
+      TMP_EXTRACT="$(mktemp -d "${TMPDIR:-/tmp}/chnode-dir.XXXXXX")"
+      if tar -xzf "$TMP_TAR" -C "$TMP_EXTRACT" "node-v$v-darwin-$NODE_ARCH/bin/node" >/dev/null 2>&1; then
+        mkdir -p "$NODE_BUNDLE_DIR/bin"
+        cp "$TMP_EXTRACT/node-v$v-darwin-$NODE_ARCH/bin/node" "$BUNDLED_NODE"
+        chmod +x "$BUNDLED_NODE"
+        tar -xzf "$TMP_TAR" -C "$TMP_EXTRACT" "node-v$v-darwin-$NODE_ARCH/LICENSE" >/dev/null 2>&1 \
+          && cp "$TMP_EXTRACT/node-v$v-darwin-$NODE_ARCH/LICENSE" "$NODE_BUNDLE_DIR/LICENSE" 2>/dev/null
+        rm -rf "$TMP_EXTRACT" "$TMP_TAR"
+        ok "Bundled Node $v ($NODE_ARCH)"
+        break
+      fi
+      rm -rf "$TMP_EXTRACT"
+    fi
+    rm -f "$TMP_TAR"
+    warn "Could not fetch Node $v — trying the next version"
+  done
+
+  if [[ ! -x "$BUNDLED_NODE" && -x "$NODE_BIN" ]]; then
+    # Last resort: reuse the Node that is building the app. It works, but the
+    # resulting bundle is only self-contained if that binary has no extra deps.
+    mkdir -p "$NODE_BUNDLE_DIR/bin"
+    if cp "$NODE_BIN" "$BUNDLED_NODE" 2>/dev/null; then
+      chmod +x "$BUNDLED_NODE"
+      warn "Download failed — copied your local Node ($NODE_BIN) instead"
+    fi
+  fi
+
+  if [[ ! -x "$BUNDLED_NODE" ]]; then
+    fail "Could not obtain a Node runtime. Set CODEHAVEN_NODE_VERSION=<version> and retry."
+    exit 1
+  fi
+fi
+
+if "$BUNDLED_NODE" -e "require('crypto').createECDH('secp256k1')" >/dev/null 2>&1; then
+  ok "Bundled runtime supports secp256k1 ($("$BUNDLED_NODE" -v))"
+else
+  fail "The bundled Node cannot create secp256k1 keys — the scanner would not start"
+  exit 1
+fi
+
 # ── Build ───────────────────────────────────────────────────────────────────
-step "4/5  Building $APP_NAME.app"
+step "5/6  Building $APP_NAME.app"
 cd "$DESKTOP_DIR" || exit 1
 if [[ ! -d node_modules/electron || ! -x node_modules/.bin/electron-builder ]]; then
   printf '%sDownloading the Electron runtime + builder (one time, ~150 MB)…%s\n' "$DIM" "$RESET"
   npm install --no-audit --no-fund --loglevel=error || { fail "Electron install failed — check your connection"; exit 1; }
 fi
 
-BUILD_FLAGS=(--mac --dir --publish never)
-if [[ "$BUILD_DMG" -eq 1 ]]; then
-  BUILD_FLAGS=(--mac --publish never)
-  printf '%sAlso producing a .dmg…%s\n' "$DIM" "$RESET"
-fi
+BUILD_FLAGS=(--mac "--$NODE_ARCH" --publish never)
+[[ "$BUILD_DMG" -eq 0 ]] && BUILD_FLAGS+=(--dir)
+[[ "$BUILD_DMG" -eq 1 ]] && printf '%sAlso producing a .dmg…%s\n' "$DIM" "$RESET"
 
 BUILDER="./node_modules/.bin/electron-builder"
 [[ -x "$BUILDER" ]] || BUILDER="npx --yes electron-builder"
@@ -156,7 +219,7 @@ else
 fi
 
 # ── Install ─────────────────────────────────────────────────────────────────
-step "5/5  Installing"
+step "6/6  Installing"
 if [[ "$DO_INSTALL" -eq 1 ]]; then
   if [[ "$ASSUME_YES" -eq 0 ]]; then
     read -r -p "Install to /Applications? [Y/n] " ans
@@ -166,6 +229,15 @@ fi
 
 TARGET="/Applications/$APP_NAME.app"
 if [[ "$DO_INSTALL" -eq 1 ]]; then
+  # Replacing a running .app confuses macOS (and keeps the old scanner on the port),
+  # so quit the current copy first.
+  if pgrep -f "$APP_NAME.app/Contents/MacOS" >/dev/null 2>&1; then
+    printf '%sQuitting the copy that is already running…%s\n' "$DIM" "$RESET"
+    osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+    sleep 2
+    pkill -f "$APP_NAME.app/Contents/MacOS" >/dev/null 2>&1 || true
+    sleep 1
+  fi
   rm -rf "$TARGET"
   if cp -R "$BUILT_APP" "$TARGET"; then
     xattr -cr "$TARGET" 2>/dev/null || true
@@ -176,6 +248,18 @@ if [[ "$DO_INSTALL" -eq 1 ]]; then
   fi
 else
   TARGET="$BUILT_APP"
+fi
+
+# Prove the installed bundle can actually run the scanner's crypto engine
+BUNDLED_RUNTIME="$TARGET/Contents/Resources/node/bin/node"
+if [[ -x "$BUNDLED_RUNTIME" && -d "$TARGET/Contents/Resources/workstation" ]]; then
+  if ( cd "$TARGET/Contents/Resources/workstation" && "$BUNDLED_RUNTIME" -e "require('./crypto_engine.js')" >/dev/null 2>&1 ); then
+    ok "Installed bundle verified: crypto engine loads under the bundled Node"
+  else
+    warn "The installed bundle failed its self-check — open the app and read the diagnostics log"
+  fi
+else
+  warn "No bundled Node runtime in the installed app — the scanner will fall back to a system Node"
 fi
 
 # Login item (LaunchAgent) — keeps the scanner running after a reboot

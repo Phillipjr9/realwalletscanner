@@ -14,7 +14,7 @@
  * depends on the user having a system-wide Node.js installation.
  */
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
@@ -44,14 +44,126 @@ function resolveServerDir() {
   throw new Error('Unable to locate the WebWorkstation directory (server.js + index.html).');
 }
 
-/** Node-compatible executable: the Electron binary in "run as node" mode, or plain node. */
+/**
+ * The scanner needs a real Node.js runtime.
+ *
+ * Electron ships BoringSSL, which has no secp256k1, so `crypto.createECDH('secp256k1')`
+ * — used by crypto_engine.js to derive every public key — throws
+ * ERR_CRYPTO_OPERATION_FAILED under the Electron binary. The standalone build
+ * therefore bundles an official Node runtime; if that is missing we fall back to a
+ * system Node, and only then to Electron (which will fail loudly with a clear hint).
+ */
+let nodeRuntimeCache = null;
+
+function probeNode(bin, extraEnv = {}) {
+  try {
+    const r = spawnSync(bin, ['-e', "require('crypto').createECDH('secp256k1')"], {
+      timeout: 8000,
+      stdio: 'ignore',
+      env: { ...process.env, ...extraEnv }
+    });
+    return r.status === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function listDir(dir) {
+  try { return fs.readdirSync(dir); } catch (_) { return []; }
+}
+
+/** Highest version first (v20 > v9, which plain string sort gets wrong). */
+function sortVersionsDesc(list) {
+  const parts = (v) => String(v).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  return list.slice().sort((a, b) => {
+    const pa = parts(a);
+    const pb = parts(b);
+    for (let i = 0; i < 3; i += 1) {
+      const diff = (pb[i] || 0) - (pa[i] || 0);
+      if (diff) return diff;
+    }
+    return 0;
+  });
+}
+
+/** Every plausible location for a user-installed Node, in preference order. */
+function candidateNodePaths() {
+  const out = [];
+  const push = (p) => { if (p) out.push(p); };
+
+  push(process.env.CODEHAVEN_NODE);
+
+  // Bundled inside the .app: <App>.app/Contents/Resources/node/bin/node
+  if (process.resourcesPath) push(path.join(process.resourcesPath, 'node', 'bin', 'node'));
+  // Source checkout: WebWorkstation/desktop/build/node/bin/node
+  push(path.join(__dirname, 'build', 'node', 'bin', 'node'));
+
+  // GUI apps get a minimal PATH, so check the usual install locations explicitly.
+  push('/opt/homebrew/bin/node');
+  push('/usr/local/bin/node');
+  push('/usr/local/opt/node/bin/node');
+  push('/opt/local/bin/node');
+
+  const home = os.homedir();
+  push(path.join(home, '.volta', 'bin', 'node'));
+  for (const v of sortVersionsDesc(listDir(path.join(home, '.nvm', 'versions', 'node')))) {
+    push(path.join(home, '.nvm', 'versions', 'node', v, 'bin', 'node'));
+  }
+  for (const v of sortVersionsDesc(listDir(path.join(home, '.fnm', 'node-versions')))) {
+    push(path.join(home, '.fnm', 'node-versions', v, 'installation', 'bin', 'node'));
+  }
+  for (const dir of String(process.env.PATH || '').split(':')) {
+    if (dir) push(path.join(dir, 'node'));
+  }
+  return out;
+}
+
+/**
+ * Pick a Node binary that can actually run the scanner.
+ * @returns {{execPath:string, env:object, kind:string}}
+ */
 function resolveNodeExecutable() {
+  if (nodeRuntimeCache) return nodeRuntimeCache;
+
+  for (const bin of candidateNodePaths()) {
+    if (!bin || !exists(bin) || !fs.statSync(bin).isFile()) continue;
+    if (bin === process.execPath) continue; // Electron binary — probed below, not here
+    if (probeNode(bin)) {
+      nodeRuntimeCache = { execPath: bin, env: {}, kind: 'node', version: nodeVersion(bin) };
+      return nodeRuntimeCache;
+    }
+  }
+
+  // Last resort: the Electron binary in "run as node" mode. It starts, but cannot
+  // create secp256k1 keys, so the server will exit with a clear error.
   const isElectron = Boolean(process.versions && process.versions.electron);
-  return {
+  nodeRuntimeCache = {
     execPath: process.execPath,
-    isElectron,
-    env: isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {}
+    env: isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
+    kind: isElectron ? 'electron' : 'node',
+    version: process.versions.node
   };
+  return nodeRuntimeCache;
+}
+
+function nodeVersion(bin) {
+  try {
+    const r = spawnSync(bin, ['-v'], { timeout: 4000, encoding: 'utf8' });
+    return (r.stdout || '').trim() || 'unknown';
+  } catch (_) {
+    return 'unknown';
+  }
+}
+
+/** Human-readable explanation for the "no usable runtime" case. */
+function nodeRuntimeHelp() {
+  return (
+    'No Node.js runtime with secp256k1 support was found.\n\n' +
+    'The scanner derives Ethereum/Bitcoin keys with crypto.createECDH("secp256k1"), ' +
+    'which Electron\'s bundled crypto cannot do.\n\n' +
+    'Fix: rebuild the app with scripts/macos/make-standalone-app.command (it bundles ' +
+    'an official Node runtime), or install Node 18+ with "brew install node".'
+  );
 }
 
 function getJson(port, pathname, timeoutMs = 900) {
@@ -163,6 +275,7 @@ async function startWorkstation(options = {}) {
   const {
     ports = envPorts.length ? envPorts : DEFAULT_PORTS,
     dataDir = defaultDataDir(),
+    serverDir: serverDirOverride = null,
     log = () => {},
     onOutput = null,
     autoRestart = true,
@@ -186,10 +299,15 @@ async function startWorkstation(options = {}) {
     };
   }
 
-  const serverDir = resolveServerDir();
+  const serverDir = serverDirOverride || resolveServerDir();
   // A stable port keeps the window URL valid across automatic restarts.
   const port = await pickPort(ports);
-  const { execPath, env: execEnv } = resolveNodeExecutable();
+  const { execPath, env: execEnv, kind: nodeKind, version: nodeVersionTag } = resolveNodeExecutable();
+
+  if (nodeKind === 'electron') {
+    throw new Error(nodeRuntimeHelp());
+  }
+  log(`Runtime: ${nodeKind} Node ${nodeVersionTag} (${execPath})`);
   const logFile = path.join(dataDir, 'workstation.log');
   const logStream = fs.createWriteStream(logFile, { flags: 'a' });
 
@@ -197,6 +315,9 @@ async function startWorkstation(options = {}) {
   let stopping = false;
   let restarts = 0;
   let lastExit = null;
+  let ready = false;
+  let startupExitCleanup = () => {};
+  let outputTail = ''; // last chunk of child output, for startup error dialogs
 
   const spawnChild = () => {
     const c = spawn(execPath, [path.join(serverDir, 'server.js')], {
@@ -217,6 +338,7 @@ async function startWorkstation(options = {}) {
     const relay = (chunk, stream) => {
       const text = chunk.toString();
       try { logStream.write(text); } catch (_) {}
+      outputTail = (outputTail + text).slice(-4000);
       if (onOutput) onOutput(text, stream);
     };
     c.stdout.on('data', (d) => relay(d, 'stdout'));
@@ -226,6 +348,12 @@ async function startWorkstation(options = {}) {
       lastExit = { code, signal, at: Date.now() };
       if (stopping) {
         log(`Workstation stopped (${signal || `exit ${code}`})`);
+        return;
+      }
+      if (!ready) {
+        // Startup failure: the caller reports it with the log tail instead of
+        // letting the user stare at a spinner for 45 seconds.
+        log(`Workstation exited during startup (${signal || `exit ${code}`})`);
         return;
       }
       log(`Workstation exited unexpectedly (${signal || `exit ${code}`})`);
@@ -256,14 +384,29 @@ async function startWorkstation(options = {}) {
 
   child = spawnChild();
 
+  // Fail fast: if the server dies during boot (missing runtime, bad vault, …)
+  // report the real reason immediately rather than waiting out the timeout.
+  const startupExit = new Promise((_, reject) => {
+    const onExit = (code, signal) => {
+      reject(new Error(`Workstation exited during startup (${signal || `exit ${code}`})`));
+    };
+    child.once('exit', onExit);
+    startupExitCleanup = () => { try { child.removeListener('exit', onExit); } catch (_) {} };
+  });
+
   try {
-    await waitForWorkstation(port);
+    await Promise.race([waitForWorkstation(port), startupExit]);
   } catch (err) {
     stopping = true;
     try { child.kill('SIGTERM'); } catch (_) {}
-    const tail = readLogTail(logFile);
+    // The log stream may still be buffered, so prefer the in-memory tail.
+    await new Promise((r) => setTimeout(r, 150));
+    const tail = (outputTail.trim() || readLogTail(logFile)).trim();
     throw new Error(`${err.message}${tail ? `\n\n${tail}` : ''}`);
+  } finally {
+    startupExitCleanup();
   }
+  ready = true;
 
   log(`Workstation started on 127.0.0.1:${port} (data: ${dataDir})`);
 

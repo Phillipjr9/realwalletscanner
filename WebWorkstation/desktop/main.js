@@ -36,6 +36,7 @@ function shouldStartHidden() {
 let mainWindow = null;
 let tray = null;
 let workstation = null;
+let startupError = null;
 let quitting = false;
 let statusTimer = null;
 let lastStatus = null;
@@ -88,6 +89,7 @@ async function start() {
       }
     });
   } catch (err) {
+    startupError = err;
     fatal(err);
     return;
   }
@@ -101,6 +103,18 @@ async function start() {
 /* ─────────────────────────────── window ─────────────────────────────── */
 
 function createWindow(showWhenReady = !START_HIDDEN) {
+  // The scanner must be running before a window can point at it. Without this
+  // guard a Dock click after a failed start throws inside the activate handler.
+  if (!workstation || !workstation.url) {
+    if (startupError) {
+      dialog.showErrorBox(
+        `${APP_TITLE} is not running`,
+        `${startupError.message}\n\nQuit the app from the menu bar and start it again.`
+      );
+    }
+    return null;
+  }
+
   const win = new BrowserWindow({
     width: 1560,
     height: 980,
@@ -148,7 +162,7 @@ function createWindow(showWhenReady = !START_HIDDEN) {
   });
 
   win.webContents.on('will-navigate', (event, url) => {
-    const base = workstation ? workstation.url.split('?')[0] : '';
+    const base = workstation && workstation.url ? workstation.url.split('?')[0] : '';
     if (base && url.startsWith(base)) return;
     event.preventDefault();
     if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
@@ -158,6 +172,10 @@ function createWindow(showWhenReady = !START_HIDDEN) {
 }
 
 function showWindow() {
+  if (!workstation) {
+    if (startupError) createWindow(true); // surfaces the error dialog
+    return;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow(true);
     return;

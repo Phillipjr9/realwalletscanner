@@ -21,7 +21,8 @@ your ISP or the internet.
 
 | | |
 |---|---|
-| **App** | `/Applications/CodeHaven Workstation.app` (~250 MB, no system Node.js needed afterwards) |
+| **App** | `/Applications/CodeHaven Workstation.app` (~350 MB: Electron **and** an official Node.js runtime) |
+| **Runtime** | Ships its own Node.js — Electron's crypto cannot do `secp256k1`, so the scanner runs on a real Node binary |
 | **Window** | Native 1560×980 window with the full workstation UI |
 | **Menu bar** | A shield icon showing live status: scanning rate, wallets ever held, funded |
 | **Background** | Closing the window or hiding the app leaves the scanner running |
@@ -61,9 +62,17 @@ bash scripts/macos/make-standalone-app.command --no-install  # leave the .app in
 ```
 
 The script checks Node.js 18+ (Homebrew / nvm / volta are found automatically), installs the
-crypto dependencies, makes an `.icns` from `wallet.ico`, builds with `electron-builder`,
-ad-hoc signs the bundle, copies it to `/Applications`, clears the quarantine flag, and
-optionally registers the login item.
+crypto dependencies, makes an `.icns` from `wallet.ico`, **downloads the official Node.js
+runtime for your Mac's architecture** (~45 MB, cached in `WebWorkstation/desktop/build/node`),
+builds with `electron-builder`, ad-hoc signs the bundle, copies it to `/Applications`, clears
+the quarantine flag, verifies the packaged crypto engine loads, and optionally registers the
+login item.
+
+Why bundle a second runtime? Electron ships BoringSSL, which has no `secp256k1` curve — and
+`crypto.createECDH('secp256k1')` is how every Ethereum/Bitcoin address in this scanner is
+derived. Running the server on a real Node binary keeps behaviour identical to the command-line
+version. If the bundled runtime is ever missing, the app falls back to a system Node (Homebrew,
+nvm, volta, `/usr/local`), and only then reports a clear error instead of failing silently.
 
 Build on the Mac itself — a macOS app cannot be compiled from Windows or Linux.
 
@@ -153,6 +162,9 @@ cp -R "$HOME/Library/Application Support/CodeHaven Workstation/PersistentState" 
 | "App is damaged and can't be opened" | `xattr -dr com.apple.quarantine "/Applications/CodeHaven Workstation.app"` |
 | "The application cannot be opened" on Apple Silicon | Re-sign: `codesign --force --deep --sign - "/Applications/CodeHaven Workstation.app"` |
 | Nothing in the menu bar | macOS 13+ hides items when the bar is full — remove some, or check *System Settings → Control Center* |
+| "Failed to create key using named curve" / `ERR_CRYPTO_OPERATION_FAILED` | You are running an **older build** that executed the server inside Electron. Re-run `bash scripts/macos/make-standalone-app.command` — the new bundle runs a real Node runtime |
+| "CodeHaven Workstation could not start" dialog | The dialog now contains the server's actual error and the log path. Usually a missing Node runtime or a locked/corrupt vault |
+| App opens but shows no window | It started hidden (login item). Click the shield in the menu bar, or press ⌘1 |
 | Port already in use | The launcher walks 2525 → 3100–3104 automatically; override with `CODEHAVEN_PORTS=4000,4001` |
 | Blank window | ⌘R reloads; the window reloads itself automatically after a scanner restart |
 | Scanner restart keeps failing | After 5 attempts (1 s → 15 s backoff) the app shows an error with the log path |

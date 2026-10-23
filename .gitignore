@@ -48,3 +48,6 @@ WebWorkstation/PersistentState/
 # npm lockfile is generated locally (never tracked)
 WebWorkstation/package-lock.json
 WebWorkstation/desktop/package-lock.json
+
+# Bundled Node runtime (downloaded at build time)
+WebWorkstation/desktop/build/node/
