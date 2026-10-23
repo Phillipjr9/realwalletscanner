@@ -991,33 +991,46 @@ function deriveCustomPathWallet(mnemonic, variantIndex = 0) {
   };
 }
 
+/**
+ * Well-known public addresses (BIP39/BIP84/BIP86 test vectors, Bitcoin puzzle
+ * keys, famous brainwallets, early dormant whales).
+ *
+ * IMPORTANT: these entries intentionally carry **no balances, no transaction
+ * counts and no dollar values**. The addresses are real and can be checked in
+ * any block explorer, but any amount shown by this tool must come from a live
+ * chain query — never from a table baked into the source. Older builds shipped
+ * invented figures here ("Ever Held 5.18 BTC", "246 TX") which showed up as
+ * findings; that data has been removed.
+ */
 const KNOWN_ACTIVITY_MAP = new Map([
-  // 12-Word BIP39 Historical Audit Seeds
-  ['1HQ3rb7nyLPrjnuW85MUknPekwkn7poAUm', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 5.180, totalEverReceivedEth: 4.10, historicalTx: 246, label: '12-Word BIP39 Seed ("army van defense...") — Ever Held 5.18 BTC' }],
-  ['bc1qg0azlj4w2lrq8jssrrz6eprt2fe7f7edm4vpd5', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 5.180, totalEverReceivedEth: 4.10, historicalTx: 246, label: '12-Word BIP39 Seed ("army van defense...") — Ever Held 5.18 BTC' }],
-  ['1MKja6EgoqQ2BbQ8NqB8fqGCcD2gwoEeFu', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 8.740, totalEverReceivedEth: 2.65, historicalTx: 318, label: '12-Word BIP39 Seed ("gravity machine north...") — Ever Held 8.74 BTC' }],
-  ['bc1qx276rzgd89qruxusqhhzncq32c9z6xt6fxckrc', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 8.740, totalEverReceivedEth: 2.65, historicalTx: 318, label: '12-Word BIP39 Seed ("gravity machine north...") — Ever Held 8.74 BTC' }],
-  ['1MeoRMhpR25zd5TCiw86t7TtwbfA4GwfR5', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 4.910, totalEverReceivedEth: 1.40, historicalTx: 164, label: '12-Word BIP39 Seed ("void come effort...") — Ever Held 4.91 BTC' }],
-  ['bc1qhf097zrj2strlfuwyzy4uflzeqne4stymx500d', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 4.910, totalEverReceivedEth: 1.40, historicalTx: 164, label: '12-Word BIP39 Seed ("void come effort...") — Ever Held 4.91 BTC' }],
-  ['1E1Nz7Ps3spNzkAgUtCGfzN1xbRFAWusDU', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 3.420, totalEverReceivedEth: 1.85, historicalTx: 194, label: '12-Word BIP39 Seed ("planet crystal ocean...") — Ever Held 3.42 BTC' }],
-  ['bc1qan690255yqv09y0xjrw57nytmtktevq260hvy0', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 3.420, totalEverReceivedEth: 1.85, historicalTx: 194, label: '12-Word BIP39 Seed ("planet crystal ocean...") — Ever Held 3.42 BTC' }],
-  // Standard / Brainwallet / Puzzle Historical Vectors
-  ['1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 2.845, totalEverReceivedEth: 0.42, historicalTx: 48, label: 'BIP39 Standard Test Vector (Ever Held 2.845 BTC — Swept)' }],
-  ['bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 1.920, totalEverReceivedEth: 0.15, historicalTx: 62, label: 'BIP84 Native SegWit Vector (Ever Held 1.920 BTC — Swept)' }],
-  ['bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 0.145, totalEverReceivedEth: 0.0, historicalTx: 19, label: 'BIP86 Taproot Official Test Vector (Ever Held — Swept)' }],
-  ['1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 18.412, totalEverReceivedEth: 3.10, historicalTx: 1204, label: 'Private Key 0x01 (Bitcoin Puzzle #1 — Ever Held 18.41 BTC)' }],
-  ['1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 11.205, totalEverReceivedEth: 0.0, historicalTx: 980, label: 'Private Key 0x01 Uncompressed (Ever Held 11.20 BTC)' }],
-  ['1JWnE6p6UN7ZJBN7TtcbNDoRcjFtuDWoNL', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 14.850, totalEverReceivedEth: 4.20, historicalTx: 312, label: 'Brainwallet SHA256("correct horse battery staple") — Ever Held 14.85 BTC' }],
-  ['1C7zdTfnkzmr13HfA2vNm5SJYRK6nEKyq8', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 14.850, totalEverReceivedEth: 4.20, historicalTx: 312, label: 'Brainwallet SHA256("correct horse battery staple") — Ever Held 14.85 BTC' }],
-  ['bc1q08alc0e5ua69scxhvyma568nvguqccrv4cc9n4', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 14.850, totalEverReceivedEth: 4.20, historicalTx: 312, label: 'Brainwallet SHA256("correct horse battery staple") SegWit — Ever Held' }],
-  ['16ga2uqnF1NqpAuQeeg7sTCAdtX6dyjkMx', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 24.610, totalEverReceivedEth: 9.80, historicalTx: 410, label: 'Brainwallet SHA256("password") — Ever Held 24.61 BTC' }],
-  ['16qVRutZ7rZuPx7NMtapvZorWYjyaME2Ue', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 24.610, totalEverReceivedEth: 9.80, historicalTx: 410, label: 'Brainwallet SHA256("password") Compressed — Ever Held 24.61 BTC' }],
-  ['1xm4vFerV3pSgvBFkyzLgT1Ew3HQYrS1V', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 52.104, totalEverReceivedEth: 14.50, historicalTx: 528, label: 'Brainwallet SHA256("satoshi") — Ever Held 52.10 BTC' }],
-  ['18VkRiDhFu2Z17AvtpU3vL2LbTXDzCvDVo', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 31.490, totalEverReceivedEth: 8.15, historicalTx: 389, label: 'Brainwallet SHA256("bitcoin") — Ever Held 31.49 BTC' }],
-  ['1MzNY1oA3kfgYi75zquj3SRUPYztzXHzK9', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 19.720, totalEverReceivedEth: 6.40, historicalTx: 614, label: 'Brainwallet SHA256("123456") — Ever Held 19.72 BTC' }],
-  ['19tbJ5SdTaw3bNeB4Zz67J46LPYbXq9382', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 9.340, totalEverReceivedEth: 2.10, historicalTx: 176, label: 'Brainwallet SHA256("nakamoto") — Ever Held 9.34 BTC' }],
-  ['1PrBiw8DssERdXT2Q2pNo4z21d7m7uYxyj', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 6.815, totalEverReceivedEth: 1.75, historicalTx: 142, label: 'Brainwallet SHA256("hal finney") — Ever Held 6.815 BTC' }],
-  ['1Bv8QzG61KrzKGjc2gCHuyc2p4rbnjxNPN', { btc: 0.0, eth: 0.0, usd: 0, everHeldCrypto: true, totalEverReceivedBtc: 4.520, totalEverReceivedEth: 3.90, historicalTx: 208, label: 'Brainwallet SHA256("blockchain") — Ever Held 4.52 BTC' }]
+  // BIP39 12-word test vectors
+  ['1HQ3rb7nyLPrjnuW85MUknPekwkn7poAUm', { label: '12-Word BIP39 test vector ("army van defense…")' }],
+  ['bc1qg0azlj4w2lrq8jssrrz6eprt2fe7f7edm4vpd5', { label: '12-Word BIP39 test vector ("army van defense…") — SegWit' }],
+  ['1MKja6EgoqQ2BbQ8NqB8fqGCcD2gwoEeFu', { label: '12-Word BIP39 test vector ("gravity machine north…")' }],
+  ['bc1qx276rzgd89qruxusqhhzncq32c9z6xt6fxckrc', { label: '12-Word BIP39 test vector ("gravity machine north…") — SegWit' }],
+  ['1MeoRMhpR25zd5TCiw86t7TtwbfA4GwfR5', { label: '12-Word BIP39 test vector ("void come effort…")' }],
+  ['bc1qhf097zrj2strlfuwyzy4uflzeqne4stymx500d', { label: '12-Word BIP39 test vector ("void come effort…") — SegWit' }],
+  ['1E1Nz7Ps3spNzkAgUtCGfzN1xbRFAWusDU', { label: '12-Word BIP39 test vector ("planet crystal ocean…")' }],
+  ['bc1qan690255yqv09y0xjrw57nytmtktevq260hvy0', { label: '12-Word BIP39 test vector ("planet crystal ocean…") — SegWit' }],
+  // BIP spec vectors
+  ['1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA', { label: 'BIP39 standard test vector (m/44\'/0\'/0\'/0/0)' }],
+  ['bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', { label: 'BIP84 native SegWit vector (m/84\'/0\'/0\'/0/0)' }],
+  ['bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr', { label: 'BIP86 Taproot vector (m/86\'/0\'/0\'/0/0)' }],
+  // Bitcoin puzzle keys
+  ['1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH', { label: 'Bitcoin puzzle #1 (private key 0x01, compressed)' }],
+  ['1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm', { label: 'Bitcoin puzzle #1 (private key 0x01, uncompressed)' }],
+  // Famous brainwallets
+  ['1JWnE6p6UN7ZJBN7TtcbNDoRcjFtuDWoNL', { label: 'Brainwallet SHA256("correct horse battery staple")' }],
+  ['1C7zdTfnkzmr13HfA2vNm5SJYRK6nEKyq8', { label: 'Brainwallet SHA256("correct horse battery staple") — alt' }],
+  ['bc1q08alc0e5ua69scxhvyma568nvguqccrv4cc9n4', { label: 'Brainwallet SHA256("correct horse battery staple") — SegWit' }],
+  ['16ga2uqnF1NqpAuQeeg7sTCAdtX6dyjkMx', { label: 'Brainwallet SHA256("password")' }],
+  ['16qVRutZ7rZuPx7NMtapvZorWYjyaME2Ue', { label: 'Brainwallet SHA256("password") — compressed' }],
+  ['1xm4vFerV3pSgvBFkyzLgT1Ew3HQYrS1V', { label: 'Brainwallet SHA256("satoshi")' }],
+  ['18VkRiDhFu2Z17AvtpU3vL2LbTXDzCvDVo', { label: 'Brainwallet SHA256("bitcoin")' }],
+  ['1MzNY1oA3kfgYi75zquj3SRUPYztzXHzK9', { label: 'Brainwallet SHA256("123456")' }],
+  ['19tbJ5SdTaw3bNeB4Zz67J46LPYbXq9382', { label: 'Brainwallet SHA256("nakamoto")' }],
+  ['1PrBiw8DssERdXT2Q2pNo4z21d7m7uYxyj', { label: 'Brainwallet SHA256("hal finney")' }],
+  ['1Bv8QzG61KrzKGjc2gCHuyc2p4rbnjxNPN', { label: 'Brainwallet SHA256("blockchain")' }]
 ]);
 
 function levenshtein(a, b) {

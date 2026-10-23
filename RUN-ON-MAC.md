@@ -226,6 +226,79 @@ Wallets confirmed before this change are untouched. Older builds wrote every Blo
 **$0.01** funded; on startup those records are reclassified into the verification queue
 automatically, so the funded and ever-held counters only contain real, chain-confirmed hits.
 
+Placeholder rows that were never the result of a scan (they came from a seed catalogue that
+used to be bundled with the app) are deleted on startup instead of being re-queued — you should
+never see a wallet you did not scan appear in the queue.
+
+---
+
+## Where the dollar figures come from
+
+The scanner used to ship a fixed price table (BTC = $98,000, ETH = $3,200, …), which meant every
+USD value was a guess dressed as a balance. That table is gone.
+
+Prices now come from a live feed (`/api/prices`, CoinGecko with Binance as fallback), refreshed
+every five minutes and cached in `PersistentState/price_cache.json` so a restart does not leave
+you without rates. Under the wallet table you will see one of:
+
+- `• USD rates: live (coingecko) as of 14:22:10` — dollar values are real market conversions
+- `• USD prices unavailable — showing coin amounts only` — no quote could be fetched
+
+In the second case a hit still shows its **coin balance** (that is the chain's own number) but no
+dollar amount: the row reads *USD unavailable — no market quote* rather than `$0.00`. Coin
+amounts are never converted with a guessed rate, and stablecoins are valued 1:1 by their peg.
+
+If you are offline, the scanner still finds wallets — it just stops inventing dollars. Reconnect
+and press anywhere that refreshes data to pick the feed back up.
+
+---
+
+## Verifying the Telegram bot
+
+Telegram is checked from the **server**, not the browser: browsers are not allowed to call
+`api.telegram.org` directly, so a browser-only "sent" message proves nothing.
+
+1. Settings → **Alerts & Integrations** → Telegram Bot.
+2. Paste the token from **@BotFather** (the form also accepts a full
+   `https://api.telegram.org/bot<TOKEN>/sendMessage` URL, and strips it for you).
+3. Send any message to your bot, then get your numeric chat ID from **@userinfobot**
+   (channel IDs start with `-100`).
+4. Click **Save channels**, then **Send Telegram test**.
+
+The test runs three real calls and reports exactly which one failed:
+
+| Step | What it proves |
+|---|---|
+| `getMe` | the token is valid |
+| `getChat` | the bot can see that chat |
+| `sendMessage` | a message actually arrived in your chat |
+
+If it fails you get the reason plus a hint — wrong/revoked token (401), unknown chat (400 *chat
+not found* — press START on the bot first), bot blocked or not an admin (403), or no route to
+`api.telegram.org` (firewall/VPN/offline). The same `getMe`/`getChat`/`sendMessage` chain is what
+delivers real funded-wallet alerts, so a green test means alerts will arrive.
+
+---
+
+## Verifying a Bloom dump import
+
+1. Open the **Bloom Importer** tab.
+2. Choose your `.tsv.gz` / `.txt.gz` / `.tsv` / `.csv` file and click **Stream & Import**.
+   Compressed files are decompressed in the browser and streamed to the server in chunks —
+   the file never has to fit in memory.
+3. The status line ends with the real number of addresses now in the filter, plus the
+   false-positive rate. **The number must be greater than 0.**
+4. The "Funded Addresses in RAM" tile shows the running total and the timestamp of the last
+   import. Both survive a restart (the filter is saved to `.runtime_state/`).
+
+If the import stops with an error, the message now says which chunk failed and why — before
+2.6.1 a rejected chunk still ended with "✅ complete", which is the most common reason a dump
+appears to load but nothing is ever found.
+
+To prove the whole path works, look up a wallet you know is in the dump with the
+**History Inspector**: it must answer `Bloom dump match (…) — awaiting live RPC confirmation`,
+which turns into a confirmed hit (or a real "empty") once the chains answer.
+
 ---
 
 ## About "production" hosting
