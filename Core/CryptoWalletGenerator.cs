@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using NBitcoin;
 using Nethereum.HdWallet;
+using Nethereum.Signer;
 using Nethereum.Web3;
 using Solnet.Wallet;
 using BtcMnemonic = NBitcoin.Mnemonic;
@@ -141,6 +142,51 @@ namespace WalletRecoveryTool.Core
         public static WalletInfo GenerateWallet(string mnemonic = null)
         {
             return GenerateWalletSelective(mnemonic, needEth: true, needSol: true, needLtc: true, needDoge: true);
+        }
+
+        /// <summary>
+        /// Compatibility helper for older brain-wallet scanning code paths.
+        /// Generates a wallet directly from a human phrase using the standard SHA256 brain-wallet derivation.
+        /// </summary>
+        public static WalletInfo GenerateBrainWallet(string phrase, bool doubleHash = false)
+        {
+            if (string.IsNullOrWhiteSpace(phrase))
+                return null;
+
+            try
+            {
+                var privateKeyHex = doubleHash
+                    ? BrainWalletScanner.PhraseToPrivateKeySHA256Double(phrase)
+                    : BrainWalletScanner.PhraseToPrivateKeySHA256(phrase);
+
+                var pkBytes = Convert.FromHexString(privateKeyHex);
+                if (pkBytes.Length != 32)
+                    return null;
+
+                var key = new Key(pkBytes);
+                var wallet = new WalletInfo
+                {
+                    Mnemonic = $"brain:{phrase}",
+                    PrivateKey = privateKeyHex,
+                    BitcoinAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString(),
+                    BitcoinAddressSegWit = key.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString(),
+                    BitcoinAddressNativeSegWit = key.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString(),
+                    BitcoinAddressTaproot = key.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString(),
+                    EthereumAddress = new EthECKey(privateKeyHex).GetPublicAddress(),
+                    Source = "Brain Wallet"
+                };
+
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressSegWit);
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressNativeSegWit);
+                wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressTaproot);
+                wallet.AllEthereumAddresses.Add(wallet.EthereumAddress);
+                return wallet;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

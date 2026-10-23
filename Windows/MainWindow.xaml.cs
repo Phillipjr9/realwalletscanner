@@ -117,7 +117,7 @@ namespace WalletRecoveryTool
                 // Subscribe to Cognitive Self-Learning Brain Engine real-time thoughts & upgrades
                 Core.CognitiveBrainEngine.Instance.ThoughtEmitted += (s, thought) =>
                 {
-                    Dispatcher.BeginInvoke((Action)(() =>
+                    _ = Dispatcher.BeginInvoke((Action)(() =>
                     {
                         try
                         {
@@ -134,7 +134,7 @@ namespace WalletRecoveryTool
 
                 Core.CognitiveBrainEngine.Instance.BrainUpgraded += (s, upgradeArgs) =>
                 {
-                    Dispatcher.BeginInvoke((Action)(() =>
+                    _ = Dispatcher.BeginInvoke((Action)(() =>
                     {
                         try
                         {
@@ -169,10 +169,10 @@ namespace WalletRecoveryTool
                 UpdateQuickStatsBar();
 
                 // Validate API keys after UI is loaded
-                Task.Run(async () =>
+                _ = Task.Run(async () =>
                 {
                     await Task.Delay(500); // Give UI time to fully load
-                    Dispatcher.BeginInvoke((Action)(() => ValidateApiKeysOnStartup()));
+                    _ = Dispatcher.BeginInvoke((Action)(() => ValidateApiKeysOnStartup()));
                     await VerifyApiConnectivity();
                     
                     // Auto-download funded address bloom filter data if not present
@@ -180,20 +180,20 @@ namespace WalletRecoveryTool
                     {
                         try
                         {
-                            Dispatcher.BeginInvoke((Action)(() =>
+                            _ = Dispatcher.BeginInvoke((Action)(() =>
                             {
                                 if (StatusTextBlock != null)
                                     StatusTextBlock.Text = "⬇️ Downloading funded address database for faster scanning...";
                             }));
                             
                             var (btc, eth) = await Core.FundedAddressFilter.DownloadFundedAddressesAsync(
-                                statusCallback: msg => Dispatcher.BeginInvoke((Action)(() =>
+                                statusCallback: msg => _ = Dispatcher.BeginInvoke((Action)(() =>
                                 {
                                     if (StatusTextBlock != null)
                                         StatusTextBlock.Text = $"⬇️ {msg}";
                                 })));
                             
-                            Dispatcher.BeginInvoke((Action)(() =>
+                            _ = Dispatcher.BeginInvoke((Action)(() =>
                             {
                                 if (StatusTextBlock != null)
                                     StatusTextBlock.Text = $"✅ Bloom filter ready: {btc + eth:N0} funded addresses loaded";
@@ -221,17 +221,17 @@ namespace WalletRecoveryTool
             // Start periodic network monitoring with cancellation support
             _networkMonitoringCts = new CancellationTokenSource();
             var token = _networkMonitoringCts.Token;
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 while (!token.IsCancellationRequested)
                 {
                     try
                     {
                         var isOnline = await NetworkMonitor.IsInternetAvailable();
-                        Dispatcher.BeginInvoke((Action)(() => UpdateNetworkStatus(isOnline)));
+                        _ = Dispatcher.BeginInvoke((Action)(() => UpdateNetworkStatus(isOnline)));
                         
                         // Update API usage indicator
-                        Dispatcher.BeginInvoke((Action)(() => UpdateApiUsageDisplay()));
+                        _ = Dispatcher.BeginInvoke((Action)(() => UpdateApiUsageDisplay()));
                         
                         await Task.Delay(30000, token); // Check every 30 seconds
                     }
@@ -509,7 +509,7 @@ namespace WalletRecoveryTool
                 ethStatus = $"ETH API ❌ {ex.Message}";
             }
 
-            Dispatcher.BeginInvoke((Action)(() =>
+            _ = Dispatcher.BeginInvoke((Action)(() =>
             {
                 if (ApiDebugTextBlock != null)
                     ApiDebugTextBlock.Text = ethStatus;
@@ -2335,7 +2335,6 @@ namespace WalletRecoveryTool
             }
 
             // Simple input via prompt
-            var countStr = "10";
             var dlg = new Window
             {
                 Title = "CodeHaven — Key Generator",
@@ -2945,7 +2944,7 @@ namespace WalletRecoveryTool
                             if (liveUsd > 0)
                             {
                                 wallet.TotalUsdValue = liveUsd;
-                                Dispatcher.BeginInvoke((Action)(() => { /* UI auto-refreshes via binding */ }));
+                                _ = Dispatcher.BeginInvoke((Action)(() => { /* UI auto-refreshes via binding */ }));
                             }
                         }
                         catch (Exception ex)
@@ -4235,7 +4234,7 @@ namespace WalletRecoveryTool
                     }
                 }
 
-                Task.Run(() =>
+                _ = Task.Run(() =>
                 {
                     try
                     {
@@ -4536,7 +4535,7 @@ namespace WalletRecoveryTool
         /// </summary>
         private void PlayWalletFoundAlertSound()
         {
-            Task.Run(() =>
+            _ = Task.Run(() =>
             {
                 try
                 {
@@ -4652,7 +4651,7 @@ namespace WalletRecoveryTool
             var balanceChecker = new BalanceChecker();
 
             // Reset results
-            Dispatcher.BeginInvoke((Action)(() => _brainWalletResults.Clear()));
+            _ = Dispatcher.BeginInvoke((Action)(() => _brainWalletResults.Clear()));
             DebugLogger.Log($"🔄 BRAIN WALLET SCAN STARTING");
             DebugLogger.Log($"🔄 Total phrases to scan: {phrases.Count}");
             DebugLogger.Log($"🔄 First 5 phrases: {string.Join(", ", phrases.Take(5))}");
@@ -4742,7 +4741,7 @@ namespace WalletRecoveryTool
                 {
                     if (ex is InvalidOperationException && ex.Message.Contains("API"))
                     {
-                        Dispatcher.BeginInvoke((Action)(() => BrainScanStatsText.Text = ex.Message));
+                        _ = Dispatcher.BeginInvoke((Action)(() => BrainScanStatsText.Text = ex.Message));
                         break;
                     }
                     DebugLogger.Log($"❌ Error checking '{phrase}': {ex.Message}");
@@ -4752,7 +4751,7 @@ namespace WalletRecoveryTool
                     checkedCount++;
                     var elapsed = (DateTime.Now - startTime).TotalSeconds;
                     var rate = elapsed > 0 ? checkedCount / elapsed : 0;
-                    Dispatcher.BeginInvoke((Action)(() => BrainScanStatsText.Text = $"Checked: {checkedCount}/{phrases.Count} | Found: {_brainWalletResults.Count} | {rate:F1}/s | Time: {elapsed:F0}s"));
+                    _ = Dispatcher.BeginInvoke((Action)(() => BrainScanStatsText.Text = $"Checked: {checkedCount}/{phrases.Count} | Found: {_brainWalletResults.Count} | {rate:F1}/s | Time: {elapsed:F0}s"));
                 }
             }
             
@@ -5018,7 +5017,7 @@ namespace WalletRecoveryTool
                     else if (found.path.Contains("Ethereum") || found.path.Contains("ETH") || found.path.Contains("MetaMask")) totalEth += found.balance;
                     else if (found.path.Contains("Solana") || found.path.Contains("SOL")) totalSol += found.balance;
                     
-                    Dispatcher.BeginInvoke((Action)(() => UpdateDeepScanBalances(totalBtc, totalEth, totalSol)));
+                    _ = Dispatcher.BeginInvoke((Action)(() => UpdateDeepScanBalances(totalBtc, totalEth, totalSol)));
                     
                     var wallet = CryptoWalletGenerator.GenerateWallet(mnemonic);
                     if (wallet != null)
@@ -5075,7 +5074,7 @@ namespace WalletRecoveryTool
                                 totalWalletsFound++;
                                 totalBtc += balances.GetValueOrDefault("BTC", 0);
                                 totalEth += balances.GetValueOrDefault("ETH", 0);
-                                Dispatcher.BeginInvoke((Action)(() => UpdateDeepScanBalances(totalBtc, totalEth, totalSol)));
+                                _ = Dispatcher.BeginInvoke((Action)(() => UpdateDeepScanBalances(totalBtc, totalEth, totalSol)));
                                 _database.SaveWallet(wallet, null, "Deep Scan");
                             }
                             else

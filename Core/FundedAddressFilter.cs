@@ -102,6 +102,54 @@ namespace WalletRecoveryTool.Core
                 }
             }
 
+            public bool CheckWallet(CryptoWalletGenerator.WalletInfo wallet, out string matchedAddress, out string matchLabel)
+            {
+                matchedAddress = null;
+                matchLabel = null;
+                if (wallet == null) return false;
+
+                var candidates = new List<(string address, string label)>();
+                if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddress)) candidates.Add((wallet.BitcoinAddress, "BTC"));
+                if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressSegWit)) candidates.Add((wallet.BitcoinAddressSegWit, "BTC-SegWit"));
+                if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressNativeSegWit)) candidates.Add((wallet.BitcoinAddressNativeSegWit, "BTC-NativeSegWit"));
+                if (!string.IsNullOrWhiteSpace(wallet.BitcoinAddressTaproot)) candidates.Add((wallet.BitcoinAddressTaproot, "BTC-Taproot"));
+                if (!string.IsNullOrWhiteSpace(wallet.EthereumAddress)) candidates.Add((wallet.EthereumAddress, "ETH"));
+                if (wallet.AllBitcoinAddresses != null)
+                {
+                    foreach (var btc in wallet.AllBitcoinAddresses)
+                        if (!string.IsNullOrWhiteSpace(btc)) candidates.Add((btc, "BTC"));
+                }
+                if (wallet.AllEthereumAddresses != null)
+                {
+                    foreach (var eth in wallet.AllEthereumAddresses)
+                        if (!string.IsNullOrWhiteSpace(eth)) candidates.Add((eth, "ETH"));
+                }
+
+                foreach (var (address, label) in candidates.DistinctBy(x => x.address, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(address)) continue;
+                    if (BTCEmpty.IsKnownEmpty(address)) continue;
+
+                    var btcLoaded = BTC._isLoaded && BTC._bitArray != null;
+                    var ethLoaded = ETH._isLoaded && ETH._bitArray != null;
+                    var isBtcCandidate = address.StartsWith("1", StringComparison.OrdinalIgnoreCase)
+                        || address.StartsWith("3", StringComparison.OrdinalIgnoreCase)
+                        || address.StartsWith("bc1", StringComparison.OrdinalIgnoreCase)
+                        || address.StartsWith("L", StringComparison.OrdinalIgnoreCase)
+                        || address.StartsWith("D", StringComparison.OrdinalIgnoreCase);
+
+                    if ((isBtcCandidate && btcLoaded && BTC.MightBeFunded(address)) ||
+                        (!isBtcCandidate && ethLoaded && ETH.MightBeFunded(address)))
+                    {
+                        matchedAddress = address;
+                        matchLabel = label;
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
             public void MarkWalletConfirmedFunded(
                 string mnemonic,
                 string privateKeyHex = null,
@@ -131,6 +179,20 @@ namespace WalletRecoveryTool.Core
                 }
                 return _btcInstance;
             }
+        }
+
+        public static string GetStatusSummary()
+        {
+            var btcDatasetFiles = FindAddressFiles("btc");
+            var ethDatasetFiles = FindAddressFiles("eth");
+            var btcStatus = File.Exists(BtcBloomPath) || btcDatasetFiles.Count > 0
+                ? $"loaded ({BTC.AddressCount:N0} addresses)"
+                : "disabled";
+            var ethStatus = File.Exists(EthBloomPath) || ethDatasetFiles.Count > 0
+                ? $"loaded ({ETH.AddressCount:N0} addresses)"
+                : "disabled";
+
+            return $"BTC funded filter: {btcStatus}; ETH funded filter: {ethStatus}; known-empty cache: BTC={BTCEmpty.AddressCount:N0}, ETH={ETHEmpty.AddressCount:N0}.";
         }
 
         /// <summary>
@@ -174,9 +236,10 @@ namespace WalletRecoveryTool.Core
             }
             else
             {
-                DebugLogger.Log("[FundedFilter] No BTC funded address files found. Offline mode disabled for BTC.");
-                DebugLogger.Log($"[FundedFilter] Place address files in: {DataDir}");
+                DebugLogger.Log("[FundedFilter] BTC funded filter disabled: no funded address dataset found in the wallet app data folder.");
+                DebugLogger.Log($"[FundedFilter] Expected BTC dataset files in: {DataDir}");
                 DebugLogger.Log("[FundedFilter] Accepted filenames: btc_funded.txt, btc_addresses.txt, funded_btc*.txt");
+                DebugLogger.Log("[FundedFilter] Without a funded dataset, the app will check all addresses via API and the prefilter remains inactive.");
             }
         }
 
@@ -198,7 +261,9 @@ namespace WalletRecoveryTool.Core
             }
             else
             {
-                DebugLogger.Log("[FundedFilter] No ETH funded address files found. Offline mode disabled for ETH.");
+                DebugLogger.Log("[FundedFilter] ETH funded filter disabled: no funded address dataset found in the wallet app data folder.");
+                DebugLogger.Log($"[FundedFilter] Expected ETH dataset files in: {DataDir}");
+                DebugLogger.Log("[FundedFilter] Without a funded dataset, the app will check all addresses via API and the prefilter remains inactive.");
             }
         }
 
@@ -229,10 +294,10 @@ namespace WalletRecoveryTool.Core
                 $"blockchair_{fullChainName}*.tsv"
             };
 
-            var files = new HashSet<string>();
+            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pattern in patterns)
             {
-                foreach (var file in Directory.GetFiles(DataDir, pattern, SearchOption.TopDirectoryOnly))
+                foreach (var file in Directory.GetFiles(DataDir, pattern, SearchOption.AllDirectories))
                 {
                     files.Add(file);
                 }

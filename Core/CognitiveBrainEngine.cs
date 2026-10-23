@@ -467,6 +467,7 @@ namespace WalletRecoveryTool.Core
 
             // Ensure top 7 bits of word 12 produce a non-duplicate 12th word when combined with checksum
             int top7 = (words[11] >> 4) & 0x7F;
+            Span<byte> hash = stackalloc byte[32];
             for (int retry = 0; retry < 128; retry++)
             {
                 int tempBitPos = 121;
@@ -479,7 +480,6 @@ namespace WalletRecoveryTool.Core
                     tempBitPos++;
                 }
 
-                Span<byte> hash = stackalloc byte[32];
                 SHA256.HashData(entropy, hash);
                 int checksum4 = (hash[0] >> 4) & 0x0F;
                 int finalWord12 = (top7 << 4) | checksum4;

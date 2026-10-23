@@ -2168,7 +2168,10 @@ public SmartWalletHunter()
                 }
                 else
                 {
-                    _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
+                    // IMPORTANT: do not mark a candidate as confirmed-empty before it has actually been
+                    // checked by the live balance pipeline. A target-filter miss is only a pre-filter result,
+                    // not a verified zero-balance result, and marking it empty here silently suppresses
+                    // legitimate funded wallets in the cognitive-brain scan path.
                     CognitiveBrainEngine.Instance.RecordScanFeedback(mnemonic, ExtractBrainArmFromSource(source), false, false);
                 }
             }

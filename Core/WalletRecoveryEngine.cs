@@ -270,6 +270,25 @@ namespace WalletRecoveryTool.Core
             return options.ScanEthereum || options.ScanUSDT || options.ScanPolygon || options.ScanBnb;
         }
 
+        /// <summary>
+        /// Bloom-filter negatives are advisory only. A funded-address dataset can be incomplete or stale,
+        /// so a negative result must never suppress a live verification pass for a wallet.
+        /// </summary>
+        public static bool ShouldSkipApiCheckForBloomFilter(RecoveryOptions options, bool mightBeFundedBtc, bool mightBeFundedEth, bool filterLoaded)
+        {
+            if (options == null || !AppSettings.Current.EnableOfflineFilter)
+                return false;
+
+            if (options.ScanSolana || options.ScanLitecoin || options.ScanDogecoin)
+                return false;
+
+            if (!filterLoaded)
+                return false;
+
+            // A negative bloom hit is never authoritative proof of emptiness; live verification stays required.
+            return false;
+        }
+
         private async Task RecoverFromPartialMnemonic(RecoveryOptions options, CancellationToken token)
         {
             var variations = CryptoWalletGenerator.GenerateMnemonicVariations(options.PartialMnemonic);
@@ -941,7 +960,7 @@ namespace WalletRecoveryTool.Core
                     FundedAddressFilter.InitializeETH();
                     FundedAddressFilter.InitializeBTCEmpty();
                     FundedAddressFilter.InitializeETHEmpty();
-                    DebugLogger.Log($"[ENGINE] Bloom filters loaded: BTC={FundedAddressFilter.BTC.AddressCount:N0} funded, ETH={FundedAddressFilter.ETH.AddressCount:N0} funded");
+                    DebugLogger.Log($"[ENGINE] Bloom filter state: {FundedAddressFilter.GetStatusSummary()}");
                 }
                 catch (Exception ex)
                 {
@@ -1049,38 +1068,29 @@ namespace WalletRecoveryTool.Core
                             {
                                 try
                                 {
-                                    // BLOOM FILTER PRE-CHECK: Skip API call if address is definitely NOT funded
-                                    // Works in StrictScanMode too — bloom is a pre-filter, StrictScanMode only affects verification
-                                    bool skipApiCheck = false;
+                                    // Offline funded-address filters are advisory only. A negative bloom result does not prove
+                                    // the wallet is empty, and the dataset can be incomplete or stale. We must still submit the
+                                    // wallet to live verification instead of silently discarding it.
                                     bool hasNonFilterableChain = options.ScanSolana || options.ScanLitecoin || options.ScanDogecoin;
-                                    if (AppSettings.Current.EnableOfflineFilter && !hasNonFilterableChain &&
-                                        (FundedAddressFilter.BTC.IsLoaded || FundedAddressFilter.ETH.IsLoaded))
-                                    {
-                                        bool needBtc = options.ScanBitcoin;
-                                        bool needEth = NeedEthAddress(options);
+                                    bool filterLoaded = FundedAddressFilter.BTC.IsLoaded || FundedAddressFilter.ETH.IsLoaded;
+                                    bool needBtc = options.ScanBitcoin;
+                                    bool needEth = NeedEthAddress(options);
 
-                                        bool mightBeFundedBtc = needBtc && (!FundedAddressFilter.BTC.IsLoaded ||
-                                            FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddress) ||
-                                            (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressNativeSegWit)) ||
-                                            (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressSegWit)) ||
-                                            (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressTaproot)));
-                                        bool mightBeFundedEth = needEth && (!FundedAddressFilter.ETH.IsLoaded ||
-                                            (!string.IsNullOrEmpty(wallet.EthereumAddress) && FundedAddressFilter.ETH.MightBeFunded(wallet.EthereumAddress)));
-                                        
-                                        if (!mightBeFundedBtc && !mightBeFundedEth)
-                                        {
-                                            skipApiCheck = true;
-                                            _statistics.IncrementSkipped();
-                                            _mnemonicTracker.MarkWalletConfirmedEmpty(wallet);
-                                            CognitiveBrainEngine.Instance.RecordScanFeedback(
-                                                wallet.Mnemonic,
-                                                strategyArm,
-                                                passedOfflineFilter: false,
-                                                hasTransactionsOrBalance: false);
-                                        }
+                                    bool mightBeFundedBtc = needBtc && (!FundedAddressFilter.BTC.IsLoaded ||
+                                        FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddress) ||
+                                        (!string.IsNullOrEmpty(wallet.BitcoinAddressNativeSegWit) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressNativeSegWit)) ||
+                                        (!string.IsNullOrEmpty(wallet.BitcoinAddressSegWit) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressSegWit)) ||
+                                        (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot) && FundedAddressFilter.BTC.MightBeFunded(wallet.BitcoinAddressTaproot)));
+                                    bool mightBeFundedEth = needEth && (!FundedAddressFilter.ETH.IsLoaded ||
+                                        (!string.IsNullOrEmpty(wallet.EthereumAddress) && FundedAddressFilter.ETH.MightBeFunded(wallet.EthereumAddress)));
+
+                                    if (AppSettings.Current.EnableOfflineFilter && !hasNonFilterableChain && filterLoaded &&
+                                        !mightBeFundedBtc && !mightBeFundedEth)
+                                    {
+                                        DebugLogger.Log($"[SCAN] Bloom filter negative for wallet {wallet.Mnemonic}; continuing with live verification because the prefilter is advisory and can miss valid addresses.");
                                     }
-                                    
-                                    if (!skipApiCheck)
+
+                                    if (!ShouldSkipApiCheckForBloomFilter(options, mightBeFundedBtc, mightBeFundedEth, filterLoaded))
                                     {
                                         // Add to batch buffer for efficient batch API checking
                                         _randomBatchBuffer.Enqueue((wallet, checkNumber));
