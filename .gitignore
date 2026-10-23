@@ -44,3 +44,7 @@ WebWorkstation/desktop/out/
 WebWorkstation/desktop/build/*.icns
 WebWorkstation/desktop/build/*.iconset/
 WebWorkstation/PersistentState/
+
+# npm lockfile is generated locally (never tracked)
+WebWorkstation/package-lock.json
+WebWorkstation/desktop/package-lock.json
