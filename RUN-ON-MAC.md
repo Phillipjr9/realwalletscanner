@@ -173,6 +173,55 @@ cp -R "$HOME/Library/Application Support/CodeHaven Workstation/PersistentState" 
 
 ---
 
+## When something looks wrong: the self-monitor
+
+The app watches itself. A **health pill in the top bar** (green `Healthy 100`, amber
+`Needs attention`, red `Blocked`) opens a window that answers three questions: what is working,
+what is broken, and what to change.
+
+Press **Check connectivity** and the app runs its *real* verification code against one known-good
+address per chain — the genesis-era BTC address, Vitalik's Ethereum address, the TRON USDT contract,
+the XRP genesis account. If those answer, your scanner can verify wallets. If they fail, the report
+names the exact endpoint and the exact error, which is the difference between "the scan is broken"
+and "this Mac cannot reach ethereum-rpc.publicnode.com".
+
+**Copy report** gives you plain text to paste when asking for help. It contains no private keys, no
+session secrets, and no full wallet addresses — only counters, endpoint health and timings.
+
+The same text is always on disk, refreshed every minute:
+
+    ~/Library/Application Support/CodeHaven Workstation/PersistentState/DIAGNOSTIC_REPORT.txt
+    ~/Library/Application Support/CodeHaven Workstation/PersistentState/diagnostics.log
+
+From Telegram, `/diagnose` returns the same summary as a short message, so you can check on the
+scanner from your phone without opening the laptop.
+
+### What it checks
+
+| Check | What a failure means |
+|---|---|
+| Connectivity probe | No chain can be reached — nothing can be confirmed |
+| Per-endpoint health | One RPC is rate-limiting or down; the table names it and the error |
+| Queue progress | Leads are waiting but not moving (rate 0/min) |
+| Backoff at 60 s | The chains are refusing everything |
+| Parked leads | Leads that were tried 3× with no answer — kept, never deleted |
+| Market data | USD values are paused because no price feed answered |
+| Bloom false positives | Your dump is large; expect many leads to verify |
+| Memory / event loop | The app is under pressure and will feel slow |
+| Telegram listener | Results will not reach your phone while away |
+
+### Verification coverage — what is actually checked
+
+Being explicit, because the app used to overstate this:
+
+- **Always (server-side, window closed):** BTC, ETH, Arbitrum, Base, Optimism, Avalanche, Polygon,
+  BNB Chain, TRON, XRP.
+- **Only while the app window is open:** LTC and SOL (their checks run in the browser).
+- **Never auto-verified:** DOGE — the address is derived and shown with an explorer link, but no
+  chain is asked about it. The diagnostic report lists this every time so it cannot be forgotten.
+
+---
+
 ## Viewing funded wallets
 
 Open the **Verified Activity Vault** tab (⌘3 in the desktop app), then click **💰 Funded**.

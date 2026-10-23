@@ -1730,7 +1730,9 @@ const VERIFY_LEADS_FILE_LIMIT = 50000;
 const VERIFY_MAX_ATTEMPTS = 3;
 const VERIFY_DEFERRED_LIMIT = 50000;
 const DEFERRED_VERIFICATION_FILE = path.join(PERSISTENT_STATE_DIR, 'DEFERRED_VERIFICATION.json');
-const VERIFY_CHAINS = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'TRX', 'XRP', 'SOL'];
+// Order matters only for readability. ARB/BASE/OP/AVAX were missing, which made the
+// EVM loop skip those chains entirely despite the UI claiming L2 coverage.
+const VERIFY_CHAINS = ['BTC', 'ETH', 'USDT', 'ARB', 'BASE', 'OP', 'AVAX', 'MATIC', 'BNB', 'TRX', 'XRP'];
 
 const pendingVerificationQueue = [];
 const pendingVerificationSeen = new Set();
@@ -2304,6 +2306,741 @@ function saveApiKeysConfig() {
 
 // Fast Server-Side HTTPS JSON-RPC / MultiAddr Helper (auto-detects cloud sandbox firewall with <30ms cooldown)
 /* ────────────────────────────────────────────────────────────────────────
+   SELF-MONITOR  (v2.6.6)
+   The scanner reports on itself, so a problem can be diagnosed from one text
+   file instead of guesswork. Everything here is read-only telemetry: it never
+   invents a balance, never promotes a lead and never touches a vault.
+   ──────────────────────────────────────────────────────────────────────── */
+const APP_VERSION = '2.6.6';
+const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
+const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
+const DIAG_BOOT_AT = Date.now();
+const DIAG_MAX_EVENTS = 400;
+const DIAG_SEVERITY_SCORE = { critical: 35, warning: 12, info: 0 };
+
+/**
+ * Real verification coverage, as the code actually stands:
+ *  - server: runs in the background even with the window closed
+ *  - browser: only while the app window is open (pumpLiveBrowserRpcQueue)
+ *  - never: address is derived and shown, but no chain is asked about it
+ * The monitor reports this instead of repeating the marketing claim.
+ */
+const DIAG_WIRED_CHAINS = ['BTC', 'ETH', 'ARB', 'BASE', 'OP', 'AVAX', 'MATIC', 'BNB', 'TRX', 'XRP'];
+const DIAG_BROWSER_ONLY_CHAINS = ['LTC', 'SOL'];
+const DIAG_UNVERIFIED_CHAINS = ['DOGE'];
+
+const diagChainStats = new Map();
+const diagIncidentMap = new Map();
+const diagEvents = [];
+let diagLoopLagMs = 0;
+let diagLoopLastAt = Date.now();
+let diagDiskErrors = 0;
+let diagLastEvalAt = 0;
+let diagProbe = null;
+let diagScanRatePerSec = 0;
+const diagPrevScan = { at: Date.now(), checked: 0 };
+
+function diagChainEntry(label) {
+  let entry = diagChainStats.get(label);
+  if (!entry) {
+    entry = { label, ok: 0, fail: 0, timeouts: 0, totalMs: 0, maxMs: 0, lastOkAt: 0, lastErrAt: 0, lastErr: '' };
+    diagChainStats.set(label, entry);
+  }
+  return entry;
+}
+
+/**
+ * Wrap one chain request so the monitor can name the exact endpoint that
+ * failed instead of reporting "the scan is broken".
+ */
+function diagTrackTask(label, promise) {
+  const startedAt = Date.now();
+  return promise.then(
+    (value) => {
+      const entry = diagChainEntry(label);
+      const ms = Date.now() - startedAt;
+      entry.ok++;
+      entry.totalMs += ms;
+      if (ms > entry.maxMs) entry.maxMs = ms;
+      entry.lastOkAt = Date.now();
+      return value;
+    },
+    (error) => {
+      const entry = diagChainEntry(label);
+      entry.fail++;
+      entry.lastErr = String((error && error.message) || error).slice(0, 160);
+      entry.lastErrAt = Date.now();
+      if (/timeout|timed out|socket hang up|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(entry.lastErr)) entry.timeouts++;
+      throw error;
+    }
+  );
+}
+
+function diagEvent(kind, text) {
+  diagEvents.push({ t: Date.now(), kind, text: String(text).slice(0, 300) });
+  if (diagEvents.length > DIAG_MAX_EVENTS) diagEvents.splice(0, diagEvents.length - DIAG_MAX_EVENTS);
+}
+
+function diagIncidentLine(inc) {
+  return `${new Date(inc.last).toISOString()} [${String(inc.severity).toUpperCase()}] ${inc.title} — ${inc.detail}`;
+}
+
+function diagLogIncident(inc) {
+  try {
+    fs.appendFileSync(DIAG_LOG_FILE, diagIncidentLine(inc) + '\n');
+    // Keep the incident log bounded so it never becomes a second problem.
+    const size = fs.statSync(DIAG_LOG_FILE).size;
+    if (size > 512 * 1024) {
+      const lines = fs.readFileSync(DIAG_LOG_FILE, 'utf8').split('\n').filter(Boolean);
+      fs.writeFileSync(DIAG_LOG_FILE, lines.slice(-300).join('\n') + '\n');
+    }
+  } catch (_) { diagDiskErrors++; }
+}
+
+function diagRaise(key, severity, title, detail) {
+  const now = Date.now();
+  let inc = diagIncidentMap.get(key);
+  if (inc) {
+    const changed = inc.severity !== severity || inc.title !== title || inc.detail !== detail;
+    inc.severity = severity;
+    inc.title = title;
+    inc.detail = detail;
+    inc.last = now;
+    inc.count++;
+    if (changed || inc.count === 2 || inc.count % 30 === 0) diagLogIncident(inc);
+    return inc;
+  }
+  inc = { key, severity, title, detail, first: now, last: now, count: 1 };
+  diagIncidentMap.set(key, inc);
+  if (diagIncidentMap.size > 80) {
+    const oldest = Array.from(diagIncidentMap.values()).sort((a, b) => a.last - b.last)[0];
+    if (oldest && oldest.key !== key) diagIncidentMap.delete(oldest.key);
+  }
+  diagLogIncident(inc);
+  return inc;
+}
+
+function diagClear(key) { diagIncidentMap.delete(key); }
+
+function diagFmtAgo(ts) {
+  if (!ts) return 'never';
+  const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${(sec / 3600).toFixed(1)}h ago`;
+  return `${Math.round(sec / 86400)}d ago`;
+}
+
+function diagMb(bytesValue) { return Math.round(Number(bytesValue || 0) / (1024 * 1024)); }
+
+/**
+ * Recompute the live issue list. Conditions that no longer hold are cleared,
+ * so the report never accumulates stale noise.
+ */
+function diagEvaluate() {
+  const now = Date.now();
+  const uptimeSec = Math.round((now - DIAG_BOOT_AT) / 1000);
+  diagLastEvalAt = now;
+
+  // 0. Scan throughput over the evaluation window.
+  const checkedNow = Number(multiIndexAddressesChecked || 0) + Number(liveRpcAddressesChecked || 0);
+  const spanMs = now - diagPrevScan.at;
+  if (spanMs >= 5000) {
+    diagScanRatePerSec = Math.max(0, (checkedNow - diagPrevScan.checked) / (spanMs / 1000));
+    diagPrevScan.at = now;
+    diagPrevScan.checked = checkedNow;
+  }
+
+  // 1. Reachability. One root cause, one incident — reporting the probe, the
+  // blanket failure and the firewall flag separately produced three identical
+  // criticals for a single broken network.
+  let totalOk = 0;
+  let totalFail = 0;
+  for (const entry of diagChainStats.values()) { totalOk += entry.ok; totalFail += entry.fail; }
+  const probeFailed = Boolean(diagProbe && diagProbe.ok === false);
+  if (probeFailed) {
+    diagClear('rpc.allfail');
+    diagClear('rpc.firewall');
+  } else if (totalOk === 0 && totalFail >= 3) {
+    diagClear('rpc.firewall');
+    diagRaise('rpc.allfail', 'critical', 'Every chain endpoint failed',
+      `${totalFail} requests across ${diagChainStats.size} endpoints with not one answer. This machine cannot reach any public node (blocked network, VPN or DNS).`);
+  } else if (serverRpcState === 'firewalled') {
+    diagClear('rpc.allfail');
+    diagRaise('rpc.firewall', 'critical', 'No chain endpoint reachable from this machine',
+      'Server-side RPC attempts are failing. Scanning continues, but nothing can be confirmed until a network path to a public node exists.');
+  } else {
+    diagClear('rpc.allfail');
+    diagClear('rpc.firewall');
+  }
+
+  // 2. Per-endpoint failure rate.
+  for (const entry of diagChainStats.values()) {
+    const attempts = entry.ok + entry.fail;
+    const key = `chain.${entry.label}`;
+    if (attempts < 4) { diagClear(key); continue; }
+    const failRate = entry.fail / attempts;
+    if (failRate >= 0.5) {
+      diagRaise(key, attempts >= 12 ? 'warning' : 'info',
+        `${entry.label} endpoint failing`,
+        `${entry.fail}/${attempts} requests failed (${Math.round(failRate * 100)}%)${entry.lastErr ? '; last: ' + entry.lastErr : ''}`);
+    } else if (failRate >= 0.2) {
+      diagRaise(key, 'info', `${entry.label} endpoint flaky`,
+        `${entry.fail}/${attempts} requests failed (${Math.round(failRate * 100)}%)${entry.lastErr ? '; last: ' + entry.lastErr : ''}`);
+    } else {
+      diagClear(key);
+    }
+  }
+
+  // 3. Verification queue progress.
+  const pending = pendingVerificationCount();
+  const rate = verificationRatePerMin();
+  const lastRun = verificationStats.lastRunAt ? Date.parse(verificationStats.lastRunAt) : 0;
+  if (pending > 0) {
+    if (!lastRun && uptimeSec > 120) {
+      diagRaise('verify.neverran', 'warning', 'Queued leads have never been checked',
+        `${pending.toLocaleString()} leads are waiting but no batch has run yet.`);
+    } else if (lastRun && rate === 0 && now - lastRun > 180000) {
+      diagRaise('verify.stalled', 'warning', 'Live checks are not progressing',
+        `${pending.toLocaleString()} leads waiting, last batch ${diagFmtAgo(lastRun)}, zero answers per minute.`);
+    } else {
+      diagClear('verify.neverran');
+      diagClear('verify.stalled');
+    }
+  } else {
+    diagClear('verify.neverran');
+    diagClear('verify.stalled');
+  }
+
+  if (verificationBackoffMs >= 60000) {
+    diagRaise('verify.backoff', 'warning', 'Backing off at the maximum interval',
+      `No chain has answered for ${verificationStats.unanswered.toLocaleString()} lead checks; the pump is waiting ${Math.round(verificationBackoffMs / 1000)}s between batches.`);
+  } else {
+    diagClear('verify.backoff');
+  }
+
+  if (deferredVerificationLeads.length > 0) {
+    diagRaise('verify.parked', 'info', `${deferredVerificationLeads.length.toLocaleString()} leads parked`,
+      'They were tried 3 times with no chain answer and are kept, not deleted. Use "Retry parked" once a key is added or the network is back.');
+  } else {
+    diagClear('verify.parked');
+  }
+
+  if (pendingVerificationLeads.length >= VERIFY_LEADS_FILE_LIMIT) {
+    diagRaise('verify.cap', 'warning', 'Backlog is at its storage cap',
+      `The durable backlog holds ${VERIFY_LEADS_FILE_LIMIT.toLocaleString()} leads; new ones will push the oldest out.`);
+  } else {
+    diagClear('verify.cap');
+  }
+
+  // 4. Market data — every USD figure depends on it.
+  if (!livePriceBook.asOf) {
+    if (uptimeSec > 180) {
+      diagRaise('prices.missing', 'warning', 'No market quote has ever been fetched',
+        `CoinGecko, Binance and Coinbase all failed. Wallets will show coin amounts with no dollar value.${livePriceBook.lastError ? ' Last error: ' + livePriceBook.lastError : ''}`);
+    }
+  } else if (livePriceBook.stale) {
+    diagRaise('prices.stale', 'warning', 'Market quote is stale',
+      `Last quote ${diagFmtAgo(Date.parse(livePriceBook.asOf))} from ${livePriceBook.source}; USD values are paused until a fresh one arrives.`);
+    diagClear('prices.missing');
+  } else {
+    diagClear('prices.missing');
+    diagClear('prices.stale');
+  }
+
+  // 5. Bloom filter — high false positives explain a huge pending queue.
+  const bloomCount = Number(fundedBloomMeta.totalImported || 0);
+  const bloomFp = fundedBloomFalsePositiveRate();
+  if (bloomCount > 0 && bloomFp > 0.01) {
+    diagRaise('bloom.fp', 'info', 'Bloom false-positive rate is high',
+      `${bloomCount.toLocaleString()} addresses give ${(bloomFp * 100).toFixed(2)}% false positives — roughly 1 in ${Math.round(1 / Math.max(bloomFp, 1e-9))} random wallets becomes a lead to verify.`);
+  } else {
+    diagClear('bloom.fp');
+  }
+
+  // 6. Runtime pressure.
+  const mem = process.memoryUsage();
+  if (diagMb(mem.heapUsed) > 1200) {
+    diagRaise('runtime.heap', 'warning', 'Memory use is high',
+      `Heap ${diagMb(mem.heapUsed)} MB, resident ${diagMb(mem.rss)} MB. A restart frees it; report this if it keeps climbing.`);
+  } else {
+    diagClear('runtime.heap');
+  }
+  if (diagLoopLagMs > 800) {
+    diagRaise('runtime.loop', 'warning', 'Event loop is blocked',
+      `${diagLoopLagMs} ms of scheduling delay — the UI and the scanner will feel sluggish.`);
+  } else {
+    diagClear('runtime.loop');
+  }
+  if (diagDiskErrors > 0) {
+    diagRaise('disk.write', 'warning', 'Could not write state to disk',
+      `${diagDiskErrors} write failure(s). The app is probably out of space or the state folder is read-only.`);
+  } else {
+    diagClear('disk.write');
+  }
+
+  // 7. Telegram — the only way results reach the user when away.
+  const tokenPresent = Boolean(normalizeTelegramToken(alertChannelsConfig.telegramBotToken));
+  if (tokenPresent && !telegramBotRuntime.running) {
+    diagRaise('telegram.down', 'warning', 'Telegram listener is not running',
+      telegramBotRuntime.lastError || 'The bot is configured but the poll loop is stopped.');
+  } else if (tokenPresent && telegramBotRuntime.consecutiveErrors >= 3) {
+    diagRaise('telegram.down', 'warning', 'Telegram is retrying',
+      `${telegramBotRuntime.consecutiveErrors} consecutive failures; last: ${telegramBotRuntime.lastError || 'unknown'}`);
+  } else {
+    diagClear('telegram.down');
+  }
+
+  return diagSnapshot();
+}
+
+function diagIssueSort(a, b) {
+  const rank = { critical: 0, warning: 1, info: 2 };
+  const d = (rank[a.severity] || 3) - (rank[b.severity] || 3);
+  return d !== 0 ? d : b.last - a.last;
+}
+
+function diagSnapshot() {
+  const now = Date.now();
+  const mem = process.memoryUsage();
+  const issues = Array.from(diagIncidentMap.values()).sort(diagIssueSort);
+  let score = 100;
+  for (const inc of issues) score -= (DIAG_SEVERITY_SCORE[inc.severity] || 0);
+  score = Math.max(0, Math.min(100, score));
+  const status = issues.some(i => i.severity === 'critical') ? 'critical' : (issues.some(i => i.severity === 'warning') ? 'degraded' : 'ok');
+
+  const wired = new Set(DIAG_WIRED_CHAINS);
+  const missingChains = VERIFY_CHAINS.filter(c => !wired.has(c) && !(c === 'USDT' && wired.has('ETH')));
+
+  const chains = DIAG_WIRED_CHAINS.map((label) => {
+    const e = diagChainStats.get(label);
+    const attempts = e ? e.ok + e.fail : 0;
+    const avg = e && e.ok ? Math.round(e.totalMs / e.ok) : null;
+    let health = 'unknown';
+    if (attempts > 0) {
+      const failRate = e.fail / attempts;
+      if (failRate >= 0.5) health = 'failing';
+      else if (failRate > 0.2) health = 'flaky';
+      else health = 'ok';
+    }
+    return {
+      label,
+      attempts,
+      ok: e ? e.ok : 0,
+      fail: e ? e.fail : 0,
+      timeouts: e ? e.timeouts : 0,
+      avgMs: avg,
+      maxMs: e ? (e.maxMs || null) : null,
+      lastOkAt: e ? e.lastOkAt || null : null,
+      lastErrAt: e ? e.lastErrAt || null : null,
+      lastErr: e ? e.lastErr || '' : '',
+      health
+    };
+  });
+
+  return {
+    ok: true,
+    version: APP_VERSION,
+    generatedAt: new Date(now).toISOString(),
+    bootAt: new Date(DIAG_BOOT_AT).toISOString(),
+    uptimeSec: Math.round((now - DIAG_BOOT_AT) / 1000),
+    score,
+    status,
+    issues,
+    runtime: {
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      cores: (os.cpus() || []).length,
+      heapMb: diagMb(mem.heapUsed),
+      rssMb: diagMb(mem.rss),
+      loopLagMs: diagLoopLagMs,
+      loadAvg: (os.loadavg ? os.loadavg() : [0, 0, 0]).map(v => +Number(v).toFixed(2))
+    },
+    scan: {
+      daemonActive: Boolean(serverDaemonActive),
+      workers: hunterWorkers.length,
+      addressesChecked: Number(multiIndexAddressesChecked || 0) + Number(liveRpcAddressesChecked || 0),
+      addressesPerSec: +diagScanRatePerSec.toFixed(1),
+      liveRpcRequestsSent,
+      liveRpcVerified: liveRpcVerifiedCount,
+      evmNonceChecks: evmNonceChecksCount,
+      erc20TokensSwept: erc20TokensSweptCount,
+      rpcState: serverRpcState
+    },
+    verify: {
+      pending: pendingVerificationCount(),
+      queueDepth: pendingVerificationQueue.length,
+      backlog: pendingVerificationLeads.length,
+      parked: deferredVerificationLeads.length,
+      paused: verificationPaused,
+      ratePerMin: verificationRatePerMin(),
+      etaSeconds: verificationEtaSeconds(),
+      backoffMs: verificationBackoffMs,
+      attemptsLimit: VERIFY_MAX_ATTEMPTS,
+      batches: verificationStats.batches,
+      confirmedFunded: verificationStats.confirmedFunded,
+      confirmedEverHeld: verificationStats.confirmedEverHeld,
+      confirmedEmpty: verificationStats.confirmedEmpty,
+      unanswered: verificationStats.unanswered,
+      dropped: verificationStats.dropped,
+      lastRunAt: verificationStats.lastRunAt,
+      lastError: verificationStats.lastError,
+      rpcMode: verificationStats.rpcMode
+    },
+    chains,
+    coverage: {
+      serverSide: DIAG_WIRED_CHAINS.slice(),
+      browserOnly: DIAG_BROWSER_ONLY_CHAINS.slice(),
+      unverified: DIAG_UNVERIFIED_CHAINS.slice(),
+      requested: VERIFY_CHAINS.slice(),
+      missing: missingChains
+    },
+    prices: {
+      source: livePriceBook.source,
+      asOf: livePriceBook.asOf,
+      stale: livePriceBook.stale,
+      usable: !livePriceBook.stale && Object.keys(livePriceBook.usd).length > 0,
+      pricedAssets: Object.keys(livePriceBook.usd).length,
+      lastError: livePriceBook.lastError
+    },
+    bloom: {
+      imported: Number(fundedBloomMeta.totalImported || 0),
+      falsePositiveRate: fundedBloomFalsePositiveRate(),
+      bits: FUNDED_BLOOM_TOTAL_BITS
+    },
+    telegram: {
+      tokenPresent: Boolean(normalizeTelegramToken(alertChannelsConfig.telegramBotToken)),
+      running: telegramBotRuntime.running,
+      linked: Boolean(normalizeTelegramToken(alertChannelsConfig.telegramBotToken) && telegramChatId()),
+      muted: Boolean(telegramBotRuntime.muted),
+      consecutiveErrors: telegramBotRuntime.consecutiveErrors,
+      pushesSent: telegramBotRuntime.pushesSent,
+      lastOkAt: telegramBotRuntime.lastOkAt,
+      lastError: telegramBotRuntime.lastError
+    },
+    probe: diagProbe,
+    events: diagEvents.slice(-40).map(e => ({ at: new Date(e.t).toISOString(), kind: e.kind, text: e.text })),
+    statePaths: { report: DIAG_REPORT_FILE, log: DIAG_LOG_FILE }
+  };
+}
+
+/* Plain-language next step for each condition. Shown in the report so the user
+   (and whoever reads the paste) knows what to change, not just what broke. */
+const DIAG_ADVICE = {
+  'rpc.firewall': 'Online? If a VPN or firewall is in the way, allow CodeHaven through it. Adding an Alchemy key (Settings -> API keys) gives a private path that public rate limits cannot block.',
+  'verify.stalled': 'Add an Alchemy key and a TronGrid key, then press "Retry parked" on the queue bar.',
+  'verify.neverran': 'Wait one minute; if it persists, restart the app and re-run the diagnostic.',
+  'verify.backoff': 'The chains are not answering. Check the network, then add API keys to raise the rate limits.',
+  'verify.parked': 'Nothing is lost. Press "Retry parked" once the network or keys are fixed.',
+  'verify.cap': 'Clear the queue if those leads are not worth verifying, or import a smaller dump.',
+  'prices.missing': 'No price feed is reachable. USD values stay blank on purpose rather than showing a guessed number.',
+  'prices.stale': 'Market data is old. It refreshes every 5 minutes when a feed is reachable.',
+  'bloom.fp': 'This is expected for a large dump. Importing a smaller list, or using exact target addresses, cuts the work.',
+  'runtime.heap': 'Restart the app to release memory; report it if it keeps climbing.',
+  'runtime.loop': 'Something is blocking the event loop. Send this report.',
+  'disk.write': 'Free some disk space on this Mac and check the app can write to its data folder.',
+  'telegram.down': 'Open Settings -> Alerts and re-save the bot token, then confirm the bot is running.',
+  'rpc.probe': 'Check this Mac is online and not on a VPN/firewall that blocks HTTPS. Then add an Alchemy key (Settings -> API keys) so one endpoint is private, and press Check connectivity again.',
+  'rpc.allfail': 'Nothing can reach the chains. Confirm the Mac is online, then add an Alchemy key; if it still fails, the network is blocking these hosts.'
+};
+
+function diagAdviceFor(key) {
+  if (DIAG_ADVICE[key]) return DIAG_ADVICE[key];
+  if (key.startsWith('chain.')) {
+    return 'That endpoint is failing. Public RPCs rate-limit aggressively; adding the matching API key in Settings -> API keys usually fixes it.';
+  }
+  return '';
+}
+
+/**
+ * The paste-able report. Deliberately plain text, no secrets, no full
+ * addresses — safe to send in a chat.
+ */
+function diagnosticsReportText(snapshot) {
+  const s = snapshot || diagEvaluate();
+  const L = [];
+  const rule = '='.repeat(64);
+  const thin = '-'.repeat(64);
+  const pad = (v, n) => String(v).padEnd(n);
+  const padL = (v, n) => String(v).padStart(n);
+
+  L.push(rule);
+  L.push(' CODEHAVEN WALLET SCANNER — DIAGNOSTIC REPORT');
+  L.push(` version ${s.version} · ${s.generatedAt} · uptime ${Math.round(s.uptimeSec / 60)} min`);
+  L.push(` overall: ${String(s.status).toUpperCase()} (${s.score}/100)`);
+  L.push(rule);
+
+  // ---- issues -----------------------------------------------------------
+  L.push('');
+  L.push(`ISSUES (${s.issues.length})`);
+  if (s.issues.length === 0) {
+    L.push('  none — every check below is passing');
+  } else {
+    for (const inc of s.issues) {
+      L.push(`  [${String(inc.severity).toUpperCase()}] ${inc.title}`);
+      L.push(`      ${inc.detail}`);
+      L.push(`      seen ${inc.count}x, since ${new Date(inc.first).toISOString()}`);
+      const advice = diagAdviceFor(inc.key);
+      if (advice) L.push(`      -> ${advice}`);
+    }
+  }
+
+  // ---- runtime ----------------------------------------------------------
+  L.push('');
+  L.push('RUNTIME');
+  L.push(`  node ${s.runtime.node} · ${s.runtime.platform}/${s.runtime.arch} · ${s.runtime.cores} cores · load ${s.runtime.loadAvg.join(' / ')}`);
+  L.push(`  heap ${s.runtime.heapMb} MB · resident ${s.runtime.rssMb} MB · event-loop lag ${s.runtime.loopLagMs} ms`);
+
+  // ---- scanning ---------------------------------------------------------
+  L.push('');
+  L.push('SCANNING');
+  L.push(`  server engine        ${s.scan.daemonActive ? 'running' : 'stopped'}`);
+  L.push(`  worker threads       ${s.scan.workers}`);
+  L.push(`  addresses checked    ${s.scan.addressesChecked.toLocaleString()} (${s.scan.addressesPerSec}/s)`);
+  L.push(`  live RPC requests    ${s.scan.liveRpcRequestsSent.toLocaleString()}`);
+  L.push(`  confirmed live       ${s.scan.liveRpcVerified.toLocaleString()}`);
+  L.push(`  RPC state            ${s.scan.rpcState}`);
+
+  // ---- verification -----------------------------------------------------
+  L.push('');
+  L.push('LIVE-CHECK QUEUE');
+  L.push(`  waiting ${s.verify.pending.toLocaleString()}  (in-flight ${s.verify.queueDepth}, backlog ${s.verify.backlog.toLocaleString()}, parked ${s.verify.parked.toLocaleString()})`);
+  L.push(`  rate ${s.verify.ratePerMin}/min · ETA ${s.verify.etaSeconds === null ? 'unknown' : s.verify.etaSeconds + 's'} · backoff ${Math.round(s.verify.backoffMs / 1000)}s${s.verify.paused ? ' · PAUSED' : ''}`);
+  L.push(`  batches ${s.verify.batches} · confirmed funded ${s.verify.confirmedFunded} · ever-held ${s.verify.confirmedEverHeld} · empty ${s.verify.confirmedEmpty} · unanswered ${s.verify.unanswered.toLocaleString()}`);
+  L.push(`  last batch ${diagFmtAgo(s.verify.lastRunAt ? Date.parse(s.verify.lastRunAt) : 0)}${s.verify.lastError ? ' · last error: ' + s.verify.lastError : ''}`);
+
+  // ---- chains -----------------------------------------------------------
+  L.push('');
+  L.push('CHAIN ENDPOINTS');
+  L.push(`  ${pad('CHAIN', 7)}${padL('OK', 5)}${padL('FAIL', 6)}${padL('TMO', 5)}${padL('AVG ms', 8)}  ${pad('LAST OK', 13)}${pad('STATUS', 9)}LAST ERROR`);
+  for (const c of s.chains) {
+    L.push(`  ${pad(c.label, 7)}${padL(c.ok, 5)}${padL(c.fail, 6)}${padL(c.timeouts, 5)}${padL(c.avgMs === null ? '-' : c.avgMs, 8)}  ${pad(diagFmtAgo(c.lastOkAt), 13)}${pad(c.health, 9)}${c.lastErr || '-'}`);
+  }
+  L.push(`  server-side (always): ${s.coverage.serverSide.join(', ')}`);
+  L.push(`  only while the app window is open: ${s.coverage.browserOnly.join(', ') || 'none'}`);
+  if (s.coverage.unverified.length > 0) {
+    L.push(`  NEVER auto-verified (address shown only): ${s.coverage.unverified.join(', ')}`);
+  }
+  if (s.coverage.missing.length > 0) {
+    L.push(`  note: requested but not checked server-side: ${s.coverage.missing.join(', ')}`);
+  }
+
+  // ---- market -----------------------------------------------------------
+  L.push('');
+  L.push('MARKET DATA');
+  L.push(`  source ${s.prices.source} · as of ${s.prices.asOf || 'never'} · ${s.prices.stale ? 'STALE' : 'fresh'} · ${s.prices.pricedAssets} assets priced`);
+  if (s.prices.lastError) L.push(`  last error: ${s.prices.lastError}`);
+
+  // ---- bloom ------------------------------------------------------------
+  L.push('');
+  L.push('BLOOM DUMP');
+  L.push(`  addresses ${s.bloom.imported.toLocaleString()} · false-positive rate ${(s.bloom.falsePositiveRate * 100).toFixed(3)}% · ${(s.bloom.bits / 1e6).toFixed(1)}M bits`);
+
+  // ---- telegram ---------------------------------------------------------
+  L.push('');
+  L.push('TELEGRAM');
+  L.push(`  token ${s.telegram.tokenPresent ? 'present' : 'missing'} · listener ${s.telegram.running ? 'running' : 'stopped'} · chat ${s.telegram.linked ? 'linked' : 'not linked'}${s.telegram.muted ? ' · MUTED' : ''}`);
+  L.push(`  pushes ${s.telegram.pushesSent} · consecutive errors ${s.telegram.consecutiveErrors} · last ok ${diagFmtAgo(s.telegram.lastOkAt)}`);
+  if (s.telegram.lastError) L.push(`  last error: ${s.telegram.lastError}`);
+
+  // ---- probe ------------------------------------------------------------
+  if (s.probe) {
+    L.push('');
+    L.push('LAST CONNECTIVITY PROBE');
+    L.push(`  ${s.probe.at} · ${s.probe.ok ? 'PASSED' : 'FAILED'} · ${s.probe.answered} chain answer(s) in ${s.probe.ms} ms · mode ${s.probe.mode || 'n/a'}`);
+    if (Array.isArray(s.probe.perChain) && s.probe.perChain.length) {
+      L.push('  ' + s.probe.perChain.map(p => `${p.label} ${p.fail ? 'FAIL' : 'ok'}${p.lastErr ? ' (' + p.lastErr + ')' : ''}`).join(' · '));
+    }
+  }
+
+  // ---- events -----------------------------------------------------------
+  if (s.events.length > 0) {
+    L.push('');
+    L.push(`RECENT EVENTS (last ${Math.min(s.events.length, 25)})`);
+    for (const e of s.events.slice(-25)) {
+      const t = e.at.slice(11, 19);
+      L.push(`  ${t} ${pad(e.kind, 8)} ${e.text}`);
+    }
+  }
+
+  L.push('');
+  L.push(thin);
+  L.push(` full report file: ${DIAG_REPORT_FILE}`);
+  L.push(` incident log:     ${DIAG_LOG_FILE}`);
+  L.push(rule);
+  return L.join('\n');
+}
+
+/** Short version for a Telegram message (hard cap 4096 chars). */
+function diagnosticCompactText(snapshot) {
+  const s = snapshot || diagSnapshot();
+  const icon = s.status === 'ok' ? '🟢' : (s.status === 'degraded' ? '🟡' : '🔴');
+  const L = [];
+  L.push(`${icon} <b>Health: ${String(s.status).toUpperCase()} (${s.score}/100)</b>`);
+  L.push(`v${s.version} · up ${Math.round(s.uptimeSec / 60)} min · ${s.scan.addressesPerSec}/s scanned`);
+  L.push('');
+  if (s.issues.length === 0) {
+    L.push('No issues detected.');
+  } else {
+    L.push(`<b>Issues (${s.issues.length})</b>`);
+    for (const inc of s.issues.slice(0, 6)) {
+      L.push(`• ${String(inc.severity).toUpperCase()}: ${tgEscape(inc.title)}`);
+      L.push(`   ${tgEscape(inc.detail).slice(0, 160)}`);
+    }
+    if (s.issues.length > 6) L.push(`…and ${s.issues.length - 6} more (see the app).`);
+  }
+  L.push('');
+  L.push(`⏳ Queue: ${s.verify.pending.toLocaleString()} waiting · ${s.verify.ratePerMin}/min${s.verify.parked ? ` · ${s.verify.parked} parked` : ''}`);
+  // Never call an endpoint healthy when it has not answered once.
+  const probed = s.chains.filter(c => c.attempts > 0);
+  const good = probed.filter(c => c.health === 'ok' || c.health === 'flaky');
+  const bad = probed.filter(c => c.health === 'failing').map(c => c.label);
+  if (probed.length === 0) {
+    L.push(`🔗 Chains: not probed yet (${s.chains.length} endpoints configured)`);
+  } else {
+    L.push(`🔗 Chains: ${good.length}/${probed.length} answering${bad.length ? ` — failing: ${bad.join(', ')}` : ''}`);
+  }
+  L.push(`💱 Prices: ${s.prices.stale ? 'stale' : (s.prices.asOf ? 'fresh' : 'none')} · 🗄 Bloom FP ${(s.bloom.falsePositiveRate * 100).toFixed(2)}%`);
+  if (s.coverage.unverified.length) L.push(`⚠️ Never auto-verified: ${s.coverage.unverified.join(', ')}`);
+  return L.join('\n').slice(0, 3800);
+}
+
+/**
+ * TRON base58check -> 0x hex. Validated at boot against the USDT contract pair
+ * that is already hard-coded above, so a bad decoder can never silently pass.
+ */
+function tronBase58ToHex(address) {
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n = 0n;
+  for (const ch of String(address || '')) {
+    const idx = ALPHABET.indexOf(ch);
+    if (idx < 0) return null;
+    n = n * 58n + BigInt(idx);
+  }
+  let hex = n.toString(16);
+  if (hex.length % 2) hex = '0' + hex;
+  const buf = Buffer.from(hex, 'hex');
+  if (buf.length !== 25 || buf[0] !== 0x41) return null;
+  const payload = buf.subarray(0, 21);
+  const checksum = buf.subarray(21);
+  const digest = crypto.createHash('sha256').update(crypto.createHash('sha256').update(payload).digest()).digest();
+  if (!digest.subarray(0, 4).equals(checksum)) return null;
+  return '0x' + payload.subarray(1).toString('hex');
+}
+
+/**
+ * Run the real verifier against one known public address per chain. This is the
+ * only check that proves the exact code path the scanner uses can reach a chain
+ * from this machine. persist:false means nothing can enter a vault.
+ */
+async function runConnectivityProbe() {
+  const before = new Map();
+  for (const [label, e] of diagChainStats) before.set(label, { ok: e.ok, fail: e.fail });
+  const counters = { liveRpcRequestsSent, liveRpcAddressesChecked, liveRpcVerifiedCount };
+  const prevRpcState = serverRpcState;
+
+  const trxHex = tronBase58ToHex('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+  const probeItem = {
+    input: 'health probe',
+    btcLegacy: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
+    ethAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    trxAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    trxHexAddress: trxHex || undefined,
+    xrpAddress: 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh'
+  };
+
+  const startedAt = Date.now();
+  let outcome = null;
+  try {
+    outcome = await verifyBatchLiveOnServer([probeItem], VERIFY_CHAINS, { persist: false, force: true });
+  } catch (err) {
+    outcome = { answered: 0, mode: 'exception', error: err.message };
+  }
+
+  // A probe must never inflate the scan counters it is meant to observe.
+  liveRpcRequestsSent = counters.liveRpcRequestsSent;
+  liveRpcAddressesChecked = counters.liveRpcAddressesChecked;
+  liveRpcVerifiedCount = counters.liveRpcVerifiedCount;
+
+  const perChain = [];
+  for (const [label, e] of diagChainStats) {
+    const prev = before.get(label) || { ok: 0, fail: 0 };
+    const ok = e.ok - prev.ok;
+    const fail = e.fail - prev.fail;
+    if (ok || fail) perChain.push({ label, ok, fail, lastErr: e.lastErr || '' });
+  }
+  perChain.sort((a, b) => a.label.localeCompare(b.label));
+
+  diagProbe = {
+    at: new Date().toISOString(),
+    ok: Number(outcome && outcome.answered || 0) > 0 || perChain.some(p => p.ok > 0),
+    answered: Number(outcome && outcome.answered || 0),
+    ms: Date.now() - startedAt,
+    mode: (outcome && outcome.mode) || 'unknown',
+    previousRpcState: prevRpcState,
+    perChain,
+    error: (outcome && outcome.error) || null,
+    tronAddressDecoded: Boolean(trxHex)
+  };
+  diagEvent('probe', `${diagProbe.ok ? 'reachable' : 'unreachable'} — ${diagProbe.answered} answer(s) in ${diagProbe.ms} ms`);
+  if (diagProbe.ok) {
+    diagClear('rpc.probe');
+  } else {
+    const why = diagProbe.perChain.filter(p => p.lastErr).map(p => `${p.label}: ${p.lastErr}`).slice(0, 3).join('; ');
+    diagRaise('rpc.probe', 'critical', 'Connectivity probe failed',
+      `No chain answered for known-good addresses${why ? ' — ' + why : ''}. This machine cannot verify wallets right now.`);
+  }
+  diagEvaluate();
+  return diagProbe;
+}
+
+function writeDiagnosticReport() {
+  try {
+    const text = diagnosticsReportText(diagSnapshot());
+    fs.writeFileSync(DIAG_REPORT_FILE, text);
+    return text;
+  } catch (err) {
+    diagDiskErrors++;
+    return `Could not write ${DIAG_REPORT_FILE}: ${err.message}`;
+  }
+}
+
+let diagTimer = null;
+let diagTickCount = 0;
+function diagStart() {
+  if (diagTimer) return;
+  // Event-loop lag sample (1s) — the earliest sign that the app is choked.
+  const loopTimer = setInterval(() => {
+    const now = Date.now();
+    const lag = Math.max(0, now - diagLoopLastAt - 1000);
+    diagLoopLastAt = now;
+    diagLoopLagMs = Math.round(diagLoopLagMs * 0.6 + lag * 0.4);
+  }, 1000);
+  if (loopTimer.unref) loopTimer.unref();
+
+  diagTimer = setInterval(() => {
+    try {
+      diagEvaluate();
+      diagTickCount++;
+      // Refresh the on-disk report once a minute so it is always current even
+      // if the UI is closed or the process is later killed.
+      if (diagTickCount % 3 === 0) writeDiagnosticReport();
+    } catch (err) {
+      console.warn('[diagnostics] evaluation failed:', err.message);
+    }
+  }, 20000);
+  if (diagTimer.unref) diagTimer.unref();
+
+  // Decoder self-check: this pair is already hard-coded in the TRON branch.
+  const check = tronBase58ToHex('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+  if (check !== '0xa614f803b6fd780986a42c78ec9c7f77e6ded13c') {
+    console.warn('[diagnostics] TRON address decoder self-check failed:', check);
+  }
+  diagEvent('boot', `self-monitor online (v${APP_VERSION})`);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
    LIVE PRICE ENGINE
    Balances come from the chain; their USD value must come from a real market
    feed. Hardcoded rates silently invent dollar figures, so every conversion
@@ -2544,6 +3281,7 @@ function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 18
  */
 async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'SOL'], opts = {}) {
   const persist = opts.persist !== false;
+  const force = opts.force === true;
   if (!items || items.length === 0) return { verifiedOnServer: false, mode: serverRpcState, answered: 0 };
 
   // Fetch real market rates before converting any balance to USD.
@@ -2561,7 +3299,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       it.liveVerified = false;
     }
   }
-  if (serverRpcState === 'firewalled' && Date.now() - serverRpcLastProbeAt < 45000) {
+  if (!force && serverRpcState === 'firewalled' && Date.now() - serverRpcLastProbeAt < 45000) {
     return { verifiedOnServer: false, mode: 'browser_cors_rpc' };
   }
   serverRpcLastProbeAt = Date.now();
@@ -2582,7 +3320,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       const allBtc = Array.from(btcMap.keys()).slice(0, 100);
       if (allBtc.length > 0) {
         tasks.push(
-          httpsJsonRequest(`https://blockchain.info/multiaddr?active=${encodeURIComponent(allBtc.join('|'))}&n=0`, 'GET', null, 1800)
+          diagTrackTask('BTC', httpsJsonRequest(`https://blockchain.info/multiaddr?active=${encodeURIComponent(allBtc.join('|'))}&n=0`, 'GET', null, 1800))
             .then(data => {
               liveRpcRequestsSent++;
               liveRpcAddressesChecked += allBtc.length;
@@ -2653,12 +3391,12 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         const alchemyUrl = alchemyRpcUrl(apiKeysConfig.alchemyApiKey);
         const rpcUrl = (chainFlag === 'ETH' && alchemyUrl) ? alchemyUrl : cfg.rpcs[0];
         tasks.push(
-          httpsJsonRequest(rpcUrl, 'POST', {
+          diagTrackTask(chainFlag, httpsJsonRequest(rpcUrl, 'POST', {
             jsonrpc: '2.0',
             id: 1,
             method: 'eth_call',
             params: [{ to: sweep.to, data: sweep.data }, 'latest']
-          }, 1800).then(resp => {
+          }, 1800)).then(resp => {
             liveRpcRequestsSent++;
             liveRpcAddressesChecked += allEvmAddrs.length;
             erc20TokensSweptCount += sweep.callCount;
@@ -2708,7 +3446,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
           });
         });
         tasks.push(
-          httpsJsonRequest('https://api.trongrid.io/jsonrpc', 'POST', trxBatch, 1800, tronGridHeaders()).then(respArr => {
+          diagTrackTask('TRX', httpsJsonRequest('https://api.trongrid.io/jsonrpc', 'POST', trxBatch, 1800, tronGridHeaders())).then(respArr => {
             liveRpcRequestsSent++;
             liveRpcAddressesChecked += trxItems.length;
             if (!Array.isArray(respArr)) return;
@@ -2746,10 +3484,10 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       const xrpSample = items.filter(it => it.xrpAddress).slice(0, 6);
       for (const it of xrpSample) {
         tasks.push(
-          httpsJsonRequest('https://xrplcluster.com/', 'POST', {
+          diagTrackTask('XRP', httpsJsonRequest('https://xrplcluster.com/', 'POST', {
             method: 'account_info',
             params: [{ account: it.xrpAddress, ledger_index: 'validated' }]
-          }, 1600).then(resp => {
+          }, 1600)).then(resp => {
             liveRpcRequestsSent++;
             liveRpcAddressesChecked++;
             const acct = resp && resp.result && resp.result.account_data;
@@ -2776,9 +3514,11 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
     // allSettled, not all: one chain endpoint being down must not discard the
     // answers that the other chains already returned for this batch.
     await Promise.allSettled(tasks);
-    serverRpcState = 'online';
+    // allSettled swallows every failure, so the old unconditional 'online' here
+    // reported success during a total outage. Decide from actual answers below.
 
     let answered = 0;
+    serverRpcState = items.some(it => Number(it.rpcChainsAnswered || 0) > 0) ? 'online' : 'firewalled';
     for (const it of items) {
       // No chain replied for this wallet → it stays "unverified". We must never
       // promote silence into a finding.
@@ -2813,14 +3553,18 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       }
     }
     return {
-      verifiedOnServer: true,
-      mode: 'server_and_browser_live_rpc',
+      verifiedOnServer: answered > 0,
+      // Reporting success mode with zero answers made a total outage look fine.
+      mode: answered > 0 ? 'server_and_browser_live_rpc' : 'no_chain_answered',
       answered,
       prices: { asOf: livePriceBook.asOf, source: livePriceBook.source, stale: livePriceBook.stale, unpricedAssets: Array.from(unpricedAssets) }
     };
-  } catch (_) {
+  } catch (err) {
+    // Was `catch (_)`: a failure here used to be indistinguishable from
+    // "the network is down". Now it is recorded and reported.
     serverRpcState = 'firewalled';
-    return { verifiedOnServer: false, mode: 'browser_cors_rpc' };
+    diagEvent('rpc', `verifier failed: ${String(err && err.message || err).slice(0, 200)}`);
+    return { verifiedOnServer: false, mode: 'browser_cors_rpc', error: String(err && err.message || err) };
   }
 }
 
@@ -3865,6 +4609,7 @@ function telegramHelpText() {
     '/everheld [n] — latest ever-held wallets',
     '/bloom — dump size and false-positive rate',
     '/price — live market prices',
+    '/diagnose — self-check: chains, queue, prices, bot',
     '/mute — stop push notifications',
     '/unmute — resume push notifications',
     '/whoami — this chat’s ID',
@@ -3880,6 +4625,10 @@ async function handleTelegramCommand(message) {
   const fromName = [message.from && message.from.first_name, message.from && message.from.last_name]
     .filter(Boolean).join(' ') || (message.from && message.from.username) || 'there';
 
+  // Always answer the chat that asked. Relying on the globally linked chat ID
+  // meant /diagnose silently failed whenever no chat was linked yet.
+  const reply = (text) => telegramSend(text, { chatId });
+
   // "/status@MyBot args" → command "status"
   const match = raw.match(/^\/([A-Za-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/);
   const command = match ? match[1].toLowerCase() : '';
@@ -3888,7 +4637,7 @@ async function handleTelegramCommand(message) {
   const configured = telegramChatId();
   if (configured && chatId !== configured) {
     // Only the linked chat may issue commands.
-    await telegramSend(
+    await reply(
       '⛔ This bot is linked to a different chat.\nIf that is you, open CodeHaven → Settings → Alerts and clear the chat ID, then send /start here.',
       { chatId }
     );
@@ -3900,7 +4649,7 @@ async function handleTelegramCommand(message) {
     if (chatType !== 'private') {
       // A group/channel could contain other people. Never let one adopt the
       // alert stream by typing /start — the operator must paste its ID.
-      await telegramSend(
+      await reply(
         `⛔ This is a ${chatType}. For privacy I will not link a group or channel automatically.\n\n`
         + 'Paste its numeric chat ID in CodeHaven → Settings → Alerts → Chat / channel ID, save, then send /start here again.',
         { chatId }
@@ -3923,25 +4672,25 @@ async function handleTelegramCommand(message) {
       '',
       telegramHelpText()
     ].join('\n');
-    await telegramSend(hello);
+    await reply(hello);
     return;
   }
 
   switch (command) {
     case 'help':
-      await telegramSend(telegramHelpText());
+      await reply(telegramHelpText());
       break;
     case 'status':
-      await telegramSend(telegramStatusText());
+      await reply(telegramStatusText());
       break;
     case 'funded': {
       const n = Math.min(Math.max(parseInt(args, 10) || 5, 1), 15);
-      await telegramSend(telegramFundedText(n));
+      await reply(telegramFundedText(n));
       break;
     }
     case 'everheld': {
       const n = Math.min(Math.max(parseInt(args, 10) || 5, 1), 15);
-      await telegramSend(telegramEverHeldText(n));
+      await reply(telegramEverHeldText(n));
       break;
     }
     case 'bloom': {
@@ -3962,25 +4711,33 @@ async function handleTelegramCommand(message) {
         lines.push('');
         lines.push('No dump loaded — the scanner can only find target-list addresses until you import one.');
       }
-      await telegramSend(lines.join('\n'));
+      await reply(lines.join('\n'));
       break;
     }
     case 'price':
-      await telegramSend(telegramPriceText());
+      await reply(telegramPriceText());
       break;
+    case 'diagnose':
+    case 'health': {
+      const snap = diagEvaluate();
+      // Kept short by design so it fits one Telegram message.
+      await reply(diagnosticCompactText(snap));
+      writeDiagnosticReport();
+      break;
+    }
     case 'mute':
       telegramBotRuntime.muted = true;
-      await telegramSend('🔇 <b>Muted.</b> Scanning continues; no further result messages until /unmute.');
+      await reply('🔇 <b>Muted.</b> Scanning continues; no further result messages until /unmute.');
       break;
     case 'unmute':
       telegramBotRuntime.muted = false;
-      await telegramSend('🔔 <b>Unmuted.</b> New confirmations will be pushed here.');
+      await reply('🔔 <b>Unmuted.</b> New confirmations will be pushed here.');
       break;
     case 'whoami':
-      await telegramSend(`🆔 Chat ID: <code>${tgEscape(chatId)}</code>\nName: ${tgEscape(fromName)}`);
+      await reply(`🆔 Chat ID: <code>${tgEscape(chatId)}</code>\nName: ${tgEscape(fromName)}`);
       break;
     default:
-      await telegramSend(`Unknown command “${tgEscape(command)}”.\n\n` + telegramHelpText());
+      await reply(`Unknown command “${tgEscape(command)}”.\n\n` + telegramHelpText());
   }
 }
 
@@ -4377,6 +5134,54 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify(getBrainTelemetry()));
   }
 
+  // ── Self-monitor ──────────────────────────────────────────────────────
+  if (url.pathname === '/api/diagnostics' && req.method === 'GET') {
+    try {
+      const write = url.searchParams.get('write') === '1';
+      let text = null;
+      if (write) { try { text = writeDiagnosticReport(); } catch (_) {} }
+      const payload = {
+        ...diagSnapshot(),
+        report: text || (fs.existsSync(DIAG_REPORT_FILE) ? fs.readFileSync(DIAG_REPORT_FILE, 'utf8') : diagnosticsReportText())
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(payload));
+    } catch (err) {
+      // Never leave the request hanging: a monitor that cannot report is a bug.
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+  }
+
+  if (url.pathname === '/api/diagnostics/report' && req.method === 'POST') {
+    const text = writeDiagnosticReport();
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="DIAGNOSTIC_REPORT.txt"',
+      'Cache-Control': 'no-store'
+    });
+    return res.end(text);
+  }
+
+  if (url.pathname === '/api/diagnostics/probe' && req.method === 'POST') {
+    let settled = false;
+    const finish = (payload, code) => {
+      if (settled) return;
+      settled = true;
+      try {
+        res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(payload));
+      } catch (_) {}
+    };
+    // Never let a hanging endpoint leave the request open forever.
+    const guard = setTimeout(() => finish({ ok: false, error: 'Probe timed out after 30s' }, 504), 30000);
+    if (guard.unref) guard.unref();
+    runConnectivityProbe()
+      .then(result => { clearTimeout(guard); finish({ ok: true, probe: result, snapshot: diagSnapshot() }, 200); })
+      .catch(err => { clearTimeout(guard); finish({ ok: false, error: err.message }, 500); });
+    return;
+  }
+
   if (url.pathname === '/api/verification-control' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -4452,6 +5257,12 @@ const server = http.createServer((req, res) => {
       etaSeconds: verificationEtaSeconds(),
       backoffMs: verificationBackoffMs,
       attemptsLimit: VERIFY_MAX_ATTEMPTS,
+      health: (() => {
+        try {
+          const snap = diagSnapshot();
+          return { score: snap.score, status: snap.status, issues: snap.issues.length };
+        } catch (_) { return null; }
+      })(),
       confirmedEverHeld: everHeldWalletsVault.length,
       confirmedFunded: foundWalletsVault.length,
       bloom: {
@@ -4472,7 +5283,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.6.5',
+      version: APP_VERSION,
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
@@ -5828,6 +6639,9 @@ server.listen(PORT, HOST, () => {
     startTelegramBot().catch(err => console.warn('[Telegram] could not start:', err.message));
   }
   if (alertChannelsConfig.keepAwake === true) applyKeepAwake(true);
+  // Self-monitor: starts sampling, writes DIAGNOSTIC_REPORT.txt every minute.
+  diagStart();
+  console.log(`[diagnostics] self-monitor online — report at ${DIAG_REPORT_FILE}`);
   console.log(`State directory: ${DATA_DIR}`);
   if (activeSmtpSpoolPort !== PORT) {
     console.log(`Embedded SMTP spool listening on 127.0.0.1:${activeSmtpSpoolPort}`);
@@ -5850,6 +6664,7 @@ function gracefulShutdown(signal) {
     fs.writeFileSync(PENDING_VERIFICATION_FILE, JSON.stringify(pendingVerificationLeads, null, 2));
     fs.writeFileSync(DEFERRED_VERIFICATION_FILE, JSON.stringify(deferredVerificationLeads, null, 2));
   } catch (_) {}
+  try { writeDiagnosticReport(); } catch (_) {}
   try { serverDaemonActive = false; } catch (_) {}
   try { localSmtpServer.close(); } catch (_) {}
   try { for (const w of hunterWorkers) { try { w.terminate(); } catch (_) {} } } catch (_) {}
