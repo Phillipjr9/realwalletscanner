@@ -280,6 +280,38 @@ delivers real funded-wallet alerts, so a green test means alerts will arrive.
 
 ---
 
+## Do I need explorer API keys?
+
+**No.** Every chain is checked through keyless public endpoints, so a fresh install
+starts verifying immediately:
+
+| Chain | Endpoint | Key needed |
+|---|---|---|
+| BTC | `blockchain.info` multiaddr | no |
+| ETH / Arbitrum / Base / Optimism / Avalanche / Polygon / BNB | public RPCs via Multicall3 | no |
+| TRON | `api.trongrid.io` | no (lower rate limit) |
+| XRP | `xrplcluster.com` | no |
+| LTC / DOGE | keyless public APIs | no |
+| SOL | public RPC | no |
+| USD prices | CoinGecko → Binance | no |
+
+Keys only raise rate limits, which matters when you are verifying a large backlog of
+Bloom leads. Two of them actually change behaviour today:
+
+- **Alchemy** — paste either the API key from your dashboard or the full `https://…`
+  RPC URL; Ethereum verification then uses your endpoint.
+- **TronGrid** — sent as the `TRON-PRO-API-KEY` header, raising the TRON limit.
+
+Etherscan, BlockCypher, QuickNode, Polygonscan and BscScan are stored for future use
+but the verifier does not call them — leave them blank. Keys live in
+`~/Library/Application Support/CodeHaven Workstation/api_keys_config.json`, never in the
+app bundle and never in git.
+
+If you start seeing `pending live check` pile up while the machine is online, that is the
+signal to add a key (or slow the scan rate) — it means the public endpoints are throttling.
+
+---
+
 ## Telegram bot — results while you are away
 
 The Telegram integration is not just a "test" button: the scanner runs a bot inside

@@ -2219,26 +2219,29 @@
             <section class="settings-section" data-settings-section="api">
               <div>
                 <div class="settings-h2">API Keys &amp; RPC</div>
-                <p class="settings-p">Public mainnet batch RPCs work out of the box. Add optional explorer keys to raise quotas and skip rate limits.</p>
+                <p class="settings-p">Optional — the scanner works without any keys using keyless public RPCs. Adding keys only raises rate limits.</p>
               </div>
 
               <div class="settings-block">
                 <div class="settings-block-head">
                   <div class="settings-block-title">Explorer &amp; node providers</div>
-                  <span id="ApiKeysModalBadge" class="pill pill-emerald mono">LIVE MAINNET RPC ACTIVE</span>
+                  <span id="ApiKeysModalBadge" class="pill pill-emerald mono">KEYLESS PUBLIC RPC</span>
                 </div>
                 <div class="grid-2">
                   <div class="field"><label class="field-label">Etherscan API key</label><input id="apiKeyEtherscan" class="input-box mono" type="text" placeholder="Optional Etherscan V2 key" /></div>
                   <div class="field"><label class="field-label">BlockCypher token</label><input id="apiKeyBlockCypher" class="input-box mono" type="text" placeholder="Optional BlockCypher token" /></div>
                   <div class="field"><label class="field-label">QuickNode / Solana RPC</label><input id="apiKeyQuickNode" class="input-box mono" type="text" placeholder="Optional Solana RPC URL" /></div>
-                  <div class="field"><label class="field-label">Alchemy / ETH JSON-RPC</label><input id="apiKeyAlchemy" class="input-box mono" type="text" placeholder="Optional ETH JSON-RPC URL" /></div>
-                  <div class="field"><label class="field-label">TronGrid key</label><input id="apiKeyTronGrid" class="input-box mono" type="text" placeholder="Optional TronGrid key" /></div>
+                  <div class="field"><label class="field-label">Alchemy / ETH JSON-RPC <span style="color:#6EE7B7;">(used)</span></label><input id="apiKeyAlchemy" class="input-box mono" type="text" placeholder="API key or https URL — raises the ETH rate limit" /></div>
+                  <div class="field"><label class="field-label">TronGrid key <span style="color:#6EE7B7;">(used)</span></label><input id="apiKeyTronGrid" class="input-box mono" type="text" placeholder="Sent as TRON-PRO-API-KEY — raises the TRON limit" /></div>
                   <div class="field"><label class="field-label">Polygonscan key</label><input id="apiKeyPolygonscan" class="input-box mono" type="text" placeholder="Optional Polygonscan key" /></div>
                   <div class="field"><label class="field-label">BscScan key</label><input id="apiKeyBscscan" class="input-box mono" type="text" placeholder="Optional BscScan key" /></div>
                 </div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
                   <button class="btn btn-primary" onclick="saveApiKeysConfig()">Save API keys locally</button>
-                  <span id="ApiKeysStatusText" class="mono" style="font-size:10.5px; color:#34D399;">Live public mainnet RPC active</span>
+                  <span id="ApiKeysStatusText" class="mono" style="font-size:10.5px; color:#34D399;">Running on keyless public RPC</span>
+                </div>
+                <div class="mono" style="font-size:10px; color:var(--text-muted); line-height:1.6; margin-top:8px;">
+                  Only <b>Alchemy</b> and <b>TronGrid</b> change how the scanner behaves today. Etherscan, BlockCypher, QuickNode, Polygonscan and BscScan are stored for future use but the verifier does not call them — leave them blank unless you already have them. Keys stay in <span style="color:#94A3B8;">api_keys_config.json</span> on this machine and are never uploaded or committed.
                 </div>
               </div>
             </section>
@@ -2441,9 +2444,11 @@
       }
       if (data && typeof data.configuredCount === 'number') {
         const headerBadge = document.getElementById('HeaderApiKeysBadge');
-        if (headerBadge) headerBadge.textContent = `${data.configuredCount}/${data.totalProviders} ACTIVE`;
+        // Honest badge: "ACTIVE" implies the key is being used, and only
+        // Alchemy + TronGrid are wired into the verifier today.
+        if (headerBadge) headerBadge.textContent = data.configuredCount > 0 ? `${data.configuredCount} KEY${data.configuredCount === 1 ? '' : 'S'}` : 'KEYLESS';
         const modalBadge = document.getElementById('ApiKeysModalBadge');
-        if (modalBadge) modalBadge.textContent = `${data.configuredCount}/${data.totalProviders} ACTIVE • ${(data.apiQuotaSavedCount || 0).toLocaleString()} SAVED`;
+        if (modalBadge) modalBadge.textContent = data.configuredCount > 0 ? `${data.configuredCount} OPTIONAL KEY${data.configuredCount === 1 ? '' : 'S'} SET` : 'KEYLESS PUBLIC RPC';
       }
     } catch (_) {}
   }
@@ -2467,10 +2472,12 @@
       });
       const data = await res.json();
       if (data.ok) {
-        statusEl.textContent = `✅ All ${data.configuredCount}/${data.totalProviders} API keys active in Zero-Waste Mode!`;
+        statusEl.textContent = data.configuredCount > 0
+          ? `✅ ${data.configuredCount} optional key${data.configuredCount === 1 ? '' : 's'} saved — keyless RPC still handles the rest`
+          : 'Running on keyless public RPC — no keys needed';
         statusEl.style.color = '#34D399';
         const headerBadge = document.getElementById('HeaderApiKeysBadge');
-        if (headerBadge) headerBadge.textContent = `${data.configuredCount}/${data.totalProviders} ACTIVE`;
+        if (headerBadge) headerBadge.textContent = data.configuredCount > 0 ? `${data.configuredCount} KEY${data.configuredCount === 1 ? '' : 'S'}` : 'KEYLESS';
       }
     } catch (e) {
       statusEl.textContent = `❌ Save error: ${e.message}`;
