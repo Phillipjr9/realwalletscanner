@@ -173,6 +173,27 @@ cp -R "$HOME/Library/Application Support/CodeHaven Workstation/PersistentState" 
 
 ---
 
+## Viewing funded wallets
+
+Open the **Verified Activity Vault** tab (⌘3 in the desktop app), then click **💰 Funded**.
+That view lists every wallet with money on it right now — nothing else:
+
+- the **current balance in USD** and the per-chain amounts (e.g. `1.5 ETH (Ethereum)`)
+- the **seed phrase**, WIF keys and ETH private key, with copy buttons
+- **explorer links** per address (Etherscan, mempool.space, Tronscan, XRPSCAN, Solscan…)
+- the **confirmation time** and discovery vector
+- click any row for the full dossier
+
+The list is loaded from the server vault (`FOUND_WALLETS_VAULT.json`), so it survives
+restarts and shows wallets found in earlier sessions, not just the current stream. The
+header shows `N FUNDED · $TOTAL`, and the same filter appears above the pinned table on the
+Smart Hunter tab.
+
+Export with **📥 funded_wallets.txt** — a plain-text report with balances, keys and addresses
+for every funded wallet. Ever-held wallets keep their own export (`ever_held_wallets.txt`).
+
+---
+
 ## Why a wallet shows "PENDING LIVE CHECK" instead of a dollar amount
 
 The scanner can only find funded wallets two ways: an address on your **target list**, or a
