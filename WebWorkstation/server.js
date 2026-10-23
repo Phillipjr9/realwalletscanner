@@ -129,6 +129,34 @@ let fundedBloomMeta = {
   byChain: { BTC: 0, ETH_EVM: 0, TRX: 0, XRP: 0, LTC: 0, DOGE: 0, SOL_OTHER: 0 }
 };
 
+/**
+ * Est. false-positive rate of the funded-address Bloom filter.
+ * p ≈ (1 - e^(-k·n/m))^k with k=4 hashes and m=268,435,456 bits.
+ * At 50M imported addresses this is ~7.6% — 1 in 13 scanned wallets would
+ * "match" a funded address that was never funded. Every match must therefore
+ * be confirmed on-chain before it is ever reported as a hit.
+ */
+function fundedBloomFalsePositiveRate() {
+  const k = 4;
+  const n = fundedBloomMeta.totalImported;
+  if (!n) return 0;
+  return Math.pow(1 - Math.exp((-k * n) / FUNDED_BLOOM_TOTAL_BITS), k);
+}
+
+/** How many of the 4 hashes a candidate fills — 4/4 means a full match. */
+function fundedBloomHashHits(rawAddr) {
+  if (!rawAddr) return 0;
+  const clean = normalizeFundedAddress(rawAddr);
+  if (clean.length < 25) return 0;
+  const [h1, h2, h3, h4] = fundedBloomHashes(clean);
+  const bits = [h1, h2, h3, h4].map(h => h % FUNDED_BLOOM_TOTAL_BITS);
+  let hits = 0;
+  for (const bit of bits) {
+    if ((Atomics.load(sharedFundedBloomView, bit >>> 5) & (1 << (bit & 31))) !== 0) hits++;
+  }
+  return hits;
+}
+
 function normalizeFundedAddress(addr) {
   if (!addr || typeof addr !== 'string') return '';
   const clean = addr.trim();
@@ -1298,15 +1326,21 @@ function checkTargetAddressMatch(item) {
   }
   for (const addr of candidates) {
     if (addr && isFundedBloomMatch(addr)) {
+      // A Bloom match is a *lead*, not a finding. It carries no balance, no
+      // transaction count and no dollar value: those only ever come from a live
+      // RPC answer. This wallet is queued for confirmation and stays invisible
+      // until a chain responds.
       return {
         matchedAddress: addr,
         btc: 0,
         eth: 0,
-        usd: 0.01,
-        everHeldCrypto: true,
-        historicalTx: 1,
+        usd: 0,
+        historicalTx: 0,
+        everHeldCrypto: false,
         bloomCandidate: true,
-        label: `FUNDED BLOOM DUMP HIT (${addr.slice(0, 14)}...) — Queued for Live RPC Balance Confirmation`
+        bloomOnly: true,
+        verification: 'pending',
+        label: `Bloom dump match (${addr.slice(0, 14)}…) — awaiting live RPC confirmation`
       };
     }
   }
@@ -1438,13 +1472,38 @@ try {
   }
 } catch (_) {}
 
+const LEGACY_FAKE_USD_SENTINEL = 0.01;
+
+/** True for the old "Bloom hit = $0.01" records written before this fix. */
+function isLegacyBloomPlaceholder(record) {
+  if (!record) return false;
+  // Explicitly-flagged leads never belong in a confirmed vault.
+  if (record.verification === 'pending' || record.bloomOnly) return true;
+  if (record.verification === 'confirmed' || record.liveVerified) return false;
+  if (record.balances && Object.keys(record.balances).length > 0) return false;
+  const usd = Number(record.balanceUsd || 0);
+  if (usd !== LEGACY_FAKE_USD_SENTINEL) return false;
+  return Number(record.totalEverReceivedBtc || 0) === 0
+    && Number(record.totalEverReceivedEth || 0) === 0
+    && Number(record.historicalTx || 0) <= 1;
+}
+
 function applyWalletHistoryMetadata(item, known) {
-  const txCount = known ? Number(known.historicalTx || 1) : 0;
+  const isPendingBloom = Boolean(known && known.bloomOnly && known.verification !== 'confirmed');
+  // Already confirmed on-chain? A Bloom lead must not erase that evidence.
+  if (isPendingBloom && item.verification === 'confirmed') return;
+  const txCount = isPendingBloom ? 0 : (known ? Number(known.historicalTx || 1) : 0);
   const everBtc = known ? Number(known.totalEverReceivedBtc !== undefined ? known.totalEverReceivedBtc : (known.btc || 0)) : 0;
   const everEth = known ? Number(known.totalEverReceivedEth !== undefined ? known.totalEverReceivedEth : (known.eth || 0)) : 0;
-  const curUsd = known ? (known.usd !== undefined ? Number(known.usd) : ((known.btc > 0 || known.eth > 0) ? 1425.50 : 0)) : 0;
-  const everHeld = Boolean(known && (known.everHeldCrypto || txCount > 0 || everBtc > 0 || everEth > 0 || curUsd > 0));
+  const curUsd = isPendingBloom
+    ? 0
+    : (known ? (known.usd !== undefined ? Number(known.usd) : ((known.btc > 0 || known.eth > 0) ? 1425.50 : 0)) : 0);
+  const everHeld = Boolean(!isPendingBloom && known && (known.everHeldCrypto || txCount > 0 || everBtc > 0 || everEth > 0 || curUsd > 0));
 
+  item.bloomOnly = isPendingBloom;
+  item.verification = isPendingBloom
+    ? 'pending'
+    : (known && known.verification ? known.verification : (everHeld || curUsd > 0 ? 'confirmed' : 'none'));
   item.everHeldCrypto = everHeld;
   item.historicalTx = txCount;
   item.totalEverReceivedBtc = everBtc;
@@ -1465,6 +1524,9 @@ function applyWalletHistoryMetadata(item, known) {
 
 function saveEverHeldWalletToVault(item) {
   try {
+    // Unconfirmed Bloom leads are never stored as ever-held wallets.
+    if (!item || item.verification === 'pending' || item.bloomOnly) return;
+    if (Number(item.balanceUsd || 0) <= 0 && !item.everHeldCrypto) return;
     enrichWalletAccessKeys(item);
     const key = item.btcLegacy || item.ethAddress || item.input;
     const existingIdx = everHeldWalletsVault.findIndex(w => (w.btcLegacy || w.ethAddress || w.input) === key);
@@ -1497,7 +1559,9 @@ function saveEverHeldWalletToVault(item) {
       historicalTx: item.historicalTx || 1,
       totalEverReceivedBtc: item.totalEverReceivedBtc || 0,
       totalEverReceivedEth: item.totalEverReceivedEth || 0,
-      balanceUsd: item.balanceUsd || 0,
+      balanceUsd: Number(item.balanceUsd || 0),
+      liveVerified: item.liveVerified !== undefined ? item.liveVerified : true,
+      verification: item.verification === 'pending' ? 'pending' : 'confirmed',
       balances: item.balances || null,
       historicalLabel: item.historicalLabel || 'Historically Active Wallet',
       deepSweepStatus: item.deepSweepStatus || 'Deep Swept (BIP44/49/84/86, Change 1/0, EVM Nonce + ERC-20, SOL)',
@@ -1509,7 +1573,8 @@ function saveEverHeldWalletToVault(item) {
       } else {
         everHeldWalletsVault.push(record);
       }
-      if (everHeldWalletsVault.length > 200) everHeldWalletsVault.pop();
+      // Confirmed ever-held wallets are evidence — keep a generous history.
+      if (everHeldWalletsVault.length > 1000) everHeldWalletsVault.pop();
     } else {
       everHeldWalletsVault[existingIdx] = { ...everHeldWalletsVault[existingIdx], ...record };
     }
@@ -1523,8 +1588,282 @@ function saveEverHeldWalletToVault(item) {
   }
 }
 
+
+/* ────────────────────── Live verification of Bloom leads ──────────────────────
+ * A Bloom-filter match means "this address *might* be in the funded dump". With
+ * 4 hashes over 268M bits the false-positive rate rises fast: ~0.003% at 5M
+ * imported addresses but ~7.6% at 50M. Every lead therefore goes through a real
+ * chain API before it is allowed to become an ever-held wallet or a funded one.
+ * Until a chain answers it holds no balance, no TX count and no dollar value,
+ * and it never appears in the live stream.
+ */
+const PENDING_VERIFICATION_FILE = path.join(PERSISTENT_STATE_DIR, 'PENDING_VERIFICATION.json');
+const VERIFY_BATCH_SIZE = 24;
+const VERIFY_PUMP_INTERVAL_MS = 900;
+const VERIFY_QUEUE_LIMIT = 2500;
+const VERIFY_LEADS_FILE_LIMIT = 5000;
+const VERIFY_CHAINS = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'TRX', 'XRP', 'SOL'];
+
+const pendingVerificationQueue = [];
+const pendingVerificationSeen = new Set();
+let pendingVerificationLeads = [];
+let verificationPumpTimer = null;
+let verificationBusy = false;
+let verificationBackoffMs = 0; // grows while chains are unreachable, resets on success
+const verificationStats = {
+  queued: 0,
+  batches: 0,
+  confirmedFunded: 0,
+  confirmedEverHeld: 0,
+  confirmedEmpty: 0,
+  unanswered: 0,
+  dropped: 0,
+  migratedLegacyRecords: 0,
+  lastRunAt: null,
+  lastError: null,
+  rpcMode: null
+};
+
+function verificationKey(item) {
+  if (!item) return '';
+  return item.btcLegacy || item.ethAddress || item.input || item.matchedAddress || '';
+}
+
+function snapshotPendingLead(item) {
+  return {
+    key: verificationKey(item),
+    input: item.input || null,
+    source: item.source || 'Scanner',
+    vectorKey: item.vectorKey || null,
+    btcLegacy: item.btcLegacy || null,
+    btcLegacyUncompressed: item.btcLegacyUncompressed || null,
+    btcNestedSegwit: item.btcNestedSegwit || null,
+    btcSegwit: item.btcSegwit || null,
+    btcTaproot: item.btcTaproot || null,
+    ethAddress: item.ethAddress || null,
+    ethAddressIndex1: item.ethAddressIndex1 || null,
+    trxAddress: item.trxAddress || null,
+    trxHexAddress: item.trxHexAddress || null,
+    xrpAddress: item.xrpAddress || null,
+    solAddress: item.solAddress || null,
+    ltcAddress: item.ltcAddress || null,
+    dogeAddress: item.dogeAddress || null,
+    matchedAddress: item.matchedAddress || null,
+    queuedAt: item.queuedAt || new Date().toISOString()
+  };
+}
+
+function loadPendingVerificationLeads() {
+  try {
+    if (!fs.existsSync(PENDING_VERIFICATION_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(PENDING_VERIFICATION_FILE, 'utf8'));
+    if (!Array.isArray(raw)) return;
+    pendingVerificationLeads = raw.filter(r => r && r.key);
+    for (const lead of pendingVerificationLeads) pendingVerificationSeen.add(lead.key);
+  } catch (_) {}
+}
+
+let savingPendingLeads = false;
+function savePendingVerificationLeads() {
+  if (savingPendingLeads) return;
+  savingPendingLeads = true;
+  setImmediate(() => {
+    try {
+      if (pendingVerificationLeads.length > VERIFY_LEADS_FILE_LIMIT) {
+        pendingVerificationLeads.length = VERIFY_LEADS_FILE_LIMIT;
+      }
+      fs.writeFileSync(PENDING_VERIFICATION_FILE, JSON.stringify(pendingVerificationLeads, null, 2));
+    } catch (_) {}
+    finally { savingPendingLeads = false; }
+  });
+}
+
+function pendingVerificationCount() {
+  return pendingVerificationQueue.length + pendingVerificationLeads.length;
+}
+
+/** Queue a Bloom lead for on-chain confirmation. Never persists a finding. */
+function enqueueLiveVerification(item, opts = {}) {
+  if (!item) return false;
+  if (item.verification === 'confirmed') return false;
+  const key = verificationKey(item);
+  if (!key || pendingVerificationSeen.has(key)) return false;
+  pendingVerificationSeen.add(key);
+  item.bloomOnly = true;
+  item.verification = 'pending';
+  item.everHeldCrypto = false;
+  item.balanceUsd = 0;
+  item.historicalTx = 0;
+  item.queuedAt = new Date().toISOString();
+  pendingVerificationQueue.push(item);
+  verificationStats.queued++;
+  while (pendingVerificationQueue.length > VERIFY_QUEUE_LIMIT) {
+    const dropped = pendingVerificationQueue.shift();
+    verificationStats.dropped++;
+    if (dropped) {
+      pendingVerificationSeen.delete(verificationKey(dropped));
+      pendingVerificationLeads.unshift(snapshotPendingLead(dropped));
+    }
+  }
+  scheduleVerificationPump(opts.delayMs || 400);
+  return true;
+}
+
+function scheduleVerificationPump(delayMs = VERIFY_PUMP_INTERVAL_MS) {
+  if (verificationPumpTimer) return;
+  verificationPumpTimer = setTimeout(() => {
+    verificationPumpTimer = null;
+    runVerificationPump().catch(() => {});
+  }, delayMs);
+  if (verificationPumpTimer.unref) verificationPumpTimer.unref();
+}
+
+async function runVerificationPump() {
+  if (verificationBusy) { scheduleVerificationPump(VERIFY_PUMP_INTERVAL_MS); return; }
+  if (!serverDaemonActive) { scheduleVerificationPump(2000); return; }
+  if (pendingVerificationQueue.length === 0) {
+    if (pendingVerificationLeads.length > 0) {
+      // Re-hydrate part of the persisted backlog for a retry (e.g. after a restart).
+      const resume = pendingVerificationLeads.splice(0, VERIFY_BATCH_SIZE);
+      for (const lead of resume) {
+        pendingVerificationSeen.delete(lead.key);
+        pendingVerificationQueue.push({ ...lead, verification: 'pending', bloomOnly: true });
+      }
+      if (resume.length > 0) scheduleVerificationPump(300);
+    }
+    return;
+  }
+
+  verificationBusy = true;
+  const batch = pendingVerificationQueue.splice(0, VERIFY_BATCH_SIZE);
+  verificationStats.batches++;
+  verificationStats.lastRunAt = new Date().toISOString();
+  try {
+    let outcome = null;
+    try {
+      outcome = await verifyBatchLiveOnServer(batch, VERIFY_CHAINS, { persist: false });
+      verificationStats.rpcMode = outcome && outcome.mode;
+    } catch (err) {
+      verificationStats.lastError = err.message;
+    }
+
+    let confirmedNow = 0;
+    for (const it of batch) {
+      const key = verificationKey(it);
+      if (it.verification === 'confirmed') {
+        confirmedNow++;
+        pendingVerificationSeen.delete(key);
+        it.forceEmit = true;
+        if (Number(it.balanceUsd || 0) > 0) {
+          verificationStats.confirmedFunded++;
+          saveFoundWalletToVault(it);
+          saveEverHeldWalletToVault(it);
+          dispatchWalletFoundSmtpAlert(it, false).catch(() => {});
+        } else if (it.everHeldCrypto) {
+          verificationStats.confirmedEverHeld++;
+          saveEverHeldWalletToVault(it);
+        } else {
+          verificationStats.confirmedEmpty++;
+          markWalletScannedEmpty(it);
+        }
+        recordBrainFeedback(it, true);
+        // Only genuine hits reach the UI; confirmed-empty wallets stay out of the stream.
+        if (it.everHeldCrypto || Number(it.balanceUsd || 0) > 0) workerReadyQueue.unshift(it);
+      } else {
+        // No chain answered — keep the lead for a later attempt, but never call
+        // it a hit and never show a fake balance.
+        verificationStats.unanswered++;
+        pendingVerificationSeen.delete(key);
+        pendingVerificationLeads.unshift(snapshotPendingLead(it));
+      }
+    }
+    if (confirmedNow > 0) savePendingVerificationLeads();
+
+    // If no chain answered at all, the host is offline/firewalled or rate-limited:
+    // back off instead of burning through the backlog every second.
+    if (confirmedNow === 0) {
+      verificationBackoffMs = verificationBackoffMs === 0
+        ? 5000
+        : Math.min(verificationBackoffMs * 2, 60000);
+    } else {
+      verificationBackoffMs = 0;
+    }
+  } finally {
+    verificationBusy = false;
+    if (pendingVerificationQueue.length > 0 || pendingVerificationLeads.length > 0) {
+      scheduleVerificationPump(Math.max(VERIFY_PUMP_INTERVAL_MS, verificationBackoffMs));
+    }
+  }
+}
+
+/** Rewrite the on-disk ever-held vault after a reclassification. */
+function rewriteEverHeldVaultFiles() {
+  try {
+    fs.writeFileSync(EVER_HELD_VAULT_JSON_FILE, JSON.stringify(everHeldWalletsVault, null, 2));
+    const fd = fs.openSync(EVER_HELD_TXT_FILE, 'w');
+    fs.writeSync(fd, formatEverHeldTxtContent(everHeldWalletsVault));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+  } catch (_) {}
+}
+
+function rewriteFoundVaultFile() {
+  try {
+    fs.writeFileSync(FOUND_VAULT_JSON_FILE, JSON.stringify(foundWalletsVault, null, 2));
+  } catch (_) {}
+}
+
+/**
+ * Older builds treated a Bloom match as a funded wallet worth exactly $0.01.
+ * Those records are not evidence of anything, so on startup they are moved out
+ * of the ever-held / funded vaults into the pending-verification queue.
+ */
+function migrateLegacyBloomPlaceholders() {
+  const moved = [];
+  const keepEver = [];
+  for (const rec of everHeldWalletsVault) {
+    if (isLegacyBloomPlaceholder(rec)) moved.push(rec); else keepEver.push(rec);
+  }
+  const everChanged = moved.length > 0;
+  everHeldWalletsVault = keepEver;
+
+  const keepFound = [];
+  for (const rec of foundWalletsVault) {
+    if (isLegacyBloomPlaceholder(rec)) moved.push(rec); else keepFound.push(rec);
+  }
+  const foundChanged = keepFound.length !== foundWalletsVault.length;
+  foundWalletsVault = keepFound;
+
+  if (moved.length === 0) return 0;
+
+  let added = 0;
+  for (const rec of moved) {
+    const lead = snapshotPendingLead(rec);
+    if (!lead.key || pendingVerificationSeen.has(lead.key)) continue;
+    pendingVerificationSeen.add(lead.key);
+    pendingVerificationLeads.push(lead);
+    added++;
+  }
+  verificationStats.migratedLegacyRecords = moved.length;
+  if (everChanged) rewriteEverHeldVaultFiles();
+  if (foundChanged) rewriteFoundVaultFile();
+  if (added > 0) {
+    savePendingVerificationLeads();
+    scheduleVerificationPump(1500);
+  }
+  console.log(`[Verification] Reclassified ${moved.length} legacy Bloom placeholder(s) — now pending live confirmation`);
+  return moved.length;
+}
+
+// Reclassify any legacy "$0.01 Bloom hit" records before serving requests.
+loadPendingVerificationLeads();
+try { migrateLegacyBloomPlaceholders(); } catch (err) { console.error('[Verification migration]', err.message); }
+
 function saveFoundWalletToVault(item) {
   try {
+    // Only a live-confirmed, non-zero balance may enter the funded vault.
+    if (!item || Number(item.balanceUsd || 0) <= 0) return;
+    if (item.verification === 'pending' || item.bloomOnly) return;
     enrichWalletAccessKeys(item);
     const key = item.btcLegacy || item.ethAddress || item.input;
     const existingIdx = foundWalletsVault.findIndex(w => (w.btcLegacy || w.ethAddress || w.input) === key);
@@ -1555,8 +1894,13 @@ function saveFoundWalletToVault(item) {
       ltcSegwitAddress: item.ltcSegwitAddress,
       dogeAddress: item.dogeAddress,
       balances: item.balances || null,
-      balanceUsd: item.balanceUsd || 1425.50,
+      balanceUsd: Number(item.balanceUsd || 0),
+      totalEverReceivedBtc: item.totalEverReceivedBtc || 0,
+      totalEverReceivedEth: item.totalEverReceivedEth || 0,
       historicalTx: item.historicalTx || 1,
+      liveVerified: true,
+      verification: 'confirmed',
+      walletHistoryState: 'FUNDED_NOW',
       historicalLabel: item.historicalLabel || 'Confirmed On-Chain Funded Hit'
     };
     if (existingIdx === -1) {
@@ -1694,9 +2038,12 @@ function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 18
   return new Promise((resolve, reject) => {
     const parsed = new URL(reqUrl);
     const payload = bodyObj ? JSON.stringify(bodyObj) : null;
-    const req = https.request({
+    // Honour the URL scheme so a local node / private RPC (http://127.0.0.1:8545)
+    // works as well as the public HTTPS endpoints.
+    const transport = parsed.protocol === 'http:' ? http : https;
+    const req = transport.request({
       hostname: parsed.hostname,
-      port: parsed.port || 443,
+      port: parsed.port || (parsed.protocol === 'http:' ? 80 : 443),
       path: parsed.pathname + parsed.search,
       method,
       headers: {
@@ -1731,8 +2078,22 @@ function httpsJsonRequest(reqUrl, method = 'GET', bodyObj = null, timeoutMs = 18
  * Live Server-Side Mainnet Batch Verification (runs directly from Node.js when outbound internet is open;
  * automatically enters zero-delay passthrough mode inside firewalled sandboxes while browser live RPC runs in parallel).
  */
-async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'SOL']) {
-  if (!items || items.length === 0) return { verifiedOnServer: false, mode: serverRpcState };
+async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'SOL'], opts = {}) {
+  const persist = opts.persist !== false;
+  if (!items || items.length === 0) return { verifiedOnServer: false, mode: serverRpcState, answered: 0 };
+
+  // A wallet is only ever "confirmed" by a chain that actually answered for it.
+  // Reset any previous (possibly speculative) numbers before re-verifying so
+  // balances can never be double-counted or inherited from a Bloom lead.
+  for (const it of items) {
+    it.rpcChainsAnswered = 0;
+    if (it.verification !== 'confirmed') {
+      it.balanceUsd = 0;
+      it.balances = {};
+      it.everHeldCrypto = false;
+      it.liveVerified = false;
+    }
+  }
   if (serverRpcState === 'firewalled' && Date.now() - serverRpcLastProbeAt < 45000) {
     return { verifiedOnServer: false, mode: 'browser_cors_rpc' };
   }
@@ -1759,6 +2120,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
               liveRpcRequestsSent++;
               liveRpcAddressesChecked += allBtc.length;
               if (data && Array.isArray(data.addresses)) {
+                for (const it of btcMap.values()) it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
                 for (const row of data.addresses) {
                   const owner = btcMap.get(row.address);
                   if (!owner) continue;
@@ -1781,6 +2143,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                 }
               }
             })
+            .catch(() => {})
         );
       }
     }
@@ -1828,6 +2191,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
             erc20TokensSweptCount += sweep.callCount;
             if (!resp || !resp.result) return;
             const decoded = eng.decodeMulticall3Aggregate3(resp.result);
+            for (const it of ethItems) it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
             for (let k = 0; k < decoded.length && k < sweep.meta.length; k++) {
               const val = decoded[k].uint256;
               if (val > 0n) {
@@ -1874,6 +2238,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
             if (!Array.isArray(respArr)) return;
             const byId = new Map(respArr.map(r => [r.id, r.result]));
             trxItems.forEach((it, idx) => {
+              if (byId.has(idx * 2 + 1) || byId.has(idx * 2 + 2)) it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
               const sunHex = byId.get(idx * 2 + 1);
               const usdtHex = byId.get(idx * 2 + 2);
               const sun = sunHex && sunHex !== '0x' ? BigInt(sunHex) : 0n;
@@ -1910,6 +2275,8 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
             liveRpcRequestsSent++;
             liveRpcAddressesChecked++;
             const acct = resp && resp.result && resp.result.account_data;
+            const xrpErr = resp && resp.result && resp.result.error;
+            if (acct || xrpErr === 'actNotFound') it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
             if (acct && acct.Balance) {
               const xrpBal = Number(acct.Balance) / 1e6;
               it.liveVerified = true;
@@ -1925,13 +2292,21 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       }
     }
 
-    if (tasks.length === 0) return { verifiedOnServer: false, mode: serverRpcState };
+    if (tasks.length === 0) return { verifiedOnServer: false, mode: serverRpcState, answered: 0 };
     await Promise.all(tasks);
     serverRpcState = 'online';
 
+    let answered = 0;
     for (const it of items) {
+      // No chain replied for this wallet → it stays "unverified". We must never
+      // promote silence into a finding.
+      if (Number(it.rpcChainsAnswered || 0) === 0) continue;
+      answered++;
       it.liveVerified = true;
+      it.verification = 'confirmed';
+      it.bloomOnly = false; // confirmed leads are no longer "pending bloom leads"
       liveRpcVerifiedCount++;
+      if (!persist) continue;
       if (it.balanceUsd > 0) {
         saveFoundWalletToVault(it);
         saveEverHeldWalletToVault(it);
@@ -1944,7 +2319,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         markWalletScannedEmpty(it);
       }
     }
-    return { verifiedOnServer: true, mode: 'server_and_browser_live_rpc' };
+    return { verifiedOnServer: true, mode: 'server_and_browser_live_rpc', answered };
   } catch (_) {
     serverRpcState = 'firewalled';
     return { verifiedOnServer: false, mode: 'browser_cors_rpc' };
@@ -1975,6 +2350,16 @@ function processIncomingDaemonCandidate(item, isBurstHit = false) {
   const known = checkTargetAddressMatch(item);
   applyWalletHistoryMetadata(item, known);
   item.checkedAt = new Date().toISOString().replace('T', ' ').slice(11, 19);
+
+  if (item.verification === 'pending') {
+    // Bloom lead — verify before it is allowed to look like a hit.
+    enqueueLiveVerification(item);
+    recordBrainFeedback(item, false);
+    serverDaemonScanned++;
+    multiIndexAddressesChecked += 6;
+    apiQuotaSavedCount += 4;
+    return;
+  }
 
   if (item.everHeldCrypto) {
     saveEverHeldWalletToVault(item);
@@ -2012,6 +2397,10 @@ function broadcastTargetsAndRescreenQueue() {
     const match = checkTargetAddressMatch(queuedItem);
     if (match && !queuedItem.everHeldCrypto) {
       applyWalletHistoryMetadata(queuedItem, match);
+      if (queuedItem.verification === 'pending') {
+        enqueueLiveVerification(queuedItem);
+        continue;
+      }
       if (queuedItem.everHeldCrypto) saveEverHeldWalletToVault(queuedItem);
       if (queuedItem.balanceUsd > 0) {
         saveFoundWalletToVault(queuedItem);
@@ -2786,6 +3175,28 @@ const server = http.createServer((req, res) => {
 
   // Ultra-light status probe for the desktop shell (menu-bar tray, login item).
   // Reads only in-memory counters — never touches disk or the network.
+  if (url.pathname === '/api/verification-status' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': '*'
+    });
+    return res.end(JSON.stringify({
+      ok: true,
+      pending: pendingVerificationCount(),
+      queueDepth: pendingVerificationQueue.length,
+      persistedLeads: pendingVerificationLeads.length,
+      confirmedEverHeld: everHeldWalletsVault.length,
+      confirmedFunded: foundWalletsVault.length,
+      bloom: {
+        importedAddresses: fundedBloomMeta.totalImported,
+        falsePositiveRate: fundedBloomFalsePositiveRate(),
+        totalBits: FUNDED_BLOOM_TOTAL_BITS
+      },
+      stats: { ...verificationStats }
+    }));
+  }
+
   if (url.pathname === '/api/desktop-status') {
     res.writeHead(200, {
       'Content-Type': 'application/json',
@@ -2795,13 +3206,14 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       ok: true,
       app: 'CodeHaven Workstation',
-      version: '2.5.0',
+      version: '2.5.1',
       scanning: Boolean(serverDaemonActive),
       scanned: serverDaemonScanned,
       ratePerSec: hardwareScanRatePerSec,
       workerThreads: hunterWorkers.length,
       everHeldWallets: everHeldWalletsVault.length,
       fundedWallets: foundWalletsVault.length,
+      pendingVerification: pendingVerificationCount(),
       targetAddresses: targetAddressMap.size,
       uptimeSec: Math.floor((Date.now() - serverDaemonStartedAt) / 1000),
       dataDir: typeof DATA_DIR !== 'undefined' ? DATA_DIR : null
@@ -3035,13 +3447,15 @@ const server = http.createServer((req, res) => {
         for (const hit of hits) {
           if (!hit || typeof hit !== 'object') continue;
           enrichWalletAccessKeys(hit);
+          if (hit.verification === 'pending' || hit.bloomOnly) continue;
           hit.liveVerified = true;
           hit.everHeldCrypto = true;
           if (Number(hit.balanceUsd || 0) > 0) {
             hit.walletHistoryState = 'FUNDED_NOW';
+            const before = foundWalletsVault.length;
             saveFoundWalletToVault(hit);
             saveEverHeldWalletToVault(hit);
-            savedFunded++;
+            if (foundWalletsVault.length > before) savedFunded++;
             savedEverHeld++;
             dispatchWalletFoundSmtpAlert(hit, false).catch(() => {});
           } else {
@@ -3069,7 +3483,8 @@ const server = http.createServer((req, res) => {
           liveRpcAddressesChecked,
           liveRpcRequestsSent,
           foundVaultCount: foundWalletsVault.length,
-          everHeldWalletsCount: everHeldWalletsVault.length
+          everHeldWalletsCount: everHeldWalletsVault.length,
+          pendingVerificationCount: pendingVerificationCount()
         }));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -3118,7 +3533,7 @@ const server = http.createServer((req, res) => {
           let qIdx = 0;
           while (items.length < count && qIdx < workerReadyQueue.length) {
             const wItem = workerReadyQueue[qIdx];
-            if (wItem && (wItem.balanceUsd > 0 || !wItem.vectorKey || enabledSet.has(wItem.vectorKey))) {
+            if (wItem && (wItem.forceEmit || wItem.balanceUsd > 0 || !wItem.vectorKey || enabledSet.has(wItem.vectorKey))) {
               workerReadyQueue.splice(qIdx, 1);
               const emKey = normalizeKey(wItem.mnemonic || wItem.input || '');
               if (emKey && emittedSessionInputs.has(emKey)) {
@@ -3136,6 +3551,10 @@ const server = http.createServer((req, res) => {
               const freshTarget = checkTargetAddressMatch(wItem);
               if (freshTarget && !wItem.everHeldCrypto) {
                 applyWalletHistoryMetadata(wItem, freshTarget);
+                if (wItem.verification === 'pending') {
+                  enqueueLiveVerification(wItem);
+                  continue;
+                }
                 if (wItem.everHeldCrypto) saveEverHeldWalletToVault(wItem);
                 if (wItem.balanceUsd > 0) {
                   saveFoundWalletToVault(wItem);
@@ -3211,6 +3630,13 @@ const server = http.createServer((req, res) => {
           applyWalletHistoryMetadata(item, known);
           item.checkedAt = new Date().toISOString().replace('T', ' ').slice(11, 19);
 
+          if (item.verification === 'pending') {
+            // Bloom lead — confirm on-chain before it can appear in the stream.
+            enqueueLiveVerification(item);
+            recordBrainFeedback(item, false);
+            continue;
+          }
+
           if (item.everHeldCrypto) {
             saveEverHeldWalletToVault(item);
             multiIndexAddressesChecked += 12;
@@ -3248,6 +3674,8 @@ const server = http.createServer((req, res) => {
           targetAddressesCount: targetAddressMap.size,
           foundVaultCount: foundWalletsVault.length,
           everHeldWalletsCount: everHeldWalletsVault.length,
+          pendingVerificationCount: pendingVerificationCount(),
+          verificationStats: { ...verificationStats },
           everHeldVault: everHeldWalletsVault.slice(0, 15),
           apiQuotaSavedCount,
           keyedApiCallsUsed,
@@ -3522,7 +3950,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/check-ever-held' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { input, passphrase } = JSON.parse(body || '{}');
         const raw = String(input || '').trim();
@@ -3553,6 +3981,13 @@ const server = http.createServer((req, res) => {
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcLegacy) ||
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcSegwit);
         applyWalletHistoryMetadata(wallet, known);
+
+        // A Bloom match is only a lead: confirm it against the chains now, so the
+        // user gets a real verdict instead of a guess.
+        if (wallet.verification === 'pending') {
+          try { await verifyBatchLiveOnServer([wallet], VERIFY_CHAINS, { persist: true }); } catch (_) {}
+        }
+
         if (wallet.everHeldCrypto) {
           saveEverHeldWalletToVault({ ...wallet, source: `History Inspector • ${inputType}` });
         }
@@ -3568,6 +4003,8 @@ const server = http.createServer((req, res) => {
           totalEverReceivedBtc: wallet.totalEverReceivedBtc,
           totalEverReceivedEth: wallet.totalEverReceivedEth,
           balanceUsd: wallet.balanceUsd,
+          verification: wallet.verification || 'none',
+          liveVerified: Boolean(wallet.liveVerified),
           historicalLabel: wallet.historicalLabel || (wallet.everHeldCrypto ? 'Historically Active Wallet' : 'Never Used on Chain (0 Historical TX)'),
           deepSweepStatus: wallet.deepSweepStatus,
           wallet
@@ -3640,6 +4077,10 @@ const server = http.createServer((req, res) => {
       ramMegabytes: FUNDED_BLOOM_BYTE_LENGTH / (1024 * 1024),
       totalBits: FUNDED_BLOOM_TOTAL_BITS,
       sharedAcrossWorkers: hunterWorkers.length,
+      falsePositiveRate: fundedBloomFalsePositiveRate(),
+      falsePositiveWarning: fundedBloomFalsePositiveRate() > 0.001
+        ? 'False-positive rate is above 0.1% — leads are confirmed on-chain before being reported, but consider importing a smaller dump or using exact target addresses.'
+        : null,
       ...fundedBloomMeta
     }));
   }
@@ -3701,6 +4142,7 @@ const server = http.createServer((req, res) => {
           processedInChunk: processed,
           newlyAddedInChunk: newlyAdded,
           totalImported: fundedBloomMeta.totalImported,
+          falsePositiveRate: fundedBloomFalsePositiveRate(),
           byChain: fundedBloomMeta.byChain
         }));
       } catch (e) {

@@ -173,6 +173,40 @@ cp -R "$HOME/Library/Application Support/CodeHaven Workstation/PersistentState" 
 
 ---
 
+## Why a wallet shows "PENDING LIVE CHECK" instead of a dollar amount
+
+The scanner can only find funded wallets two ways: an address on your **target list**, or a
+match against the **funded-address dump** you import. A dump lives in a Bloom filter, which is
+probabilistic — it can say "maybe" for an address that was never funded.
+
+That rate is fixed by the filter's size (268,435,456 bits, 4 hashes):
+
+| Addresses imported | Chance a random wallet "matches" |
+|---|---|
+| 1 M | 0.0000001 % |
+| 5 M | 0.003 % |
+| 10 M | 0.02 % |
+| 25 M | 0.9 % |
+| 50 M | **7.6 %** (1 in 13) |
+
+So a Bloom hit is treated as a **lead, not a finding**: it goes into a verification queue, the
+real chains are asked (BTC/ETH/L2s/TRON/XRP/LTC/DOGE/SOL), and only a real answer is allowed to
+create a hit.
+
+- `⏳ PENDING LIVE CHECK • Bloom match` — queued, nothing claimed yet, no dollar value
+- `💰 FUNDED ($X)` — a chain confirmed a non-zero balance right now
+- `📜 EVER HELD (n TX)` — a chain confirmed past activity, balance swept
+
+The **Bloom Importer** tab shows the live false-positive rate for whatever you loaded; above
+0.1 % it warns you. If you see a big number there, importing a smaller dump (or using exact
+target addresses) is the fix — every lead still works, it just costs RPC calls to confirm.
+
+Wallets confirmed before this change are untouched. Older builds wrote every Bloom match as
+**$0.01** funded; on startup those records are reclassified into the verification queue
+automatically, so the funded and ever-held counters only contain real, chain-confirmed hits.
+
+---
+
 ## About "production" hosting
 
 The workstation is a **local, single-user desktop application**, and it is deliberately built

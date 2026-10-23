@@ -1239,6 +1239,7 @@
           <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets scanned that have EVER held crypto (historical TX > 0 or total_received > 0)">
             <span class="metric-label">Ever Held</span>
             <span id="QuickStatsEverHeldText" class="metric-val" style="color:#FCD34D;">0</span>
+            <span id="VerificationPendingBadge" class="pill mono" style="display:none; margin-top:6px; font-size:9.5px;">⏳ 0 pending live check</span>
           </div>
           <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets with a current unspent balance > $0.00">
             <span class="metric-label">Funded</span>
@@ -1829,6 +1830,11 @@
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid var(--border-hairline);">
               <div class="metric-label">Breakdown (BTC / EVM / TRX / XRP)</div>
               <div id="BloomChainBreakdownVal" style="font-size:12px; font-weight:600; color:#FCD34D; margin-top:7px;">0 / 0 / 0 / 0</div>
+            </div>
+            <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid rgba(251,191,36,0.35);">
+              <div class="metric-label">Bloom False-Positive Rate</div>
+              <div id="BloomFalsePositiveVal" style="font-size:20px; font-weight:700; color:#FCD34D; margin-top:4px;">0%</div>
+              <div id="BloomFalsePositiveHint" style="font-size:10.5px; color:var(--text-muted); margin-top:4px;">Every match is confirmed on-chain before it is reported.</div>
             </div>
           </div>
 
@@ -3164,6 +3170,16 @@
 
   async function verifyBatchLiveMainnetBrowser(candidates, enabledChains) {
     if (!Array.isArray(candidates) || candidates.length === 0) return { hits: [], checkedAddrs: 0, rpcCalls: 0 };
+    // Fresh pass: clear any speculative numbers and count which chains actually
+    // answered for each wallet. Silence must never be read as "confirmed empty".
+    for (const c of candidates) {
+      c._browserChainsAnswered = 0;
+      if (c.verification !== 'confirmed') {
+        c.balanceUsd = 0;
+        c.balances = {};
+        c.liveVerified = false;
+      }
+    }
     const chainSet = new Set((enabledChains || getEnabledChains()).map(c => String(c).toUpperCase()));
     const USDT_CONTRACT = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
     let checkedAddrs = 0;
@@ -3192,6 +3208,7 @@
             rpcCalls++;
             checkedAddrs += btcList.length;
             anyChainSucceeded = true;
+            for (const it of btcLookup.values()) it._browserChainsAnswered = (it._browserChainsAnswered || 0) + 1;
             if (data && Array.isArray(data.addresses)) {
               for (const row of data.addresses) {
                 const owner = btcLookup.get(row.address);
@@ -3224,6 +3241,7 @@
                 rpcCalls++;
                 checkedAddrs++;
                 anyChainSucceeded = true;
+                item._browserChainsAnswered = (item._browserChainsAnswered || 0) + 1;
                 if (mp && mp.chain_stats) {
                   const fundedSats = Number(mp.chain_stats.funded_txo_sum || 0);
                   const spentSats = Number(mp.chain_stats.spent_txo_sum || 0);
@@ -3347,6 +3365,7 @@
       rpcCalls++;
       checkedAddrs += calls.length;
       anyChainSucceeded = true;
+      for (const it of evmItems) it._browserChainsAnswered = (it._browserChainsAnswered || 0) + 1;
       if (!Array.isArray(resp)) return;
       const byId = new Map(resp.map(r => [r.id, r.result]));
       const vals = decodeMc3(byId.get(1));
@@ -3419,6 +3438,7 @@
             if (!Array.isArray(resp)) return;
             const byId = new Map(resp.map(r => [r.id, r.result]));
             trxItems.forEach((it, idx) => {
+              it._browserChainsAnswered = (it._browserChainsAnswered || 0) + 1;
               const sunHex = byId.get(idx * 2 + 1);
               const usdtHex = byId.get(idx * 2 + 2);
               const sun = sunHex && sunHex !== '0x' ? BigInt(sunHex) : 0n;
@@ -3455,6 +3475,7 @@
             rpcCalls++;
             checkedAddrs++;
             anyChainSucceeded = true;
+            it._browserChainsAnswered = (it._browserChainsAnswered || 0) + 1;
             if (d && d.chain_stats) {
               const cur = Math.max(0, Number(d.chain_stats.funded_txo_sum || 0) - Number(d.chain_stats.spent_txo_sum || 0));
               const txCount = Number(d.chain_stats.tx_count || 0);
@@ -3488,6 +3509,9 @@
             checkedAddrs++;
             anyChainSucceeded = true;
             const acct = resp && resp.result && resp.result.account_data;
+            if (acct || (resp && resp.result && resp.result.error === 'actNotFound')) {
+              it._browserChainsAnswered = (it._browserChainsAnswered || 0) + 1;
+            }
             if (acct && acct.Balance) {
               const xrpBal = Number(acct.Balance) / 1e6;
               it.liveVerified = true;
@@ -3522,6 +3546,7 @@
             rpcCalls++;
             checkedAddrs += solItems.length;
             anyChainSucceeded = true;
+            for (const it of solItems) it._browserChainsAnswered = (it._browserChainsAnswered || 0) + 1;
             const vals = resp && resp.result && Array.isArray(resp.result.value) ? resp.result.value : [];
             vals.forEach((acct, idx) => {
               if (acct && Number(acct.lamports || 0) > 0) {
@@ -3548,7 +3573,13 @@
     if (anyChainSucceeded) {
       liveRpcOnlineStatus = 'ONLINE';
       for (const item of candidates) {
+        if (Number(item._browserChainsAnswered || 0) === 0) {
+          // No chain answered — leave it unverified instead of inventing a verdict.
+          continue;
+        }
         item.liveVerified = true;
+        item.verification = 'confirmed';
+        item.bloomOnly = false;
         liveBrowserVerifiedWallets++;
         if (Number(item.balanceUsd || 0) > 0 || item.everHeldCrypto) {
           hits.push(item);
@@ -3602,7 +3633,7 @@
           }
           if (typeof syncRes.everHeldWalletsCount === 'number') {
             const ehEl = document.getElementById('QuickStatsEverHeldText');
-            if (ehEl) ehEl.textContent = Math.max(syncRes.everHeldWalletsCount, watchlistItems.size).toLocaleString();
+            if (ehEl) ehEl.textContent = Number(syncRes.everHeldWalletsCount).toLocaleString();
           }
         }
       }).catch(() => {});
@@ -3774,14 +3805,18 @@
       }
       pumpLiveBrowserRpcQueue();
 
-      const everHeldCount = Math.max(
-        typeof data.everHeldWalletsCount === 'number' ? data.everHeldWalletsCount : 0,
-        watchlistItems.size
-      );
+      // The server owns these numbers: confirmed ever-held / confirmed funded.
+      // The local watchlist is only a fallback before the first sync arrives.
+      const localEverHeld = Array.from(watchlistItems.values())
+        .filter(w => (w.everHeldCrypto || Number(w.historicalTx || 0) > 0) && !isConfirmedFunded(w)).length;
+      const everHeldCount = typeof data.everHeldWalletsCount === 'number'
+        ? data.everHeldWalletsCount
+        : localEverHeld;
       const fundedNowCount = typeof data.foundVaultCount === 'number' ? data.foundVaultCount : 0;
       const everHeldEl = document.getElementById('QuickStatsEverHeldText');
       if (everHeldEl) everHeldEl.textContent = everHeldCount.toLocaleString();
       document.getElementById('QuickStatsFoundText').textContent = fundedNowCount.toLocaleString();
+      updateVerificationBadge(data.pendingVerificationCount);
       document.getElementById('ModalHits').textContent = `${fundedNowCount} (${everHeldCount} Ever Held)`;
       renderWatchlist();
 
@@ -3997,12 +4032,22 @@
     openModal('walletAccessModal');
   }
 
+  // A wallet is only "funded" when a chain confirmed a non-zero balance for it.
+  // Bloom-filter leads carry no balance at all and are never shown as hits.
+  function isConfirmedFunded(item) {
+    return Number(item.balanceUsd || 0) > 0 && item.verification !== 'pending';
+  }
+
   function formatWalletStatusBadge(item) {
-    const isFunded = Number(item.balanceUsd || 0) > 0;
+    const isFunded = isConfirmedFunded(item);
     const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
     const openAttr = `style="cursor:pointer;" onclick="event.stopPropagation(); openWalletDetailFromElement(this)" title="Open the full wallet dossier — addresses, keys and history"`;
     if (isFunded) {
-      return `<span class="pill pill-emerald" ${openAttr}>💰 FUNDED (${fmtUsd(item.balanceUsd)}) • View dossier</span>`;
+      const verifiedTag = item.liveVerified || item.verification === 'confirmed' ? '' : ' • unverified';
+      return `<span class="pill pill-emerald" ${openAttr}>💰 FUNDED (${fmtUsd(item.balanceUsd)}${verifiedTag}) • View dossier</span>`;
+    }
+    if (item.verification === 'pending' || item.bloomOnly) {
+      return `<span class="pill pill-cyan" ${openAttr}>⏳ PENDING LIVE CHECK • Bloom match</span>`;
     }
     if (isEverHeld) {
       const rcvBtc = Number(item.totalEverReceivedBtc || 0);
@@ -4025,7 +4070,7 @@
       return;
     }
 
-    const isFunded = Number(item.balanceUsd || 0) > 0;
+    const isFunded = isConfirmedFunded(item);
     const isEverHeld = Boolean(item.everHeldCrypto) || Number(item.historicalTx || 0) > 0;
     const statusBadge = formatWalletStatusBadge(item);
 
@@ -4111,6 +4156,15 @@
     }
   }
 
+  function updateVerificationBadge(pending) {
+    const el = document.getElementById('VerificationPendingBadge');
+    if (!el) return;
+    const n = Number(pending || 0);
+    el.textContent = n > 0 ? `⏳ ${n.toLocaleString()} pending live check` : '✅ No pending checks';
+    el.style.display = 'inline-block';
+    el.className = 'pill ' + (n > 0 ? 'pill-amber mono' : 'pill-cyan mono');
+  }
+
   function updateVaultCounters() {
     const vaultCountEl = document.getElementById('VaultBadgeCount');
     if (vaultCountEl) vaultCountEl.textContent = watchlistItems.size;
@@ -4150,7 +4204,7 @@
 
     let renderedWatchRows = 0;
     for (const item of allItems) {
-      const isFunded = Number(item.balanceUsd || 0) > 0;
+      const isFunded = isConfirmedFunded(item);
       const rawInput = String(item.mnemonic || item.input || '');
       const isSeed = Boolean(item.isMnemonicSeed) || (!rawInput.startsWith('brain:') && !rawInput.startsWith('0x') && rawInput.trim().split(/\s+/).length >= 12);
       if (currentWatchlistFilter === 'mnemonic' && !isSeed) continue;
@@ -4591,6 +4645,25 @@
       if (brk) brk.textContent = `${(ch.BTC || 0).toLocaleString()} / ${(ch.ETH_EVM || 0).toLocaleString()} / ${(ch.TRX || 0).toLocaleString()} / ${(ch.XRP || 0).toLocaleString()}`;
       const wc = document.getElementById('BloomWorkerCountVal');
       if (wc) wc.textContent = String(b.sharedAcrossWorkers || 8);
+      const fpEl = document.getElementById('BloomFalsePositiveVal');
+      if (fpEl) {
+        const fp = Number(b.falsePositiveRate || 0);
+        fpEl.textContent = fp > 0 ? (fp * 100).toFixed(fp >= 0.01 ? 1 : 3) + '%' : '0%';
+        fpEl.style.color = fp > 0.01 ? '#FB7185' : (fp > 0.001 ? '#FCD34D' : '#34D399');
+      }
+      const fpHint = document.getElementById('BloomFalsePositiveHint');
+      if (fpHint) {
+        if (!tot) {
+          fpHint.textContent = 'No funded dump loaded — the scanner can only discover wallets from your target list. Load a dump to search real funded addresses.';
+          fpHint.style.color = '#FB7185';
+        } else if (b.falsePositiveWarning) {
+          fpHint.textContent = b.falsePositiveWarning;
+          fpHint.style.color = '#FCD34D';
+        } else {
+          fpHint.textContent = 'Every match is confirmed on-chain before it is reported.';
+          fpHint.style.color = 'var(--text-muted)';
+        }
+      }
     } catch (_) {}
   }
 
