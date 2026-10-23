@@ -1786,6 +1786,7 @@
               <span id="ForensicStatusBadge" class="pill pill-cyan mono">IDLE</span>
             </div>
 
+            <div id="BloomIntegrityWarning" class="mono" style="display:none; font-size:10.5px; line-height:1.5; color:#FCD34D; background:rgba(245,158,11,0.10); border:1px solid rgba(245,158,11,0.45); border-radius:7px; padding:8px 10px; margin-bottom:10px;"></div>
             <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;" class="mono">
               <div style="background:var(--bg-input); padding:10px; border-radius:8px; border:1px solid var(--border-hairline);">
                 <div class="metric-label">CPU Worker Threads</div>
@@ -4919,6 +4920,15 @@
         const fp = Number(b.falsePositiveRate || 0);
         fpEl.textContent = fp > 0 ? (fp * 100).toFixed(fp >= 0.01 ? 1 : 3) + '%' : '0%';
         fpEl.style.color = fp > 0.01 ? '#FB7185' : (fp > 0.001 ? '#FCD34D' : '#34D399');
+      }
+      const integrityEl = document.getElementById('BloomIntegrityWarning');
+      if (integrityEl) {
+        if (b.integrity && b.integrity.ok === false) {
+          integrityEl.style.display = 'block';
+          integrityEl.innerHTML = `⚠️ <b>Dump integrity problem:</b> ${String(b.integrity.detail).replace(/</g, '&lt;')}`;
+        } else {
+          integrityEl.style.display = 'none';
+        }
       }
       const fpHint = document.getElementById('BloomFalsePositiveHint');
       if (fpHint) {

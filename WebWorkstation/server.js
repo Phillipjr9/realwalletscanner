@@ -258,19 +258,58 @@ function saveFundedBloomStore() {
   });
 }
 
+/**
+ * Integrity of the on-disk funded dump.
+ *
+ * The meta file and the bit array are written separately. If the bits are
+ * missing or truncated while the meta still claims N addresses, the scanner
+ * would report "N addresses loaded" and then never match anything — the exact
+ * symptom of an import that silently did not land. The counter is therefore
+ * only trusted when the bit array is present and complete.
+ */
+let fundedBloomIntegrity = { ok: true, detail: 'no dump loaded' };
+
 (function loadFundedBloomStore() {
+  let bitsLoaded = false;
   try {
     if (fs.existsSync(FUNDED_BLOOM_STORE_PATH)) {
       const buf = fs.readFileSync(FUNDED_BLOOM_STORE_PATH);
       if (buf.length === FUNDED_BLOOM_BYTE_LENGTH) {
         sharedFundedBloomBytes.set(buf);
+        bitsLoaded = true;
+      } else {
+        fundedBloomIntegrity = {
+          ok: false,
+          detail: `filter file is ${buf.length} bytes, expected ${FUNDED_BLOOM_BYTE_LENGTH} — import the dump again`
+        };
       }
     }
     if (fs.existsSync(FUNDED_BLOOM_META_PATH)) {
       const m = JSON.parse(fs.readFileSync(FUNDED_BLOOM_META_PATH, 'utf8'));
       if (m && typeof m === 'object') fundedBloomMeta = { ...fundedBloomMeta, ...m };
     }
-  } catch (_) {}
+  } catch (e) {
+    fundedBloomIntegrity = { ok: false, detail: `filter could not be read (${e.message})` };
+  }
+
+  const claimed = Number(fundedBloomMeta.totalImported || 0);
+  if (claimed > 0 && !bitsLoaded) {
+    // Never advertise addresses the filter does not actually contain.
+    console.warn(
+      `[Bloom] ${claimed.toLocaleString()} address(es) recorded but the filter file is missing — ` +
+      'resetting the counter so matches cannot silently fail. Re-import your dump.'
+    );
+    fundedBloomIntegrity = {
+      ok: false,
+      detail: `the filter file is missing although ${claimed.toLocaleString()} addresses were recorded — re-import your dump`
+    };
+    fundedBloomMeta.totalImported = 0;
+    fundedBloomMeta.chunksImported = 0;
+    fundedBloomMeta.sampleCount = 0;
+    fundedBloomMeta.byChain = { BTC: 0, ETH_EVM: 0, TRX: 0, XRP: 0, LTC: 0, DOGE: 0, SOL_OTHER: 0 };
+  } else if (bitsLoaded) {
+    fundedBloomIntegrity = { ok: true, detail: `${claimed.toLocaleString()} addresses verified on disk` };
+  }
 })();
 
 function bloomFnv1aHashes(str) {
@@ -4563,6 +4602,7 @@ const server = http.createServer((req, res) => {
       falsePositiveWarning: fundedBloomFalsePositiveRate() > 0.001
         ? 'False-positive rate is above 0.1% — leads are confirmed on-chain before being reported, but consider importing a smaller dump or using exact target addresses.'
         : null,
+      integrity: fundedBloomIntegrity,
       ...fundedBloomMeta
     }));
   }
@@ -4615,6 +4655,7 @@ const server = http.createServer((req, res) => {
         }
         fundedBloomMeta.chunksImported++;
         fundedBloomMeta.lastImportedAt = new Date().toISOString();
+        fundedBloomIntegrity = { ok: true, detail: `${fundedBloomMeta.totalImported.toLocaleString()} addresses verified on disk` };
         if (url.searchParams.get('flush') !== '0') {
           saveFundedBloomStore();
         }

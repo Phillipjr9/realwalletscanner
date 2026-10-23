@@ -295,6 +295,14 @@ If the import stops with an error, the message now says which chunk failed and w
 2.6.1 a rejected chunk still ended with "✅ complete", which is the most common reason a dump
 appears to load but nothing is ever found.
 
+There is a second way an import can lie to you, and 2.6.1 closes it too: the address count and
+the filter itself are stored in two files. If the filter file is lost or truncated while the
+count still says "50,000,000", older builds reported the big number and then never matched
+anything. Now the count is only trusted when the filter is present and complete; otherwise a
+warning appears in the Bloom Importer tab — *"the filter file is missing although N addresses
+were recorded — re-import your dump"* — and the counter resets to 0 rather than showing a
+figure the scanner cannot back up.
+
 To prove the whole path works, look up a wallet you know is in the dump with the
 **History Inspector**: it must answer `Bloom dump match (…) — awaiting live RPC confirmation`,
 which turns into a confirmed hit (or a real "empty") once the chains answer.
