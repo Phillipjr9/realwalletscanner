@@ -1,0 +1,113 @@
+{
+  "name": "codehaven-workstation-desktop",
+  "productName": "CodeHaven Workstation",
+  "version": "2.4.0",
+  "description": "Native desktop shell for the CodeHaven Quantum Wallet Recovery Workstation",
+  "private": true,
+  "main": "main.js",
+  "author": "CodeHaven",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "start:headless": "node run-headless.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.codehaven.workstation",
+    "productName": "CodeHaven Workstation",
+    "copyright": "CodeHaven",
+    "directories": {
+      "output": "../../dist",
+      "buildResources": "build"
+    },
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "launcher.js",
+      "trayIcon.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../",
+        "to": "workstation",
+        "filter": [
+          "server.js",
+          "crypto_engine.js",
+          "hunter_worker.js",
+          "forensic_worker.js",
+          "index.html",
+          "package.json",
+          "node_modules/bip39/**",
+          "node_modules/@noble/**"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "extendInfo": {
+        "LSMinimumSystemVersion": "10.15",
+        "NSHighResolutionCapable": true,
+        "LSApplicationCategoryType": "public.app-category.utilities",
+        "NSSupportsAutomaticGraphicsSwitching": true
+      }
+    },
+    "dmg": {
+      "title": "CodeHaven Workstation",
+      "contents": [
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    },
+    "publish": null
+  }
+}

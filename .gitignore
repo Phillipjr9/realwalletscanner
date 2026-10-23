@@ -31,3 +31,16 @@ WebWorkstation/ever_held_wallets.txt
 
 
 
+
+# Desktop application build output
+dist/
+WebWorkstation/dist/
+WebWorkstation/desktop/node_modules/
+WebWorkstation/desktop/out/
+*.dmg
+*.blockmap
+
+# Standalone Mac build artifacts
+WebWorkstation/desktop/build/*.icns
+WebWorkstation/desktop/build/*.iconset/
+WebWorkstation/PersistentState/

@@ -80,6 +80,11 @@ namespace WalletRecoveryTool.Core
         {
             public string Mnemonic { get; set; }
             public string PrivateKey { get; set; }
+            public string BitcoinNestedSegWitWif { get; set; }
+            public string BitcoinSegWitWif { get; set; }
+            public string BitcoinTaprootWif { get; set; }
+            public string EthereumPrivateKey { get; set; }
+            public string SolanaPrivateKey { get; set; }
             public string BitcoinAddress { get; set; }
             public string BitcoinAddressSegWit { get; set; }
             public string BitcoinAddressNativeSegWit { get; set; }
@@ -164,10 +169,15 @@ namespace WalletRecoveryTool.Core
                     return null;
 
                 var key = new Key(pkBytes);
+                var wif = key.GetWif(Network.Main).ToString();
                 var wallet = new WalletInfo
                 {
                     Mnemonic = $"brain:{phrase}",
-                    PrivateKey = privateKeyHex,
+                    PrivateKey = wif,
+                    BitcoinNestedSegWitWif = wif,
+                    BitcoinSegWitWif = wif,
+                    BitcoinTaprootWif = wif,
+                    EthereumPrivateKey = "0x" + privateKeyHex.ToLowerInvariant(),
                     BitcoinAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString(),
                     BitcoinAddressSegWit = key.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString(),
                     BitcoinAddressNativeSegWit = key.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString(),
@@ -251,6 +261,7 @@ namespace WalletRecoveryTool.Core
                 // SegWit (P2SH-P2WPKH) - starts with 3
                 var segwitKey = masterKey.Derive(BtcSegWitPath);
                 wallet.BitcoinAddressSegWit = segwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
+                wallet.BitcoinNestedSegWitWif = segwitKey.PrivateKey.GetWif(Network.Main).ToString();
                 
                 // Native SegWit (Bech32) - starts with bc1 + Multi-Index (0/0, 0/1, 0/2) + Change Chain (1/0)
                 var nativeAcctKey = masterKey.Derive(BtcNativeSegWitAcctPath);
@@ -258,6 +269,7 @@ namespace WalletRecoveryTool.Core
                 var nativeChgKey = nativeAcctKey.Derive(1u);
                 var nativeSegwitKey = nativeExtKey.Derive(0u);
                 wallet.BitcoinAddressNativeSegWit = nativeSegwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+                wallet.BitcoinSegWitWif = nativeSegwitKey.PrivateKey.GetWif(Network.Main).ToString();
 
                 wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddress);
                 wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressSegWit);
@@ -280,6 +292,7 @@ namespace WalletRecoveryTool.Core
                 {
                     var taprootKey = masterKey.Derive(BtcTaprootPath);
                     wallet.BitcoinAddressTaproot = taprootKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
+                    wallet.BitcoinTaprootWif = taprootKey.PrivateKey.GetWif(Network.Main).ToString();
                     if (!string.IsNullOrEmpty(wallet.BitcoinAddressTaproot))
                         wallet.AllBitcoinAddresses.Add(wallet.BitcoinAddressTaproot);
                 }
@@ -291,6 +304,7 @@ namespace WalletRecoveryTool.Core
                 if (needEth)
                 {
                     var ethKey = purpose44Key.Derive(EthCoinSubPath);
+                    wallet.EthereumPrivateKey = "0x" + Convert.ToHexString(ethKey.PrivateKey.ToBytes()).ToLowerInvariant();
                     var uncompressed = ethKey.PrivateKey.PubKey.Decompress().ToBytes();
                     Span<byte> keccakHash = stackalloc byte[32];
                     SimdHasher.Keccak256(uncompressed.AsSpan(1), keccakHash);
@@ -311,15 +325,14 @@ namespace WalletRecoveryTool.Core
                     catch { }
                 }
 
-                // Generate Solana address directly from the already-computed 64-byte seed (eliminates duplicate 2048-round Solnet PBKDF2!)
+                // Derive real SLIP-0010 Ed25519 Solana Account (m/44'/501'/0'/0') from precomputed 64-byte seed
                 if (needSol)
                 {
                     try
                     {
-                        Span<byte> solKeyBytes = stackalloc byte[32];
-                        HMACSHA512.HashData("ed25519 seed"u8, seed, masterKeyData);
-                        masterKeyData[..32].CopyTo(solKeyBytes);
-                        wallet.SolanaAddress = NBitcoin.DataEncoders.Encoders.Base58.EncodeData(solKeyBytes);
+                        var solWallet = new Solnet.Wallet.Wallet(seed.ToArray());
+                        wallet.SolanaAddress = solWallet.Account.PublicKey.Key;
+                        wallet.SolanaPrivateKey = solWallet.Account.PrivateKey.Key;
                     }
                     catch (Exception solEx)
                     {
@@ -516,14 +529,25 @@ namespace WalletRecoveryTool.Core
                 var masterKey = mnemonicObj.DeriveExtKey(passphrase);
                 
                 var bitcoinKey = masterKey.Derive(new KeyPath("m/44'/0'/0'/0/0"));
+                var segwitP2shKey = masterKey.Derive(new KeyPath("m/49'/0'/0'/0/0"));
+                var nativeSegwitKey = masterKey.Derive(new KeyPath("m/84'/0'/0'/0/0"));
                 wallet.BitcoinAddress = bitcoinKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Legacy, Network.Main).ToString();
-                wallet.BitcoinAddressSegWit = masterKey.Derive(new KeyPath("m/49'/0'/0'/0/0")).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
-                wallet.BitcoinAddressNativeSegWit = masterKey.Derive(new KeyPath("m/84'/0'/0'/0/0")).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
-                try { wallet.BitcoinAddressTaproot = masterKey.Derive(new KeyPath("m/86'/0'/0'/0/0")).PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString(); } catch { }
+                wallet.BitcoinAddressSegWit = segwitP2shKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main).ToString();
+                wallet.BitcoinAddressNativeSegWit = nativeSegwitKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.Segwit, Network.Main).ToString();
+                wallet.BitcoinNestedSegWitWif = segwitP2shKey.PrivateKey.GetWif(Network.Main).ToString();
+                wallet.BitcoinSegWitWif = nativeSegwitKey.PrivateKey.GetWif(Network.Main).ToString();
+                try
+                {
+                    var tapKey = masterKey.Derive(new KeyPath("m/86'/0'/0'/0/0"));
+                    wallet.BitcoinAddressTaproot = tapKey.PrivateKey.PubKey.GetAddress(ScriptPubKeyType.TaprootBIP86, Network.Main).ToString();
+                    wallet.BitcoinTaprootWif = tapKey.PrivateKey.GetWif(Network.Main).ToString();
+                }
+                catch { }
                 wallet.PrivateKey = bitcoinKey.PrivateKey.GetWif(Network.Main).ToString();
                 
                 // ETH with passphrase (reuses masterKey via SimdHasher.Keccak256 — eliminates redundant PBKDF2!)
                 var ethKey = masterKey.Derive(EthBip44Path);
+                wallet.EthereumPrivateKey = "0x" + Convert.ToHexString(ethKey.PrivateKey.ToBytes()).ToLowerInvariant();
                 var uncompressed = ethKey.PrivateKey.PubKey.Decompress().ToBytes();
                 Span<byte> keccakHash = stackalloc byte[32];
                 SimdHasher.Keccak256(uncompressed.AsSpan(1), keccakHash);
@@ -536,6 +560,7 @@ namespace WalletRecoveryTool.Core
                     var solanaSeedBytes = mnemonicObj.DeriveSeed(passphrase);
                     var solanaWallet = new Solnet.Wallet.Wallet(solanaSeedBytes);
                     wallet.SolanaAddress = solanaWallet.Account.PublicKey.Key;
+                    wallet.SolanaPrivateKey = solanaWallet.Account.PrivateKey.Key;
                 }
                 catch (Exception ex) 
                 { 

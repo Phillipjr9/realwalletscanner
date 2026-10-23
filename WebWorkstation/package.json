@@ -1,15 +1,24 @@
 {
-  "name": "wallet-preview",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "codehaven-workstation",
+  "version": "2.4.0",
+  "description": "CodeHaven Quantum Wallet Recovery Workstation — local scanner + live UI",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "desktop": "node desktop/run-headless.js",
+    "desktop:electron": "npm --prefix desktop start",
+    "dist:mac": "npm --prefix desktop run dist:mac",
+    "install:deps": "npm install --no-audit --no-fund"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "dependencies": {
     "bip39": "^3.1.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=18"
   }
 }

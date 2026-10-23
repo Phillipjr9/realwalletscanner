@@ -49,16 +49,21 @@ $files = @(
     "Core/EmbeddedWorkstationServer.cs",
     "Core/ApiUsageTracker.cs",
     "Core/MnemonicTracker.cs",
+    "Core/TargetAddressPreFilter.cs",
+    "Core/FundedAddressFilter.cs",
+    "Core/CognitiveBrainEngine.cs",
     "Core/SmartWalletHunter.cs",
     "Core/WalletRecoveryEngine.cs",
     "Core/CryptoWalletGenerator.cs",
     "Core/BalanceChecker.cs",
     "Core/WalletLogger.cs",
     "Core/SelfTestRunner.cs",
+    "WebWorkstation/package.json",
     "WebWorkstation/index.html",
     "WebWorkstation/server.js",
     "WebWorkstation/crypto_engine.js",
-    "WebWorkstation/hunter_worker.js"
+    "WebWorkstation/hunter_worker.js",
+    "WebWorkstation/forensic_worker.js"
 )
 
 foreach ($f in $files) {

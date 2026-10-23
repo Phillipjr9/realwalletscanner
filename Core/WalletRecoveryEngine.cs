@@ -279,14 +279,17 @@ namespace WalletRecoveryTool.Core
             if (options == null || !AppSettings.Current.EnableOfflineFilter)
                 return false;
 
+            // Never suppress live blockchain verification when real-time balance checking is enabled
+            if (options.CheckBalancesRealTime)
+                return false;
+
             if (options.ScanSolana || options.ScanLitecoin || options.ScanDogecoin)
                 return false;
 
             if (!filterLoaded)
                 return false;
 
-            // A negative bloom hit is never authoritative proof of emptiness; live verification stays required.
-            return false;
+            return !mightBeFundedBtc && !mightBeFundedEth;
         }
 
         private async Task RecoverFromPartialMnemonic(RecoveryOptions options, CancellationToken token)
