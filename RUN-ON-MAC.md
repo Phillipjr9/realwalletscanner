@@ -65,8 +65,18 @@ The script checks Node.js 18+ (Homebrew / nvm / volta are found automatically), 
 crypto dependencies, makes an `.icns` from `wallet.ico`, **downloads the official Node.js
 runtime for your Mac's architecture** (~45 MB, cached in `WebWorkstation/desktop/build/node`),
 builds with `electron-builder`, ad-hoc signs the bundle, copies it to `/Applications`, clears
-the quarantine flag, verifies the packaged crypto engine loads, and optionally registers the
-login item.
+the quarantine flag, and then **boot-tests the installed copy**: it starts the real scanner
+from the installed bundle on a throwaway port and only reports success once the server answers
+over HTTP. It finishes by optionally registering the login item.
+
+Rather type nothing? **Double-click `scripts/macos/install-macos.command` in Finder** — it is
+the same installer under a friendlier name.
+
+> **Which script is which — so nothing gets mixed up:**
+> `make-standalone-app.command` (or `install-macos.command`) → **the installed app** (this guide).
+> `build-macos-app.sh` → an old *lightweight* variant that opens the UI in your browser and
+> needs the repo folder to stay put. It is not the installed app and the installer replaces it.
+> `start-workstation.command` → quick start in a browser without installing anything.
 
 Why bundle a second runtime? Electron ships BoringSSL, which has no `secp256k1` curve — and
 `crypto.createECDH('secp256k1')` is how every Ethereum/Bitcoin address in this scanner is

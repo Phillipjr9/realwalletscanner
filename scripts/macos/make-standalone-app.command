@@ -189,6 +189,7 @@ BUILD_FLAGS=(--mac "--$NODE_ARCH" --publish never)
 [[ "$BUILD_DMG" -eq 0 ]] && BUILD_FLAGS+=(--dir)
 [[ "$BUILD_DMG" -eq 1 ]] && printf '%sAlso producing a .dmg…%s\n' "$DIM" "$RESET"
 
+BUILD_EPOCH="$(date +%s)"
 BUILDER="./node_modules/.bin/electron-builder"
 [[ -x "$BUILDER" ]] || BUILDER="npx --yes electron-builder"
 if ! "$BUILDER" "${BUILD_FLAGS[@]}"; then
@@ -196,8 +197,27 @@ if ! "$BUILDER" "${BUILD_FLAGS[@]}"; then
   exit 1
 fi
 
-BUILT_APP="$(find "$OUT_DIR" -maxdepth 3 -name "$APP_NAME.app" -type d 2>/dev/null | head -1)"
-[[ -n "$BUILT_APP" ]] || { fail "Build finished but no .app was produced in $OUT_DIR"; exit 1; }
+# electron-builder writes to dist/mac-<arch>/ (or dist/mac/). Pick the app THIS
+# build just produced — never a leftover from an earlier run — preferring the
+# architecture we asked for.
+BUILT_APP=""
+BEST_SCORE=0
+while IFS= read -r cand; do
+  [[ -d "$cand" ]] || continue
+  mtime="$(stat -f %m "$cand" 2>/dev/null || echo 0)"
+  score="$mtime"
+  case "$cand" in
+    *"/mac-$NODE_ARCH/"*) score=$((mtime + 100000000000)) ;;
+  esac
+  # Ignore anything older than this build (stale leftovers from previous runs).
+  [[ "$mtime" -ge "$((BUILD_EPOCH - 300))" ]] || score=0
+  if [[ "$score" -gt "$BEST_SCORE" ]]; then BEST_SCORE="$score"; BUILT_APP="$cand"; fi
+done < <(find "$OUT_DIR" -maxdepth 3 -name "$APP_NAME.app" -type d 2>/dev/null)
+
+if [[ -z "$BUILT_APP" || "$BEST_SCORE" -eq 0 ]]; then
+  fail "Build finished but no fresh .app was produced in $OUT_DIR"
+  exit 1
+fi
 ok "Built: $BUILT_APP"
 
 # Sanity check the bundle really carries the workstation
@@ -238,6 +258,12 @@ if [[ "$DO_INSTALL" -eq 1 ]]; then
     pkill -f "$APP_NAME.app/Contents/MacOS" >/dev/null 2>&1 || true
     sleep 1
   fi
+  if [[ -d "$TARGET" ]]; then
+    OLD_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$TARGET/Contents/Info.plist" 2>/dev/null || true)"
+    if [[ "$OLD_ID" == "app.codehaven.workstation.lite" ]]; then
+      warn "Replacing the lightweight browser launcher (an older build) with the standalone app"
+    fi
+  fi
   rm -rf "$TARGET"
   if cp -R "$BUILT_APP" "$TARGET"; then
     xattr -cr "$TARGET" 2>/dev/null || true
@@ -257,6 +283,33 @@ if [[ -x "$BUNDLED_RUNTIME" && -d "$TARGET/Contents/Resources/workstation" ]]; t
     ok "Installed bundle verified: crypto engine loads under the bundled Node"
   else
     warn "The installed bundle failed its self-check — open the app and read the diagnostics log"
+  fi
+
+  # Boot smoke test: the installed scanner must start and answer over HTTP.
+  SMOKE_PORT="$("$BUNDLED_RUNTIME" -e "const n=require('net');const s=n.createServer();s.listen(0,'127.0.0.1',()=>{process.stdout.write(String(s.address().port));s.close();});" 2>/dev/null || true)"
+  SMOKE_DATA="$(mktemp -d "${TMPDIR:-/tmp}/chsmoke.XXXXXX")"
+  if [[ -n "$SMOKE_PORT" && -d "$SMOKE_DATA" ]]; then
+    (
+      cd "$TARGET/Contents/Resources/workstation" || exit 1
+      export CODEHAVEN_DATA_DIR="$SMOKE_DATA" PORT="$SMOKE_PORT" HOST=127.0.0.1 LOCAL_SMTP_PORT="$((SMOKE_PORT + 1))"
+      exec "$BUNDLED_RUNTIME" server.js > "$SMOKE_DATA/boot.log" 2>&1
+    ) &
+    SMOKE_PID=$!
+    SMOKE_OK=0
+    for _ in $(seq 1 40); do
+      if curl -fsS --max-time 2 "http://127.0.0.1:$SMOKE_PORT/" >/dev/null 2>&1; then SMOKE_OK=1; break; fi
+      sleep 0.5
+    done
+    kill "$SMOKE_PID" 2>/dev/null || true
+    sleep 1
+    kill -9 "$SMOKE_PID" 2>/dev/null || true
+    if [[ "$SMOKE_OK" -eq 1 ]]; then
+      ok "Installed bundle boot-tested: the scanner started and answered on 127.0.0.1:$SMOKE_PORT"
+    else
+      warn "The installed scanner did not answer within 20 s. Boot log:"
+      tail -8 "$SMOKE_DATA/boot.log" 2>/dev/null || true
+    fi
+    rm -rf "$SMOKE_DATA"
   fi
 else
   warn "No bundled Node runtime in the installed app — the scanner will fall back to a system Node"

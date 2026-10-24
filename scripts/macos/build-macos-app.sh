@@ -23,6 +23,9 @@ MACOS_DIR="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 
 echo "Building $APP"
+echo "NOTE: this is the LIGHTWEIGHT browser-launcher variant (opens the UI in your browser)." >&2
+echo "      For the standalone installed app (native window, own runtime) run instead:" >&2
+echo "      bash scripts/macos/make-standalone-app.command" >&2
 
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR" "$RES/scripts"
@@ -94,3 +97,4 @@ xattr -cr "$APP" 2>/dev/null || true
 
 echo "Built: $APP"
 echo "Launch with: open \"$APP\""
+echo "Reminder: for the proper standalone install run: bash scripts/macos/make-standalone-app.command"
