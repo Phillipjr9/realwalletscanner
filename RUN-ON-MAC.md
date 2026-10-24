@@ -185,6 +185,45 @@ cp -R "$HOME/Library/Application Support/CodeHaven Workstation/PersistentState" 
 
 ---
 
+## Why the wallets you find are "public" and multisig-locked
+
+This is the most common surprise in weak-key hunting, and it is not a bug — it is
+the shape of the search space:
+
+1. **The scanner can only find wallets whose secrets are predictable** — test
+   mnemonics, brainwallet passphrases, weak-PRNG seeds, known-compromised keys,
+   human patterns. A secret that can be regenerated from public information is,
+   by definition, public. Sweeper bots run these same lists every second of
+   every day.
+
+2. **Any such wallet with a plain key and real balance gets swept within
+   minutes** of becoming known. The unlocked bucket is empty almost all the time.
+
+3. **So the only survivors are funds the key cannot move**: multisig vaults
+   (Gnosis Safe and friends), lock/vesting contracts, dust too small to bother,
+   and TRON accounts with multi-signature permissions. Survivorship bias: locked
+   funds are the only ones that last long enough for you to find them.
+
+Because of that, the app now **classifies every funded hit by spendability**:
+
+| Badge | Meaning |
+|---|---|
+| 💰 **FUNDED — spendable** | The derived key actually controls the balance. This is a real recovery candidate. |
+| 🔒 **FUNDED — LOCKED** | The address shows a balance, but it sits in a smart contract or multi-sig account — the derived key **cannot** move it. Listed for honesty and history; never count it as recoverable. |
+
+The check runs at verification time: `eth_getCode` on EVM chains (a contract
+address means the funds are contract-held) and TRON account permissions
+(threshold > 1 or multiple signers means multi-sig). BTC, DOGE and LTC addresses
+are derived as single-key scripts, so a confirmed balance there is spendable by
+design. Open any dossier to read the exact reason.
+
+**What a genuinely recoverable find looks like:** a non-zero balance on a
+plain EOA/single-key address derived from a weak secret — usually small
+balances like the 3-TRX test-seed wallet in your vault. Those can be swept with
+the key shown in the dossier, immediately, before a bot notices.
+
+---
+
 ## When something looks wrong: the self-monitor
 
 The app watches itself. A **health pill in the top bar** (green `Healthy 100`, amber

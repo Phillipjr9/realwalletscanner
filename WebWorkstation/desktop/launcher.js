@@ -351,18 +351,35 @@ async function startWorkstation(options = {}) {
         return;
       }
       if (!ready) {
-        // Startup failure: the caller reports it with the log tail instead of
-        // letting the user stare at a spinner for 45 seconds.
-        log(`Workstation exited during startup (${signal || `exit ${code}`})`);
+        // Startup failure (port clash, corrupt state, bad deploy): retry in
+        // the background instead of abandoning the scan forever.
+        log(`Workstation exited during startup (${signal || `exit ${code}`}) — retrying`);
+        restarts += 1;
+        if (onGiveUp && restarts === maxRestarts) onGiveUp({ code, signal, retrying: true });
+        const startupDelay = Math.min(2000 * restarts, 30000);
+        setTimeout(async () => {
+          if (stopping) return;
+          try {
+            child = spawnChild();
+            await waitForWorkstation(port, { timeoutMs: 45000 });
+            restarts = 0;
+            log('Workstation recovered after startup failure');
+            if (onRestart) onRestart({ port, url: `http://127.0.0.1:${port}/?desktop=1` });
+          } catch (err) {
+            log(`Startup retry failed: ${err.message} — will keep trying`);
+          }
+        }, startupDelay);
         return;
       }
       log(`Workstation exited unexpectedly (${signal || `exit ${code}`})`);
-      if (!autoRestart || restarts >= maxRestarts) {
-        log(`Giving up after ${restarts} restart attempts`);
-        if (onGiveUp) onGiveUp({ code, signal });
+      if (!autoRestart) {
+        log('Auto-restart disabled');
         return;
       }
+      // Never give up permanently: a scanner that stops for good is the worst
+      // possible outcome. Warn the user after maxRestarts, then keep going.
       restarts += 1;
+      if (onGiveUp && restarts === maxRestarts) onGiveUp({ code, signal, retrying: true });
       const delay = Math.min(1000 * 2 ** (restarts - 1), 15000);
       log(`Restarting in ${delay}ms (attempt ${restarts}/${maxRestarts})`);
       setTimeout(async () => {
@@ -374,7 +391,14 @@ async function startWorkstation(options = {}) {
           log('Workstation restarted');
           if (onRestart) onRestart({ port, url: `http://127.0.0.1:${port}/?desktop=1` });
         } catch (err) {
-          log(`Restart failed: ${err.message}`);
+          log(`Restart failed: ${err.message} — will keep trying`);
+          if (!stopping) {
+            setTimeout(() => {
+              if (!stopping && child && child.exitCode !== null) {
+                try { child = spawnChild(); } catch (_) {}
+              }
+            }, 15000);
+          }
         }
       }, delay);
     });

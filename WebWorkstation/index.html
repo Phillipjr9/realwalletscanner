@@ -649,6 +649,7 @@
   .pill-emerald { background: rgba(47, 211, 161, 0.09); border-color: rgba(47, 211, 161, 0.26); color: var(--emerald-text); }
   .pill-indigo { background: rgba(139, 147, 255, 0.11); border-color: rgba(139, 147, 255, 0.28); color: var(--indigo-text); }
   .pill-amber { background: rgba(245, 185, 64, 0.09); border-color: rgba(245, 185, 64, 0.26); color: var(--amber-text); }
+  .pill-rose { background: rgba(251, 113, 133, 0.10); border-color: rgba(251, 113, 133, 0.32); color: var(--rose-text); }
 
   .live-dot {
     width: 6px; height: 6px; border-radius: 50%;
@@ -2107,6 +2108,7 @@
           </button>
         </div>
       </div>
+      <div id="WalletDetailLockBanner"></div>
       <div id="WalletDetailBody" class="dossier-body"></div>
     </div>
   </div>
@@ -2947,9 +2949,11 @@
     const privHex = item.ethPrivateKeyHex || item.privateKeyHex || item.privateKey || '';
     const normalizedPriv = privHex && !String(privHex).startsWith('0x') ? '0x' + privHex : privHex;
     const reference = item.btcLegacy || item.ethAddress || item.input || 'Wallet';
-    const stateLabel = isFunded ? 'FUNDED NOW' : (isEverHeld ? 'EVER HELD' : 'SCREENED');
-    const stateClass = isFunded ? 'pill-emerald' : (isEverHeld ? 'pill-amber' : 'pill-cyan');
+    const stateLabel = isFunded ? (item.fundsLocked ? 'FUNDED (LOCKED)' : 'FUNDED NOW') : (isEverHeld ? 'EVER HELD' : 'SCREENED');
+    const stateClass = isFunded ? (item.fundsLocked ? 'pill-rose' : 'pill-emerald') : (isEverHeld ? 'pill-amber' : 'pill-cyan');
 
+    const lockBannerHost = document.getElementById('WalletDetailLockBanner');
+    if (lockBannerHost) lockBannerHost.innerHTML = walletLockBanner(item);
     const headerTitle = document.getElementById('WalletDetailHeaderTitle');
     if (headerTitle) headerTitle.textContent = `${walletTypeLabel(item)} · ${shortHash(reference, 14, 8)}`;
     const headerBadge = document.getElementById('WalletDetailHeaderBadge');
@@ -3092,6 +3096,15 @@
         <button class="btn btn-primary" onclick="closeModal('walletDetailModal')">Done</button>
       </div>
     `;
+  }
+
+  function walletLockBanner(item) {
+    if (!item || !item.fundsLocked) return '';
+    return `<div class="mono" style="margin:10px 0; padding:11px 13px; border-radius:9px; border:1px solid rgba(251,113,133,0.40); background:rgba(251,113,133,0.10); font-size:11px; line-height:1.65; color:var(--text-secondary);">
+      <b style="color:var(--rose-text);">🔒 These funds are visible but NOT spendable with this key.</b><br>
+      ${escHtml(item.lockReason || 'The balance is held by a smart contract (typically a multisig such as a Safe), so the derived private key cannot move it.')}<br>
+      <span style="opacity:0.8;">Do not count this balance as recoverable. It is listed so the history is complete and honest.</span>
+    </div>`;
   }
 
   async function openWalletDetail(itemOrId) {
@@ -4426,7 +4439,10 @@
     const openAttr = `style="cursor:pointer;" onclick="event.stopPropagation(); openWalletDetailFromElement(this)" title="Open the full wallet dossier — addresses, keys and history"`;
     if (isFunded) {
       const verifiedTag = item.liveVerified || item.verification === 'confirmed' ? '' : ' • unverified';
-      return `<span class="pill pill-emerald" ${openAttr}>💰 FUNDED (${fmtUsd(item.balanceUsd)}${verifiedTag}) • View dossier</span>`;
+      if (item.fundsLocked) {
+        return `<span class="pill pill-rose" ${openAttr}>🔒 FUNDED — LOCKED (${fmtUsd(item.balanceUsd)}) • ${escHtml(item.lockReason ? 'multisig/contract — key cannot move funds' : 'key cannot move funds')} • View dossier</span>`;
+      }
+      return `<span class="pill pill-emerald" ${openAttr}>💰 FUNDED — spendable (${fmtUsd(item.balanceUsd)}${verifiedTag}) • View dossier</span>`;
     }
     if (item.verification === 'pending' || item.bloomOnly) {
       return `<span class="pill pill-cyan" ${openAttr}>⏳ PENDING LIVE CHECK • Bloom match</span>`;

@@ -164,6 +164,16 @@ checks.push(['9b keep-awake toggle   ', Boolean(d.getElementById('KeepAwakeChk')
   const pillTitle = d.getElementById('HealthPill').title;
   checks.push(['14 pill tooltip        ', pillTitle.includes('scan engine stopped')]);
 
+  // 15: a locked (multisig/contract) hit must never look spendable
+  const lockedBadge = w.formatWalletStatusBadge({ balanceUsd: 41200, verification: 'confirmed', liveVerified: true, fundsLocked: true, lockReason: 'Safe multisig', address: '0xlock' });
+  checks.push(['15 locked not spendable', /LOCKED/.test(lockedBadge) && !/spendable/.test(lockedBadge)]);
+  const spendBadge = w.formatWalletStatusBadge({ balanceUsd: 41, verification: 'confirmed', liveVerified: true, address: '0xfree' });
+  checks.push(['16 spendable labelled  ', /FUNDED — spendable/.test(spendBadge)]);
+
+  // 17: the dossier banner explains locked funds
+  const banner = w.walletLockBanner({ fundsLocked: true, lockReason: 'These funds sit in a smart contract' });
+  checks.push(['17 lock banner honest  ', banner.includes('NOT spendable') && banner.includes('smart contract')]);
+
   console.log(checks.map(([n, v]) => n + ': ' + v).join('\n'));
   const failed = checks.filter(([, v]) => !v).length;
   console.log(failed === 0 ? 'ALL PASS' : 'FAILED: ' + failed);

