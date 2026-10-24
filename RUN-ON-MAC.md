@@ -217,6 +217,28 @@ address means the funds are contract-held) and TRON account permissions
 are derived as single-key scripts, so a confirmed balance there is spendable by
 design. Open any dossier to read the exact reason.
 
+### Zero finds for hours? Read the FIND FUNNEL first
+
+The diagnostic report has a **FIND FUNNEL** section that answers "why (not)
+finding wallets" with evidence:
+
+```
+candidates generated 24,214,560
+fabric               48,200,000 funded addresses · 12 targets
+matches queued       52,731 leads · bloom FP 7.600%
+verdicts             48,203 checked · 47,900 empty · 303 unanswered
+confirmed            1 funded · 3 ever-held
+```
+
+Read it top-down: if **fabric** is `0 funded addresses`, nothing is discoverable
+(the monitor raises this as a critical issue too — load your dump). If fabric is
+loaded and **matches queued** climbs while **confirmed** stays flat, the system
+is working and the answer is the base rate: most leads are bloom false positives
+and verify empty by design. **Zero confirmed finds over hours or days is the
+statistical norm** — the scanner searches an astronomically large space for an
+astronomically rare thing. One honest find is worth more than a thousand
+invented ones, and this app will never invent one.
+
 **What a genuinely recoverable find looks like:** a non-zero balance on a
 plain EOA/single-key address derived from a weak secret — usually small
 balances like the 3-TRX test-seed wallet in your vault. Those can be swept with

@@ -2347,7 +2347,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.7.1';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2600,6 +2600,15 @@ function diagEvaluate() {
     diagClear('prices.stale');
   }
 
+  // 4b. Find funnel — "why no wallet?" must be answerable from evidence.
+  const fabricLoaded = Number(fundedBloomMeta.totalImported || 0) + targetAddressMap.size;
+  if (fabricLoaded === 0) {
+    diagRaise('find.nofabric', 'critical', 'No funded-address dump loaded — nothing can be discovered',
+      'The scanner generates and screens addresses, but with no funded-address dump (Bloom Importer) and no target list, no candidate can ever match a real wallet. Load your dump in the Bloom Importer.');
+  } else {
+    diagClear('find.nofabric');
+  }
+
   // 5. Bloom filter — high false positives explain a huge pending queue.
   const bloomCount = Number(fundedBloomMeta.totalImported || 0);
   const bloomFp = fundedBloomFalsePositiveRate();
@@ -2746,6 +2755,18 @@ function diagSnapshot() {
       lastError: verificationStats.lastError,
       rpcMode: verificationStats.rpcMode
     },
+    funnel: {
+      generated: Number(multiIndexAddressesChecked || 0) + Number(liveRpcAddressesChecked || 0),
+      fabricFunded: Number(fundedBloomMeta.totalImported || 0),
+      fabricTargets: targetAddressMap.size,
+      leadsQueued: verificationStats.queued,
+      verdicts: verificationStats.confirmedFunded + verificationStats.confirmedEverHeld + verificationStats.confirmedEmpty + verificationStats.unanswered,
+      confirmedFunded: verificationStats.confirmedFunded,
+      confirmedEverHeld: verificationStats.confirmedEverHeld,
+      confirmedEmpty: verificationStats.confirmedEmpty,
+      unanswered: verificationStats.unanswered,
+      falsePositiveRate: Number(fundedBloomMeta.falsePositiveRate || 0)
+    },
     chains,
     coverage: {
       serverSide: DIAG_WIRED_CHAINS.slice(),
@@ -2792,6 +2813,7 @@ const DIAG_ADVICE = {
   'verify.backoff': 'The chains are not answering. Check the network, then add API keys to raise the rate limits.',
   'verify.parked': 'Nothing is lost. Press "Retry parked" once the network or keys are fixed.',
   'verify.cap': 'Clear the queue if those leads are not worth verifying, or import a smaller dump.',
+  'find.nofabric': 'Open the Bloom Importer and load your funded-address dump. Without it the scanner has nothing to match against and can never report a wallet.',
   'scan.stalled': 'The scan engine produced no new addresses for over 2 minutes. The workers restart themselves; if this keeps returning, the Mac is probably sleeping — enable keep-awake and check Energy Saver.',
   'scan.worker_down': 'A scan worker crashed. Workers restart automatically, so scanning continues; a repeating crash means one generation path needs fixing — send the report.',
   'power.sleep_lock': 'Keep-awake is on but the sleep lock is not running, so the Mac can still sleep and stop the scan. It is restarted automatically.',
@@ -2859,7 +2881,6 @@ function diagnosticsReportText(snapshot) {
   L.push(`  server engine        ${s.scan.daemonActive ? 'running' : 'stopped'}`);
   L.push(`  worker threads       ${s.scan.workersAlive}/${s.scan.workersConfigured} alive · ${s.scan.workerRestarts} restart(s)`);
   L.push(`  keep-awake           ${s.scan.keepAwake ? (s.scan.sleepLockActive ? 'ON (sleep lock active)' : 'ON but lock INACTIVE') : 'OFF — the Mac can sleep and stop the scan'}`);
-  L.push(`  worker threads       ${s.scan.workers}`);
   L.push(`  addresses checked    ${s.scan.addressesChecked.toLocaleString()} (${s.scan.addressesPerSec}/s)`);
   L.push(`  live RPC requests    ${s.scan.liveRpcRequestsSent.toLocaleString()}`);
   L.push(`  confirmed live       ${s.scan.liveRpcVerified.toLocaleString()}`);
@@ -2875,6 +2896,18 @@ function diagnosticsReportText(snapshot) {
 
   // ---- chains -----------------------------------------------------------
   L.push('');
+  // ---- find funnel ------------------------------------------------------
+  L.push('');
+  L.push('FIND FUNNEL — why (not) finding wallets');
+  L.push(`  candidates generated ${s.funnel.generated.toLocaleString()}`);
+  L.push(`  fabric               ${s.funnel.fabricFunded.toLocaleString()} funded addresses · ${s.funnel.fabricTargets.toLocaleString()} targets`);
+  L.push(`  matches queued       ${s.funnel.leadsQueued.toLocaleString()} leads · bloom FP ${(s.funnel.falsePositiveRate * 100).toFixed(3)}%`);
+  L.push(`  verdicts             ${s.funnel.verdicts.toLocaleString()} checked · ${s.funnel.confirmedEmpty.toLocaleString()} empty · ${s.funnel.unanswered.toLocaleString()} unanswered`);
+  L.push(`  confirmed            ${s.funnel.confirmedFunded.toLocaleString()} funded · ${s.funnel.confirmedEverHeld.toLocaleString()} ever-held`);
+  L.push('  Most leads are bloom false positives and verify empty — that is expected.');
+  L.push('  A confirmed funded wallet is astronomically rare; zero finds over hours');
+  L.push('  or days is the statistical norm, not a failure of the scanner.');
+
   L.push('CHAIN ENDPOINTS');
   L.push(`  ${pad('CHAIN', 7)}${padL('OK', 5)}${padL('FAIL', 6)}${padL('TMO', 5)}${padL('AVG ms', 8)}  ${pad('LAST OK', 13)}${pad('STATUS', 9)}LAST ERROR`);
   for (const c of s.chains) {
@@ -2954,7 +2987,7 @@ function diagnosticCompactText(snapshot) {
     if (s.issues.length > 6) L.push(`…and ${s.issues.length - 6} more (see the app).`);
   }
   L.push('');
-  L.push(`⏳ Queue: ${s.verify.pending.toLocaleString()} waiting · ${s.verify.ratePerMin}/min${s.verify.parked ? ` · ${s.verify.parked} parked` : ''}`);
+  L.push(`⏳ Queue: ${s.verify.pending.toLocaleString()} waiting · ${s.verify.ratePerMin}/min${s.verify.parked ? ` · ${s.verify.parked} parked` : ''}` + ` · 🎯 ${s.funnel ? s.funnel.confirmedFunded : 0} funded / ${s.funnel ? s.funnel.confirmedEverHeld : 0} ever-held`);
   // Never call an endpoint healthy when it has not answered once.
   const probed = s.chains.filter(c => c.attempts > 0);
   const good = probed.filter(c => c.health === 'ok' || c.health === 'flaky');
