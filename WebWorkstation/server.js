@@ -2605,6 +2605,9 @@ function diagEvaluate() {
   if (fabricLoaded === 0) {
     diagRaise('find.nofabric', 'critical', 'No funded-address dump loaded — nothing can be discovered',
       'The scanner generates and screens addresses, but with no funded-address dump (Bloom Importer) and no target list, no candidate can ever match a real wallet. Load your dump in the Bloom Importer.');
+  } else if (Number(fundedBloomMeta.totalImported || 0) === 0) {
+    diagRaise('find.nofabric', 'warning', 'Funded-address dump not loaded — discovery is limited to the target list',
+      `Only ${targetAddressMap.size} target address(es) are loaded and the funded-address dump is missing. The scanner can still match those targets, but it cannot discover funded wallets outside them. Load your dump in the Bloom Importer.`);
   } else {
     diagClear('find.nofabric');
   }
