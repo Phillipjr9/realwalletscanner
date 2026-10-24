@@ -68,6 +68,27 @@
     --radius-md: 10px;
     --radius-lg: 14px;
     --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 30px -18px rgba(0, 0, 0, 0.9);
+
+    --chrome-gradient: linear-gradient(180deg, #101725 0%, #0B1019 100%);
+    --topbar-bg: rgba(11, 16, 25, 0.92);
+    --metrics-bg: rgba(7, 11, 18, 0.55);
+    --card-gradient: linear-gradient(180deg, rgba(19, 26, 40, 0.86) 0%, rgba(12, 17, 27, 0.92) 100%);
+    --table-head-bg: #0C121D;
+    --menu-bg: #111826;
+    --menu-hover: rgba(255, 255, 255, 0.05);
+    --modal-gradient: linear-gradient(180deg, #111826 0%, #0B111B 100%);
+    --modal-shadow: 0 60px 140px -40px rgba(0, 0, 0, 0.98), 0 0 0 1px rgba(0, 0, 0, 0.4);
+    --btn-bg: rgba(255, 255, 255, 0.035);
+    --btn-hover: rgba(255, 255, 255, 0.075);
+    --card-title-color: var(--text-secondary);
+    --titlebar-text: #7C8AA5;
+    --titlebar-strong: #C6D2E6;
+    --titlebar-divider: #33405A;
+    --emerald-text: #6EE7B7;
+    --amber-text: #FCD34D;
+    --cyan-text: #7DD3FC;
+    --indigo-text: #C7D2FE;
+    --rose-text: #FDA4AF;
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, Consolas, 'Liberation Mono', Menlo, monospace;
   }
@@ -103,7 +124,33 @@
     --sol-color: #0B9B72;
 
     --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 12px 30px -18px rgba(15, 23, 42, 0.35);
+
+    --chrome-gradient: linear-gradient(180deg, #FFFFFF 0%, #E9EEF7 100%);
+    --topbar-bg: rgba(247, 250, 255, 0.94);
+    --metrics-bg: rgba(226, 233, 244, 0.60);
+    --card-gradient: linear-gradient(180deg, #FFFFFF 0%, #F5F8FE 100%);
+    --table-head-bg: #E9EEF7;
+    --menu-bg: #FFFFFF;
+    --menu-hover: rgba(15, 23, 42, 0.06);
+    --modal-gradient: linear-gradient(180deg, #FFFFFF 0%, #F2F6FC 100%);
+    --modal-shadow: 0 60px 140px -40px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.10);
+    --btn-bg: rgba(15, 23, 42, 0.04);
+    --btn-hover: rgba(15, 23, 42, 0.09);
+    --card-title-color: #42536C;
+    --titlebar-text: #5A6B84;
+    --titlebar-strong: #1A2740;
+    --titlebar-divider: #B9C5D6;
+    --emerald-text: #0E9E74;
+    --amber-text: #A16207;
+    --cyan-text: #0E7490;
+    --indigo-text: #4F46E5;
+    --rose-text: #BE123C;
   }
+  [data-theme="light"] .app-window {
+    border-color: rgba(15, 23, 42, 0.12);
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.10), 0 48px 120px -30px rgba(15, 23, 42, 0.30), 0 0 90px -40px rgba(91, 157, 255, 0.22);
+  }
+  [data-theme="light"] .modal-backdrop { background: rgba(15, 23, 42, 0.42); }
   [data-theme="light"] body {
     background:
       radial-gradient(1100px 720px at 12% -12%, rgba(59, 130, 246, 0.14) 0%, transparent 58%),
@@ -112,27 +159,26 @@
       var(--bg-canvas);
   }
 
-  /* ── 3D theme toggle (top bar) ──────────────────────────────────────── */
+  /* ── 3D theme toggle (window chrome) ────────────────────────────────── */
   .theme-switch {
-    --sw-h: 27px;
-    width: 52px; height: var(--sw-h);
+    width: 46px; height: 24px;
     border-radius: 999px;
     border: 1px solid var(--border-subtle);
-    background: linear-gradient(145deg, var(--bg-elevated), var(--bg-input));
+    background: var(--btn-bg);
     padding: 2px; cursor: pointer; position: relative; flex-shrink: 0;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.22), 0 6px 14px -8px rgba(0, 0, 0, 0.45);
-    transition: border-color 0.3s;
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.18);
+    transition: border-color 0.3s, background 0.3s;
   }
   .theme-switch:hover { border-color: var(--border-focus); }
   .theme-switch:focus-visible { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.35); }
   .theme-knob {
     position: absolute; top: 2px; left: 2px;
-    width: 21px; height: 21px; perspective: 220px;
-    transition: transform 0.55s cubic-bezier(0.6, -0.05, 0.25, 1.35);
+    width: 18px; height: 18px; perspective: 240px;
+    transition: transform 0.5s cubic-bezier(0.6, -0.05, 0.25, 1.35);
   }
-  [data-theme="light"] .theme-knob { transform: translateX(25px); }
-  .theme-switch:active .theme-knob { transform: scale(0.9); }
-  [data-theme="light"] .theme-switch:active .theme-knob { transform: translateX(25px) scale(0.9); }
+  [data-theme="light"] .theme-knob { transform: translateX(22px); }
+  .theme-switch:active .theme-knob { transform: scale(0.88); }
+  [data-theme="light"] .theme-switch:active .theme-knob { transform: translateX(22px) scale(0.88); }
   .theme-knob-inner {
     position: relative; width: 100%; height: 100%;
     transform-style: preserve-3d;
@@ -143,16 +189,17 @@
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     backface-visibility: hidden; -webkit-backface-visibility: hidden;
-    border-radius: 50%; font-size: 11px; line-height: 1;
+    border-radius: 50%; font-size: 10px; line-height: 1;
   }
   .theme-face-dark {
+    transform: translateZ(1px);
     background: linear-gradient(145deg, #35406B, #1A2238);
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
   }
   .theme-face-light {
-    transform: rotateY(180deg);
+    transform: rotateY(180deg) translateZ(1px);
     background: linear-gradient(145deg, #FFD873, #F5A623);
-    box-shadow: 0 3px 8px rgba(245, 166, 35, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    box-shadow: 0 2px 6px rgba(245, 166, 35, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -212,7 +259,7 @@
     align-items: center;
     gap: 14px;
     padding: 0 14px;
-    background: linear-gradient(180deg, #101725 0%, #0B1019 100%);
+    background: var(--chrome-gradient);
     border-bottom: 1px solid var(--border-hairline);
     position: relative;
     z-index: 30;
@@ -231,12 +278,12 @@
     justify-content: center;
     gap: 9px;
     font-size: 11.5px;
-    color: #7C8AA5;
+    color: var(--titlebar-text);
     letter-spacing: 0.15px;
     min-width: 0;
   }
-  .titlebar-title strong { color: #C6D2E6; font-weight: 600; }
-  .titlebar-divider { color: #33405A; }
+  .titlebar-title strong { color: var(--titlebar-strong); font-weight: 600; }
+  .titlebar-divider { color: var(--titlebar-divider); }
 
   .titlebar-right { display: flex; align-items: center; gap: 8px; justify-content: flex-end; width: 300px; }
   .window-body { flex: 1; display: flex; min-height: 0; }
@@ -423,7 +470,7 @@
     border: 1px solid rgba(139, 147, 255, 0.20);
   }
   .sb-brain-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; gap: 6px; }
-  .sb-brain-title { font-size: 10.5px; font-weight: 700; color: #C7D2FE; display: flex; align-items: center; gap: 6px; letter-spacing: 0.2px; }
+  .sb-brain-title { font-size: 10.5px; font-weight: 700; color: var(--indigo-text); display: flex; align-items: center; gap: 6px; letter-spacing: 0.2px; }
 
   .pulse-dot {
     width: 6px; height: 6px; border-radius: 50%;
@@ -439,7 +486,7 @@
 
   .topbar {
     flex-shrink: 0;
-    background: rgba(11, 16, 25, 0.92);
+    background: var(--topbar-bg);
     border-bottom: 1px solid var(--border-hairline);
     backdrop-filter: blur(12px);
     z-index: 20;
@@ -465,7 +512,7 @@
     height: 40px;
     padding: 0 18px;
     border-top: 1px solid rgba(148, 163, 184, 0.07);
-    background: rgba(7, 11, 18, 0.55);
+    background: var(--metrics-bg);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -508,7 +555,7 @@
     padding: 0 12px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-subtle);
-    background: rgba(255, 255, 255, 0.035);
+    background: var(--btn-bg);
     color: var(--text-primary);
     font-family: var(--font-sans);
     font-size: 11.5px;
@@ -522,7 +569,7 @@
     transition: background 0.13s ease, border-color 0.13s ease, transform 0.06s ease, box-shadow 0.13s ease;
     text-decoration: none;
   }
-  .btn:hover { background: rgba(255, 255, 255, 0.075); border-color: rgba(148, 163, 184, 0.3); }
+  .btn:hover { background: var(--btn-hover); border-color: rgba(148, 163, 184, 0.3); }
   .btn:active { transform: translateY(0.5px) scale(0.995); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; }
@@ -538,21 +585,21 @@
   .btn-emerald {
     background: linear-gradient(180deg, rgba(47, 211, 161, 0.22), rgba(16, 185, 129, 0.14));
     border-color: rgba(47, 211, 161, 0.45);
-    color: #6FF0C6;
+    color: var(--emerald-text);
   }
   .btn-emerald:hover { background: linear-gradient(180deg, rgba(47, 211, 161, 0.3), rgba(16, 185, 129, 0.2)); border-color: rgba(47, 211, 161, 0.65); }
 
   .btn-danger {
     background: rgba(251, 113, 133, 0.10);
     border-color: rgba(251, 113, 133, 0.35);
-    color: #FDA4AF;
+    color: var(--rose-text);
   }
   .btn-danger:hover { background: rgba(251, 113, 133, 0.18); border-color: rgba(251, 113, 133, 0.55); }
 
   .btn-amber {
     background: rgba(245, 185, 64, 0.10);
     border-color: rgba(245, 185, 64, 0.35);
-    color: #FCD34D;
+    color: var(--amber-text);
   }
   .btn-amber:hover { background: rgba(245, 185, 64, 0.18); border-color: rgba(245, 185, 64, 0.55); }
 
@@ -579,7 +626,7 @@
     font-weight: 700;
     background: rgba(245, 185, 64, 0.18);
     border: 1px solid rgba(245, 185, 64, 0.35);
-    color: #FCD34D;
+    color: var(--amber-text);
     border-radius: 20px;
     padding: 0 6px;
     min-width: 18px;
@@ -598,10 +645,10 @@
     white-space: nowrap;
     border: 1px solid transparent;
   }
-  .pill-cyan { background: rgba(55, 211, 240, 0.09); border-color: rgba(55, 211, 240, 0.26); color: #7DD3FC; }
-  .pill-emerald { background: rgba(47, 211, 161, 0.09); border-color: rgba(47, 211, 161, 0.26); color: #6EE7B7; }
-  .pill-indigo { background: rgba(139, 147, 255, 0.11); border-color: rgba(139, 147, 255, 0.28); color: #C7D2FE; }
-  .pill-amber { background: rgba(245, 185, 64, 0.09); border-color: rgba(245, 185, 64, 0.26); color: #FCD34D; }
+  .pill-cyan { background: rgba(55, 211, 240, 0.09); border-color: rgba(55, 211, 240, 0.26); color: var(--cyan-text); }
+  .pill-emerald { background: rgba(47, 211, 161, 0.09); border-color: rgba(47, 211, 161, 0.26); color: var(--emerald-text); }
+  .pill-indigo { background: rgba(139, 147, 255, 0.11); border-color: rgba(139, 147, 255, 0.28); color: var(--indigo-text); }
+  .pill-amber { background: rgba(245, 185, 64, 0.09); border-color: rgba(245, 185, 64, 0.26); color: var(--amber-text); }
 
   .live-dot {
     width: 6px; height: 6px; border-radius: 50%;
@@ -616,7 +663,7 @@
     top: calc(100% + 8px);
     right: 0;
     min-width: 208px;
-    background: #111826;
+    background: var(--menu-bg);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.95);
@@ -633,7 +680,7 @@
     font-family: var(--font-sans); font-size: 11.5px; font-weight: 500;
     padding: 7px 9px; cursor: pointer; text-align: left;
   }
-  .menu-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+  .menu-item:hover { background: var(--menu-hover); color: var(--text-primary); }
   .menu-sep { height: 1px; background: var(--border-hairline); margin: 5px 3px; }
   .menu-item kbd { font-family: var(--font-sans); font-size: 9.5px; color: var(--text-muted); }
 
@@ -655,7 +702,7 @@
   .layout-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: 1; min-height: 0; }
 
   .card {
-    background: linear-gradient(180deg, rgba(19, 26, 40, 0.86) 0%, rgba(12, 17, 27, 0.92) 100%);
+    background: var(--card-gradient);
     border: 1px solid var(--border-hairline);
     border-radius: var(--radius-md);
     padding: 14px;
@@ -684,7 +731,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.65px;
-    color: #A7B4C9;
+    color: var(--card-title-color);
     display: inline-flex;
     align-items: center;
     gap: 7px;
@@ -776,7 +823,7 @@
     position: sticky;
     top: 0;
     z-index: 5;
-    background: #0C121D;
+    background: var(--table-head-bg);
     color: var(--text-muted);
     font-family: var(--font-sans);
     font-size: 9.5px;
@@ -847,7 +894,7 @@
   .ticker-left { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
   .ticker-seed {
     font-size: 10.5px;
-    color: #9FB0C9;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -855,7 +902,7 @@
     cursor: pointer;
     transition: color 0.12s ease;
   }
-  .ticker-seed:hover { color: #FFFFFF; }
+  .ticker-seed:hover { color: var(--text-primary); }
   .ticker-right { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
   .ticker-right strong { color: var(--text-secondary); font-weight: 500; font-family: var(--font-mono); font-size: 10px; }
 
@@ -877,10 +924,10 @@
     width: 790px;
     max-width: 100%;
     max-height: 88vh;
-    background: linear-gradient(180deg, #111826 0%, #0B111B 100%);
+    background: var(--modal-gradient);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
-    box-shadow: 0 60px 140px -40px rgba(0, 0, 0, 0.98), 0 0 0 1px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--modal-shadow);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -993,7 +1040,7 @@
   .dossier-metric .m-label { font-size: 9.5px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); }
   .dossier-metric .m-value { font-size: 15px; font-weight: 650; margin-top: 3px; font-family: var(--font-mono); letter-spacing: -0.2px; }
   .dossier-panel { background: rgba(9, 13, 21, 0.6); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 13px 14px; }
-  .dossier-panel-title { font-size: 10px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; color: #A7B4C9; margin-bottom: 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .dossier-panel-title { font-size: 10px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
   .kv {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -1110,12 +1157,20 @@
       <span class="titlebar-divider">/</span>
       <span>Quantum Recovery Workstation</span>
       <span class="titlebar-divider">/</span>
-      <span class="mono" style="font-size:10px; color:#5C6C86;">v2.4</span>
+      <span class="mono" id="AppVersionLabel" style="font-size:10px; color: var(--text-muted);">v2.6.8</span>
     </div>
     <div class="titlebar-right">
       <span class="pill pill-emerald mono" style="gap:6px;"><span class="live-dot"></span>LIVE</span>
       <span id="HeaderApiKeysBadge" class="pill pill-emerald mono">7/7 RPC</span>
       <span id="SmtpBadgeCount" class="pill pill-emerald mono">SMTP ON</span>
+      <button id="ThemeToggle" class="theme-switch" onclick="toggleTheme()" title="Switch between dark and light" aria-label="Toggle light mode">
+        <span class="theme-knob">
+          <span class="theme-knob-inner">
+            <span class="theme-face theme-face-dark" aria-hidden="true">☾</span>
+            <span class="theme-face theme-face-light" aria-hidden="true">☀</span>
+          </span>
+        </span>
+      </button>
       <button class="icon-btn" onclick="toggleWindowFullscreen()" title="Toggle fullscreen">
         <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
       </button>
@@ -1154,7 +1209,7 @@
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 3"/></svg>
               <span>Smart Hunter</span>
             </span>
-            <span class="nav-badge" style="color:#34D399;">AI</span>
+            <span class="nav-badge" style="color: var(--emerald-text);">AI</span>
           </button>
 
           <button class="tab-btn" data-tab="BrainEngine" data-title="Cognitive Self-Learning Brain Engine" data-sub="UCB1 bandit + Thompson sampling across 8 neural strategy arms" onclick="switchTab('BrainEngine')">
@@ -1162,7 +1217,7 @@
               <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 3 2 5 4 6v3h6v-3c2-1 4-3 4-6a7 7 0 0 0-7-7z"/><path d="M9 21h6"/></svg>
               <span>Cognitive Brain</span>
             </span>
-            <span id="NavBrainGenBadge" class="nav-badge" style="color:#C7D2FE;">v1.1</span>
+            <span id="NavBrainGenBadge" class="nav-badge" style="color: var(--indigo-text);">v1.1</span>
           </button>
 
           <button class="tab-btn" data-tab="Brain" data-title="Brainwallet Passphrase Scanner" data-sub="Single and double SHA-256 human passphrase recovery" onclick="switchTab('Brain')">
@@ -1253,7 +1308,7 @@
               <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <span>Activity Vault</span>
             </span>
-            <span id="VaultBadgeCount" class="nav-badge" style="color:#FCD34D;">0</span>
+            <span id="VaultBadgeCount" class="nav-badge" style="color: var(--amber-text);">0</span>
           </button>
         </div>
       </div>
@@ -1274,12 +1329,12 @@
             <span class="pulse-dot"></span>
             <span id="BrainVersionBadge" class="mono">BRAIN v1.1</span>
           </span>
-          <span id="BrainIqBadge" class="mono" style="font-size:10.5px; font-weight:700; color:#34D399;">IQ 119.7</span>
+          <span id="BrainIqBadge" class="mono" style="font-size:10.5px; font-weight:700; color: var(--emerald-text);">IQ 119.7</span>
         </div>
         <div id="BrainSubspaceBadge" class="mono" style="font-size:9.5px; color:var(--text-secondary); margin-bottom:7px;">
           60 subspaces • 136 bigrams
         </div>
-        <button onclick="triggerManualBrainUpgrade()" class="btn" style="width:100%; height:24px; font-size:10px; border-color:rgba(139,147,255,0.32); color:#C7D2FE;">
+        <button onclick="triggerManualBrainUpgrade()" class="btn" style="width:100%; height:24px; font-size:10px; border-color:rgba(139,147,255,0.32); color: var(--indigo-text);">
           Evolve Neural Generation
         </button>
       </div>
@@ -1309,17 +1364,9 @@
             Vault
             <span id="HeaderVaultCount" class="badge-count">0</span>
           </button>
-          <button id="HealthPill" class="pill mono" onclick="openDiagnostics()" title="Open the self-monitor — what is working, what is broken, and what to do next" style="cursor:pointer; height:26px; padding:0 10px; font-size:10px; border:1px solid rgba(52,211,153,0.35); background:rgba(52,211,153,0.10); color:#6EE7B7;">
+          <button id="HealthPill" class="pill mono" onclick="openDiagnostics()" title="Open the self-monitor — what is working, what is broken, and what to do next" style="cursor:pointer; height:26px; padding:0 10px; font-size:10px; border:1px solid rgba(52,211,153,0.35); background:rgba(52,211,153,0.10); color: var(--emerald-text);">
             <span id="HealthPillIcon">●</span>
             <span id="HealthPillText">Checking…</span>
-          </button>
-          <button id="ThemeToggle" class="theme-switch" onclick="toggleTheme()" title="Switch between dark and light" aria-label="Toggle light mode">
-            <span class="theme-knob">
-              <span class="theme-knob-inner">
-                <span class="theme-face theme-face-dark" aria-hidden="true">☾</span>
-                <span class="theme-face theme-face-light" aria-hidden="true">☀</span>
-              </span>
-            </span>
           </button>
           <button class="icon-btn" onclick="openModal('analyticsModal')" title="Telemetry analytics">
             <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -1347,28 +1394,28 @@
         <div class="metrics-strip mono">
           <div class="metric-item">
             <span class="metric-label">Checked</span>
-            <span id="QuickStatsCheckedText" class="metric-val" style="color:#7DD3FC;">0</span>
+            <span id="QuickStatsCheckedText" class="metric-val" style="color: var(--cyan-text);">0</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Velocity</span>
-            <span id="QuickStatsRateText" class="metric-val" style="color:#C7D2FE;">0/s</span>
+            <span id="QuickStatsRateText" class="metric-val" style="color: var(--indigo-text);">0/s</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Dedupe</span>
-            <span id="QuickStatsDedupeText" class="metric-val" style="color:#FCD34D;">0</span>
+            <span id="QuickStatsDedupeText" class="metric-val" style="color: var(--amber-text);">0</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">API Saved</span>
-            <span id="QuickStatsQuotaSavedText" class="metric-val" style="color:#34D399;">0</span>
+            <span id="QuickStatsQuotaSavedText" class="metric-val" style="color: var(--emerald-text);">0</span>
           </div>
           <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets scanned that have EVER held crypto (historical TX > 0 or total_received > 0)">
             <span class="metric-label">Ever Held</span>
-            <span id="QuickStatsEverHeldText" class="metric-val" style="color:#FCD34D;">0</span>
+            <span id="QuickStatsEverHeldText" class="metric-val" style="color: var(--amber-text);">0</span>
             <span id="VerificationPendingBadge" class="pill mono" style="display:none; margin-top:6px; font-size:9.5px;">⏳ 0 pending live check</span>
           </div>
           <div class="metric-item" style="cursor:pointer;" onclick="switchTab('Watch')" title="Wallets with a current unspent balance > $0.00">
             <span class="metric-label">Funded</span>
-            <span id="QuickStatsFoundText" class="metric-val" style="color:#34D399;">0</span>
+            <span id="QuickStatsFoundText" class="metric-val" style="color: var(--emerald-text);">0</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Runtime</span>
@@ -1388,14 +1435,14 @@
     <div id="VerifyQueuePanel" class="mono" style="display:none; margin:0 18px 0 18px; padding:10px 12px; border-radius:9px; background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.35); font-size:10.5px; color:var(--text-secondary);">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <span id="VerifyQueueTitle" style="color:#FCD34D; font-weight:700;">⏳ Live-check queue</span>
+          <span id="VerifyQueueTitle" style="color: var(--amber-text); font-weight:700;">⏳ Live-check queue</span>
           <span id="VerifyQueueCounts"></span>
           <span id="VerifyQueueRate"></span>
         </div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
           <button id="VerifyPauseBtn" class="btn" style="height:23px; padding:0 9px; font-size:10px;" onclick="verificationAction(document.getElementById('VerifyPauseBtn').dataset.paused === '1' ? 'resume' : 'pause')">Pause</button>
           <button id="VerifyRetryBtn" class="btn" style="height:23px; padding:0 9px; font-size:10px; display:none;" onclick="verificationAction('retry-deferred')">Retry parked</button>
-          <button class="btn" style="height:23px; padding:0 9px; font-size:10px; border-color:rgba(251,113,133,0.5); color:#FB7185;" onclick="verificationAction('clear')">Clear queue</button>
+          <button class="btn" style="height:23px; padding:0 9px; font-size:10px; border-color:rgba(251,113,133,0.5); color: var(--rose-text);" onclick="verificationAction('clear')">Clear queue</button>
         </div>
       </div>
       <div id="VerifyQueueNote" style="margin-top:5px; color:var(--text-muted); font-size:10px;"></div>
@@ -1447,10 +1494,10 @@
               <label class="chain-chip" style="color:var(--eth-color)"><input type="checkbox" data-chain="ETH" checked onchange="onChainSelectionChanged()" /> ETH</label>
               <label class="chain-chip" style="color:#F87171"><input type="checkbox" data-chain="TRX" checked onchange="onChainSelectionChanged()" /> TRX</label>
               <label class="chain-chip" style="color:var(--sol-color)"><input type="checkbox" data-chain="SOL" checked onchange="onChainSelectionChanged()" /> SOL</label>
-              <label class="chain-chip" style="color:#34D399"><input type="checkbox" data-chain="USDT" checked onchange="onChainSelectionChanged()" /> USDT</label>
+              <label class="chain-chip" style="color: var(--emerald-text)"><input type="checkbox" data-chain="USDT" checked onchange="onChainSelectionChanged()" /> USDT</label>
               <label class="chain-chip" style="color:#60A5FA"><input type="checkbox" data-chain="ARB" checked onchange="onChainSelectionChanged()" /> ARB</label>
               <label class="chain-chip" style="color:#38BDF8"><input type="checkbox" data-chain="BASE" checked onchange="onChainSelectionChanged()" /> BASE</label>
-              <label class="chain-chip" style="color:#FB7185"><input type="checkbox" data-chain="OP" checked onchange="onChainSelectionChanged()" /> OP</label>
+              <label class="chain-chip" style="color: var(--rose-text)"><input type="checkbox" data-chain="OP" checked onchange="onChainSelectionChanged()" /> OP</label>
               <label class="chain-chip" style="color:#F97316"><input type="checkbox" data-chain="AVAX" checked onchange="onChainSelectionChanged()" /> AVAX</label>
               <label class="chain-chip" style="color:#A78BFA"><input type="checkbox" data-chain="MATIC" checked onchange="onChainSelectionChanged()" /> MATIC</label>
               <label class="chain-chip" style="color:#FBBF24"><input type="checkbox" data-chain="BNB" checked onchange="onChainSelectionChanged()" /> BNB</label>
@@ -1468,7 +1515,7 @@
               <button class="btn" style="flex:1; height:29px; font-size:10.5px;" onclick="openSettings('general')">
                 ⚙️ Engine settings
               </button>
-              <button class="btn" style="flex:1; height:29px; font-size:10.5px; border-color:rgba(245,185,64,0.35); color:#FCD34D;" onclick="openSettings('alerts')">
+              <button class="btn" style="flex:1; height:29px; font-size:10.5px; border-color:rgba(245,185,64,0.35); color: var(--amber-text);" onclick="openSettings('alerts')">
                 🔔 Integrations
               </button>
             </div>
@@ -1481,7 +1528,7 @@
                 <span class="card-title">Live candidates &amp; on-chain verification</span>
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-left:auto;">
                   <span class="pill pill-cyan mono" style="flex-shrink:0;">CLICK ANY ROW → FULL DOSSIER</span>
-                  <span id="QuantumUpgradesBadge" class="mono" style="font-size:10px; color:#34D399;">Multi-Core Workers • Ever-Held History • 33.5M-Bit Bloom</span>
+                  <span id="QuantumUpgradesBadge" class="mono" style="font-size:10px; color: var(--emerald-text);">Multi-Core Workers • Ever-Held History • 33.5M-Bit Bloom</span>
                 </div>
               </div>
               <div class="table-container">
@@ -1506,15 +1553,15 @@
             <div class="card" style="flex:0.95; min-height:0; border-color:rgba(245,158,11,0.38);">
               <div class="card-header" style="flex-wrap:wrap; gap:6px; margin-bottom:6px;">
                 <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="card-title" style="color:#FCD34D;">📜 Pinned ever-held &amp; funded wallets</span>
+                  <span class="card-title" style="color: var(--amber-text);">📜 Pinned ever-held &amp; funded wallets</span>
                   <span class="pill pill-cyan mono" style="font-size:9px;">FULL MNEMONIC + KEYS</span>
                   <span id="SmartPinnedCountBadge" class="pill pill-amber mono">0 SAVED</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   <button class="btn" style="height:23px; padding:0 8px; font-size:10px;" onclick="setWatchlistFilter('all')">All</button>
-                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(56,189,248,0.4); color:#7DD3FC;" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
-                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(245,158,11,0.45); color:#FCD34D;" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
-                  <button class="btn" id="PinnedFundedFilterBtn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(16,185,129,0.5); color:#6EE7B7; font-weight:700;" onclick="setWatchlistFilter('funded')">💰 Funded (0)</button>
+                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(56,189,248,0.4); color: var(--cyan-text);" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
+                  <button class="btn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(245,158,11,0.45); color: var(--amber-text);" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
+                  <button class="btn" id="PinnedFundedFilterBtn" style="height:23px; padding:0 8px; font-size:10px; border-color:rgba(16,185,129,0.5); color: var(--emerald-text); font-weight:700;" onclick="setWatchlistFilter('funded')">💰 Funded (0)</button>
                   <button class="btn btn-emerald" style="height:23px; padding:0 9px; font-size:10px; font-weight:700;" onclick="window.open('/api/export-ever-held-txt', '_blank')">
                     📥 ever_held_wallets.txt
                   </button>
@@ -1626,7 +1673,7 @@
               Use <b>?</b> for unknown word positions. When the 12th word is unknown, direct SHA-256 checksum-bit solving computes all 128 exact valid completions instantly.
             </p>
             <textarea id="MnemonicInputBox" class="input-box mono" rows="4">planet crystal ocean velvet silver canyon harvest timber shadow marble winter ?</textarea>
-            <div id="MnemonicSolveSummary" class="mono" style="color:#34D399; font-size:11.5px; margin:10px 0;">
+            <div id="MnemonicSolveSummary" class="mono" style="color: var(--emerald-text); font-size:11.5px; margin:10px 0;">
               Ready to solve wildcard positions.
             </div>
             <div style="display:flex; gap:8px;">
@@ -1671,7 +1718,7 @@
             <textarea id="CheckSeedBox" class="input-box mono" rows="4">planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle</textarea>
             <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
               <button class="btn btn-primary" style="flex:1;" onclick="inspectSingleSeed()">Inspect &amp; Check Ever-Held History</button>
-              <button class="btn" style="border-color:rgba(245,158,11,0.45); color:#FCD34D;" onclick="document.getElementById('CheckSeedBox').value='correct horse battery staple'; inspectSingleSeed();">
+              <button class="btn" style="border-color:rgba(245,158,11,0.45); color: var(--amber-text);" onclick="document.getElementById('CheckSeedBox').value='correct horse battery staple'; inspectSingleSeed();">
                 📜 Test Ever-Held Brainwallet
               </button>
               <button class="btn" onclick="document.getElementById('CheckSeedBox').value='planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle'; inspectSingleSeed();">
@@ -1819,7 +1866,7 @@
             <div style="display:flex; gap:8px; margin-top:8px;">
               <button class="btn btn-primary" style="flex:1;" onclick="importTargetAddresses()">+ Import Target Addresses</button>
             </div>
-            <div id="TargetImportStatus" class="mono" style="font-size:10.5px; color:#34D399; margin-top:6px;"></div>
+            <div id="TargetImportStatus" class="mono" style="font-size:10.5px; color: var(--emerald-text); margin-top:6px;"></div>
           </div>
 
           <!-- Right Card: Discovered Vault & Historical Activity Watchlist -->
@@ -1831,9 +1878,9 @@
               </div>
               <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                 <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px;" onclick="setWatchlistFilter('all')">All</button>
-                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(56,189,248,0.4); color:#7DD3FC;" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
-                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(245,158,11,0.4); color:#FCD34D;" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
-                <button class="btn" id="WatchlistFundedFilterBtn" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700; border-color:rgba(16,185,129,0.55); color:#6EE7B7;" onclick="setWatchlistFilter('funded')">💰 Funded (0)</button>
+                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(56,189,248,0.4); color: var(--cyan-text);" onclick="setWatchlistFilter('mnemonic')">12-Word Mnemonics Only</button>
+                <button class="btn" style="height:25px; padding:0 8px; font-size:10.5px; border-color:rgba(245,158,11,0.4); color: var(--amber-text);" onclick="setWatchlistFilter('everheld')">📜 Ever-Held</button>
+                <button class="btn" id="WatchlistFundedFilterBtn" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700; border-color:rgba(16,185,129,0.55); color: var(--emerald-text);" onclick="setWatchlistFilter('funded')">💰 Funded (0)</button>
                 <button class="btn btn-emerald" style="height:25px; padding:0 10px; font-size:10.5px; font-weight:700;" onclick="window.open('/api/export-ever-held-txt', '_blank')">
                   📥 ever_held_wallets.txt
                 </button>
@@ -1842,12 +1889,12 @@
                 </button>
               </div>
             </div>
-            <div id="FundedSummaryStrip" class="mono" style="display:none; font-size:11px; color:#6EE7B7; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:7px; padding:8px 10px; margin-bottom:8px;">
+            <div id="FundedSummaryStrip" class="mono" style="display:none; font-size:11px; color: var(--emerald-text); background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:7px; padding:8px 10px; margin-bottom:8px;">
               💰 Funded vault: <strong id="FundedSummaryText">0 wallets · $0.00</strong>
             </div>
             <div id="PriceStatusLine" class="mono" style="font-size:10.5px; margin-bottom:8px; color:var(--text-muted);"></div>
             <div style="font-size:11px; color:#94A3B8; margin-bottom:8px;" class="mono">
-              💾 Automatically saved to <strong style="color:#FCD34D;">ever_held_wallets.txt</strong> &amp; <strong style="color:#34D399;">EVER_HELD_WALLETS_VAULT.json</strong>; funded hits to <strong style="color:#6EE7B7;">funded_wallets.txt</strong> &amp; <strong style="color:#6EE7B7;">FOUND_WALLETS_VAULT.json</strong>. Click <strong style="color:#7DD3FC;">🔑 Access / Copy Keys</strong> on any row to copy the 12-word Mnemonic, BTC WIF, Electrum 3-path block, or ETH 0x Private Key.
+              💾 Automatically saved to <strong style="color: var(--amber-text);">ever_held_wallets.txt</strong> &amp; <strong style="color: var(--emerald-text);">EVER_HELD_WALLETS_VAULT.json</strong>; funded hits to <strong style="color: var(--emerald-text);">funded_wallets.txt</strong> &amp; <strong style="color: var(--emerald-text);">FOUND_WALLETS_VAULT.json</strong>. Click <strong style="color: var(--cyan-text);">🔑 Access / Copy Keys</strong> on any row to copy the 12-word Mnemonic, BTC WIF, Electrum 3-path block, or ETH 0x Private Key.
             </div>
             <div class="table-container">
               <table class="data-table mono">
@@ -1928,7 +1975,7 @@
               <span id="ForensicStatusBadge" class="pill pill-cyan mono">IDLE</span>
             </div>
 
-            <div id="BloomIntegrityWarning" class="mono" style="display:none; font-size:10.5px; line-height:1.5; color:#FCD34D; background:rgba(245,158,11,0.10); border:1px solid rgba(245,158,11,0.45); border-radius:7px; padding:8px 10px; margin-bottom:10px;"></div>
+            <div id="BloomIntegrityWarning" class="mono" style="display:none; font-size:10.5px; line-height:1.5; color: var(--amber-text); background:rgba(245,158,11,0.10); border:1px solid rgba(245,158,11,0.45); border-radius:7px; padding:8px 10px; margin-bottom:10px;"></div>
             <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;" class="mono">
               <div style="background:var(--bg-input); padding:10px; border-radius:8px; border:1px solid var(--border-hairline);">
                 <div class="metric-label">CPU Worker Threads</div>
@@ -1940,11 +1987,11 @@
               </div>
               <div style="background:var(--bg-input); padding:10px; border-radius:8px; border:1px solid var(--border-hairline);">
                 <div class="metric-label">Valid Checksums</div>
-                <div id="ForensicValidVal" style="font-size:17px; font-weight:700; color:#34D399; margin-top:3px;">0</div>
+                <div id="ForensicValidVal" style="font-size:17px; font-weight:700; color: var(--emerald-text); margin-top:3px;">0</div>
               </div>
               <div style="background:var(--bg-input); padding:10px; border-radius:8px; border:1px solid var(--border-hairline);">
                 <div class="metric-label">Throughput</div>
-                <div id="ForensicSpeedVal" style="font-size:17px; font-weight:700; color:#FCD34D; margin-top:3px;">0/s</div>
+                <div id="ForensicSpeedVal" style="font-size:17px; font-weight:700; color: var(--amber-text); margin-top:3px;">0/s</div>
               </div>
             </div>
 
@@ -1973,7 +2020,7 @@
           <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;" class="mono">
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid rgba(56,189,248,0.28);">
               <div class="metric-label">Funded Addresses in RAM</div>
-              <div id="BloomTotalLoadedVal" style="font-size:20px; font-weight:700; color:#34D399; margin-top:4px;">0</div>
+              <div id="BloomTotalLoadedVal" style="font-size:20px; font-weight:700; color: var(--emerald-text); margin-top:4px;">0</div>
               <div id="BloomLastImportVal" style="font-size:9.5px; color:var(--text-muted); margin-top:2px;">no dump imported yet</div>
             </div>
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid var(--border-hairline);">
@@ -1986,11 +2033,11 @@
             </div>
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid var(--border-hairline);">
               <div class="metric-label">Breakdown (BTC / EVM / TRX / XRP)</div>
-              <div id="BloomChainBreakdownVal" style="font-size:12px; font-weight:600; color:#FCD34D; margin-top:7px;">0 / 0 / 0 / 0</div>
+              <div id="BloomChainBreakdownVal" style="font-size:12px; font-weight:600; color: var(--amber-text); margin-top:7px;">0 / 0 / 0 / 0</div>
             </div>
             <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid rgba(251,191,36,0.35);">
               <div class="metric-label">Bloom False-Positive Rate</div>
-              <div id="BloomFalsePositiveVal" style="font-size:20px; font-weight:700; color:#FCD34D; margin-top:4px;">0%</div>
+              <div id="BloomFalsePositiveVal" style="font-size:20px; font-weight:700; color: var(--amber-text); margin-top:4px;">0%</div>
               <div id="BloomFalsePositiveHint" style="font-size:10.5px; color:var(--text-muted); margin-top:4px;">Every match is confirmed on-chain before it is reported.</div>
             </div>
           </div>
@@ -2003,12 +2050,12 @@
                 <a href="https://gz.blockchair.com/" target="_blank" rel="noopener" class="btn" style="height:24px; padding:0 9px; font-size:10.5px; text-decoration:none; color:#38BDF8; border-color:rgba(56,189,248,0.4);">🌐 gz.blockchair.com (All Chains .tsv.gz)</a>
                 <a href="https://gz.blockchair.com/bitcoin/addresses/" target="_blank" rel="noopener" class="btn" style="height:24px; padding:0 9px; font-size:10.5px; text-decoration:none; color:#FBBF24;">₿ BTC Funded (.tsv.gz)</a>
                 <a href="https://gz.blockchair.com/ethereum/addresses/" target="_blank" rel="noopener" class="btn" style="height:24px; padding:0 9px; font-size:10.5px; text-decoration:none; color:#A5B4FC;">Ξ ETH Funded (.tsv.gz)</a>
-                <a href="http://addresses.loyce.club/" target="_blank" rel="noopener" class="btn" style="height:24px; padding:0 9px; font-size:10.5px; text-decoration:none; color:#34D399; border-color:rgba(16,185,129,0.4);">⚡ addresses.loyce.club (Uncapped Fast Mirror)</a>
+                <a href="http://addresses.loyce.club/" target="_blank" rel="noopener" class="btn" style="height:24px; padding:0 9px; font-size:10.5px; text-decoration:none; color: var(--emerald-text); border-color:rgba(16,185,129,0.4);">⚡ addresses.loyce.club (Uncapped Fast Mirror)</a>
               </div>
               <input type="file" id="BloomDumpFileInput" accept=".gz,.tsv,.txt,.csv" class="input-box" style="padding:6px;" />
               <div class="bar-track" style="height:8px;"><div id="BloomUploadProgressBar" class="bar-fill" style="width:0%;"></div></div>
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span id="BloomUploadStatusText" class="mono" style="font-size:11px; color:#7DD3FC;">Ready for `.gz` or `.tsv`/`.txt` streaming ingestion...</span>
+                <span id="BloomUploadStatusText" class="mono" style="font-size:11px; color: var(--cyan-text);">Ready for `.gz` or `.tsv`/`.txt` streaming ingestion...</span>
                 <button class="btn btn-primary" onclick="streamUploadFundedDumpFile()">⚡ Stream File to Shared RAM</button>
               </div>
             </div>
@@ -2033,7 +2080,7 @@
       <div class="ticker-right">
         <span>BTC: <strong id="PreviewBtcAddressTextBox" style="color:var(--text-primary); font-weight:500;">—</strong></span>
         <span>ETH: <strong id="PreviewEthAddressTextBox" style="color:var(--text-primary); font-weight:500;">—</strong></span>
-        <span id="PreviewSpeedTextBlock" style="color:#34D399; font-weight:700;">0/s</span>
+        <span id="PreviewSpeedTextBlock" style="color: var(--emerald-text); font-weight:700;">0/s</span>
       </div>
     </footer>
 
@@ -2087,10 +2134,10 @@
       </div>
       <div style="padding:18px;">
         <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px;" class="mono">
-          <div class="card" style="padding:12px;"><div class="metric-label">Velocity</div><div id="ModalSpeed" style="font-size:18px; font-weight:700; color:#34D399; margin-top:4px;">0/s</div></div>
-          <div class="card" style="padding:12px;"><div class="metric-label">Checked</div><div id="ModalChecked" style="font-size:18px; font-weight:700; color:#7DD3FC; margin-top:4px;">0</div></div>
-          <div class="card" style="padding:12px;"><div class="metric-label">Active Hits</div><div id="ModalHits" style="font-size:18px; font-weight:700; color:#FCD34D; margin-top:4px;">0</div></div>
-          <div class="card" style="padding:12px;"><div class="metric-label">Dedupe Engine</div><div style="font-size:18px; font-weight:700; color:#C7D2FE; margin-top:4px;">UInt128</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Velocity</div><div id="ModalSpeed" style="font-size:18px; font-weight:700; color: var(--emerald-text); margin-top:4px;">0/s</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Checked</div><div id="ModalChecked" style="font-size:18px; font-weight:700; color: var(--cyan-text); margin-top:4px;">0</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Active Hits</div><div id="ModalHits" style="font-size:18px; font-weight:700; color: var(--amber-text); margin-top:4px;">0</div></div>
+          <div class="card" style="padding:12px;"><div class="metric-label">Dedupe Engine</div><div style="font-size:18px; font-weight:700; color: var(--indigo-text); margin-top:4px;">UInt128</div></div>
         </div>
         <canvas id="perfCanvas" width="740" height="180" style="width:100%; height:180px; background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:8px;"></canvas>
       </div>
@@ -2143,7 +2190,7 @@
           </button>
           <button class="settings-nav-item" data-settings-nav="alerts" onclick="openSettings('alerts')">
             <span class="s-label"><svg class="s-icon" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>Alerts &amp; Integrations</span>
-            <span class="nav-badge" style="color:#FCD34D;">3 CH</span>
+            <span class="nav-badge" style="color: var(--amber-text);">3 CH</span>
           </button>
           <button class="settings-nav-item" data-settings-nav="email" onclick="openSettings('email')">
             <span class="s-label"><svg class="s-icon" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Email / SMTP</span>
@@ -2331,7 +2378,7 @@
                     <div class="settings-block-title">SMTP delivery</div>
                     <div class="settings-block-desc">Automatically emails each funded discovery.</div>
                   </div>
-                  <label class="check-row" style="font-weight:600; color:#6EE7B7;"><input type="checkbox" id="smtpEnabledCheckbox" checked /> Enable SMTP alerts</label>
+                  <label class="check-row" style="font-weight:600; color: var(--emerald-text);"><input type="checkbox" id="smtpEnabledCheckbox" checked /> Enable SMTP alerts</label>
                 </div>
 
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
@@ -2370,7 +2417,7 @@
                     <button id="BtnTestSmtp" class="btn btn-primary" onclick="sendTestSmtpEmail()">Send test email</button>
                     <button class="btn" onclick="saveSmtpSettings(false)">Save SMTP config</button>
                   </div>
-                  <span id="SmtpStatusText" class="mono" style="font-size:10.5px; color:#34D399;">Ready • triggers on balance &gt; $0.00</span>
+                  <span id="SmtpStatusText" class="mono" style="font-size:10.5px; color: var(--emerald-text);">Ready • triggers on balance &gt; $0.00</span>
                 </div>
 
                 <div id="SmtpTranscriptBox" class="mono" style="background:#05080E; border:1px solid var(--border-hairline); border-radius:7px; padding:10px; font-size:10px; line-height:1.65; color:#CBD5E1; min-height:90px; max-height:190px; overflow-y:auto;">
@@ -2395,14 +2442,14 @@
                   <div class="field"><label class="field-label">Etherscan API key</label><input id="apiKeyEtherscan" class="input-box mono" type="text" placeholder="Optional Etherscan V2 key" /></div>
                   <div class="field"><label class="field-label">BlockCypher token</label><input id="apiKeyBlockCypher" class="input-box mono" type="text" placeholder="Optional BlockCypher token" /></div>
                   <div class="field"><label class="field-label">QuickNode / Solana RPC</label><input id="apiKeyQuickNode" class="input-box mono" type="text" placeholder="Optional Solana RPC URL" /></div>
-                  <div class="field"><label class="field-label">Alchemy / ETH JSON-RPC <span style="color:#6EE7B7;">(used)</span></label><input id="apiKeyAlchemy" class="input-box mono" type="text" placeholder="API key or https URL — raises the ETH rate limit" /></div>
-                  <div class="field"><label class="field-label">TronGrid key <span style="color:#6EE7B7;">(used)</span></label><input id="apiKeyTronGrid" class="input-box mono" type="text" placeholder="Sent as TRON-PRO-API-KEY — raises the TRON limit" /></div>
+                  <div class="field"><label class="field-label">Alchemy / ETH JSON-RPC <span style="color: var(--emerald-text);">(used)</span></label><input id="apiKeyAlchemy" class="input-box mono" type="text" placeholder="API key or https URL — raises the ETH rate limit" /></div>
+                  <div class="field"><label class="field-label">TronGrid key <span style="color: var(--emerald-text);">(used)</span></label><input id="apiKeyTronGrid" class="input-box mono" type="text" placeholder="Sent as TRON-PRO-API-KEY — raises the TRON limit" /></div>
                   <div class="field"><label class="field-label">Polygonscan key</label><input id="apiKeyPolygonscan" class="input-box mono" type="text" placeholder="Optional Polygonscan key" /></div>
                   <div class="field"><label class="field-label">BscScan key</label><input id="apiKeyBscscan" class="input-box mono" type="text" placeholder="Optional BscScan key" /></div>
                 </div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
                   <button class="btn btn-primary" onclick="saveApiKeysConfig()">Save API keys locally</button>
-                  <span id="ApiKeysStatusText" class="mono" style="font-size:10.5px; color:#34D399;">Running on keyless public RPC</span>
+                  <span id="ApiKeysStatusText" class="mono" style="font-size:10.5px; color: var(--emerald-text);">Running on keyless public RPC</span>
                 </div>
                 <div class="mono" style="font-size:10px; color:var(--text-muted); line-height:1.6; margin-top:8px;">
                   Only <b>Alchemy</b> and <b>TronGrid</b> change how the scanner behaves today. Etherscan, BlockCypher, QuickNode, Polygonscan and BscScan are stored for future use but the verifier does not call them — leave them blank unless you already have them. Keys stay in <span style="color:#94A3B8;">api_keys_config.json</span> on this machine and are never uploaded or committed.
@@ -2946,9 +2993,9 @@
         <div style="min-width:0;">
           <div class="dossier-title">${escHtml(walletTypeLabel(item))} <span style="color:var(--text-muted); font-weight:500;">·</span> <span class="mono" style="font-size:12.5px; color:#CBD5E1;">${escHtml(shortHash(reference, 20, 10))}</span></div>
           <div class="dossier-sub">
-            <span><b style="color:#A7B4C9;">Source</b> ${escHtml(item.source || 'Smart Hunter')}</span>
-            <span><b style="color:#A7B4C9;">Vector</b> ${escHtml(item.vectorKey || item.accessMethod || 'multi-vector')}</span>
-            <span><b style="color:#A7B4C9;">Discovered</b> ${escHtml(fmtTimestamp(item.detectedAt || item.checkedAt))}</span>
+            <span><b style="color: var(--text-secondary);">Source</b> ${escHtml(item.source || 'Smart Hunter')}</span>
+            <span><b style="color: var(--text-secondary);">Vector</b> ${escHtml(item.vectorKey || item.accessMethod || 'multi-vector')}</span>
+            <span><b style="color: var(--text-secondary);">Discovered</b> ${escHtml(fmtTimestamp(item.detectedAt || item.checkedAt))}</span>
           </div>
         </div>
         <div style="text-align:right; flex-shrink:0;">
@@ -2961,8 +3008,8 @@
       <div class="dossier-metrics">
         <div class="dossier-metric"><div class="m-label">Lifetime BTC received</div><div class="m-value" style="color:#F7931A;">${escHtml(fmtNum(item.totalEverReceivedBtc))}</div></div>
         <div class="dossier-metric"><div class="m-label">Lifetime ETH received</div><div class="m-value" style="color:#9FB0FF;">${escHtml(fmtNum(item.totalEverReceivedEth))}</div></div>
-        <div class="dossier-metric"><div class="m-label">On-chain transactions</div><div class="m-value" style="color:#FCD34D;">${Number(item.historicalTx || 0).toLocaleString()}</div></div>
-        <div class="dossier-metric"><div class="m-label">Historical USD volume</div><div class="m-value" style="color:#6EE7B7;">${fmtUsd(histUsd)}</div></div>
+        <div class="dossier-metric"><div class="m-label">On-chain transactions</div><div class="m-value" style="color: var(--amber-text);">${Number(item.historicalTx || 0).toLocaleString()}</div></div>
+        <div class="dossier-metric"><div class="m-label">Historical USD volume</div><div class="m-value" style="color: var(--emerald-text);">${fmtUsd(histUsd)}</div></div>
       </div>
 
       ${materialPanel}
@@ -2991,11 +3038,11 @@
           <span class="pill ${isEverHeld ? 'pill-amber' : 'pill-cyan'} mono">${isEverHeld ? 'HISTORICALLY ACTIVE' : 'NO ACTIVITY'}</span>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:14px; font-size:11px; color:var(--text-secondary); margin-bottom:9px;">
-          <span><b style="color:#A7B4C9;">Classification</b> ${escHtml(item.historicalLabel || item.walletHistoryState || 'Never held crypto')}</span>
-          <span><b style="color:#A7B4C9;">Tokens</b> ${escHtml(item.historicalTokenSummary || '—')}</span>
-          <span><b style="color:#A7B4C9;">Deep sweep</b> ${escHtml(item.deepSweepStatus || 'Primary multi-chain')}</span>
-          <span><b style="color:#A7B4C9;">Archival audit</b> ${item.ethHistoryAudited ? '<span style="color:#6EE7B7;">Blockscout complete</span>' : '<span style="color:#FCD34D;">queued / running…</span>'}</span>
-          ${item.passphraseAuditStatus ? `<span><b style="color:#A7B4C9;">Passphrase</b> ${escHtml(item.passphraseAuditStatus)}</span>` : ''}
+          <span><b style="color: var(--text-secondary);">Classification</b> ${escHtml(item.historicalLabel || item.walletHistoryState || 'Never held crypto')}</span>
+          <span><b style="color: var(--text-secondary);">Tokens</b> ${escHtml(item.historicalTokenSummary || '—')}</span>
+          <span><b style="color: var(--text-secondary);">Deep sweep</b> ${escHtml(item.deepSweepStatus || 'Primary multi-chain')}</span>
+          <span><b style="color: var(--text-secondary);">Archival audit</b> ${item.ethHistoryAudited ? '<span style="color: var(--emerald-text);">Blockscout complete</span>' : '<span style="color: var(--amber-text);">queued / running…</span>'}</span>
+          ${item.passphraseAuditStatus ? `<span><b style="color: var(--text-secondary);">Passphrase</b> ${escHtml(item.passphraseAuditStatus)}</span>` : ''}
         </div>
         ${balanceRows ? `<div class="kv-grid">${balanceRows}</div>` : '<div style="font-size:10.5px; color:var(--text-muted);">No positive balances on any screened chain.</div>'}
       </div>
@@ -4161,7 +4208,7 @@
         <div class="arm-row mono">
           <div class="arm-top">
             <span style="color:var(--text-primary);">${a.name}</span>
-            <span style="color:#7DD3FC;">${a.confidence}% conf • w=${a.weight} • ${a.pulls} pulls</span>
+            <span style="color: var(--cyan-text);">${a.confidence}% conf • w=${a.weight} • ${a.pulls} pulls</span>
           </div>
           <div class="bar-track">
             <div class="bar-fill" style="width:${Math.min(100, a.confidence)}%;"></div>
@@ -4189,7 +4236,7 @@
       const res = await fetch('/api/selftest');
       const data = await res.json();
       box.innerHTML = `
-        <div style="padding:8px 10px; border-radius:7px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); color:#6EE7B7; font-weight:700; margin-bottom:4px;">
+        <div style="padding:8px 10px; border-radius:7px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); color: var(--emerald-text); font-weight:700; margin-bottom:4px;">
           ✓ ${data.passedCount}/${data.totalCount} CORE SUBSYSTEMS PASSED (${data.elapsedMs}ms)
         </div>
       ` + data.tests.map(t => `
@@ -4202,7 +4249,7 @@
         </div>
       `).join('');
     } catch (e) {
-      box.innerHTML = `<div style="color:#FB7185;">Self-test error: ${e.message}</div>`;
+      box.innerHTML = `<div style="color: var(--rose-text);">Self-test error: ${e.message}</div>`;
     }
   }
 
@@ -4267,10 +4314,10 @@
 
         <div style="background:var(--bg-input); border:1px solid rgba(56,189,248,0.35); border-radius:8px; padding:12px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-size:11px; font-weight:700; color:#7DD3FC;">
+            <span style="font-size:11px; font-weight:700; color: var(--cyan-text);">
               ${isSeed ? '1️⃣ BIP39 MNEMONIC SEED PHRASE (Trust Wallet / MetaMask / Electrum / Sparrow)' : '1️⃣ SOURCE INPUT / PRIVATE KEY'}
             </span>
-            <button class="btn" style="height:24px; padding:0 8px; font-size:10.5px; color:#7DD3FC;" data-copy="${rawInput.replace(/"/g, '&quot;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy ${isSeed ? 'Mnemonic' : 'Input'}</button>
+            <button class="btn" style="height:24px; padding:0 8px; font-size:10.5px; color: var(--cyan-text);" data-copy="${rawInput.replace(/"/g, '&quot;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy ${isSeed ? 'Mnemonic' : 'Input'}</button>
           </div>
           <div style="font-size:13px; font-weight:700; color:#F8FAFC; word-break:break-word; user-select:all; padding:6px 8px; background:#05070B; border-radius:6px; border:1px solid var(--border-hairline);">
             ${rawInput}
@@ -4300,7 +4347,7 @@
 
         <div style="background:var(--bg-input); border:1px solid rgba(52,211,153,0.35); border-radius:8px; padding:11px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-            <span style="font-size:10.5px; font-weight:700; color:#34D399;">4️⃣ ELECTRUM / SPARROW MULTI-PATH SWEEP BLOCK (Exact Distinct Keys for 1…, 3…, and bc1q…)</span>
+            <span style="font-size:10.5px; font-weight:700; color: var(--emerald-text);">4️⃣ ELECTRUM / SPARROW MULTI-PATH SWEEP BLOCK (Exact Distinct Keys for 1…, 3…, and bc1q…)</span>
             <button class="btn btn-emerald" style="height:22px; padding:0 8px; font-size:10px;" data-copy="${electrumBlock.replace(/\n/g, '&#10;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy All 3 for Electrum</button>
           </div>
           <pre style="margin:0; font-size:11px; color:#A7F3D0; background:#05070B; padding:8px; border-radius:6px; border:1px solid var(--border-hairline); user-select:all; overflow-x:auto;">${electrumBlock}</pre>
@@ -4357,7 +4404,7 @@
       return `<span class="pill pill-amber" ${openAttr}>📜 EVER HELD (${item.historicalTx} TX • ${rcvSummary}) • View dossier</span>`;
     }
     if (item.liveVerified) {
-      return `<span style="color:#6EE7B7; font-size:10.5px;">✓ Live RPC 0 TX</span>`;
+      return `<span style="color: var(--emerald-text); font-size:10.5px;">✓ Live RPC 0 TX</span>`;
     }
     return `<span style="color:var(--text-muted);">0 TX • Screened</span>`;
   }
@@ -4389,7 +4436,7 @@
       ? 'row-hit stream-row-enter'
       : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
     tr.innerHTML = `
-      <td style="color:#7DD3FC; font-weight:600;" title="${item.source}">${item.source}</td>
+      <td style="color: var(--cyan-text); font-weight:600;" title="${item.source}">${item.source}</td>
       <td style="color:var(--text-primary);" title="${item.input}">${item.input}</td>
       <td style="color:#CBD5E1;" title="${item.btcSegwit || item.btcLegacy}">${btcCell}</td>
       <td style="color:#93C5FD;" title="${item.ethAddress}">${ethCell}</td>
@@ -4429,7 +4476,7 @@
       btr.title = 'Click to open the full wallet dossier';
       btr.className = isFunded ? 'row-hit stream-row-enter' : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
       btr.innerHTML = `
-        <td style="color:#C7D2FE;" title="${item.input}">${item.input}</td>
+        <td style="color: var(--indigo-text);" title="${item.input}">${item.input}</td>
         <td>${(item.privateKeyHex || item.privateKey || '').slice(0, 20)}…</td>
         <td>${item.btcLegacy}</td>
         <td>${item.ethAddress}</td>
@@ -4445,7 +4492,7 @@
       ktr.__walletItem = item;
       ktr.className = isFunded ? 'row-hit stream-row-enter' : (isEverHeld ? 'row-ever-held stream-row-enter' : 'stream-row-enter');
       ktr.innerHTML = `
-        <td style="color:#FCA5A5;">${item.input}</td>
+        <td style="color: var(--rose-text);">${item.input}</td>
         <td>${item.btcLegacy}</td>
         <td>${item.btcSegwit}</td>
         <td>${item.ethAddress}</td>
@@ -4474,7 +4521,7 @@
       } else if (parts.length === 2 && parts[1] === 'TRC20') {
         chain = 'TRON'; symbol = parts[0];
       }
-      return `<span style="display:inline-block; margin-right:10px; color:#CBD5E1;"><b style="color:#6EE7B7;">${fmtNum(value)}</b> ${symbol}${chain ? ` <span style="color:var(--text-muted);">(${chain})</span>` : ''}</span>`;
+      return `<span style="display:inline-block; margin-right:10px; color:#CBD5E1;"><b style="color: var(--emerald-text);">${fmtNum(value)}</b> ${symbol}${chain ? ` <span style="color:var(--text-muted);">(${chain})</span>` : ''}</span>`;
     }).join('');
   }
 
@@ -4496,7 +4543,7 @@
       const addr = item[ex.field];
       if (!addr || seen.has(addr)) continue;
       seen.add(addr);
-      links.push(`<a href="${ex.url(addr)}" target="_blank" rel="noopener" style="font-size:9.5px; color:#7DD3FC; text-decoration:none; border:1px solid rgba(125,211,252,0.35); border-radius:5px; padding:1px 6px;">${ex.chain} ↗</a>`);
+      links.push(`<a href="${ex.url(addr)}" target="_blank" rel="noopener" style="font-size:9.5px; color: var(--cyan-text); text-decoration:none; border:1px solid rgba(125,211,252,0.35); border-radius:5px; padding:1px 6px;">${ex.chain} ↗</a>`);
     }
     return links.length ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">${links.join('')}</div>` : '';
   }
@@ -4506,7 +4553,7 @@
     const el = document.getElementById('PriceStatusLine');
     if (!el) return;
     if (!LIVE_PRICES.asOf || LIVE_PRICES.stale || Object.keys(LIVE_PRICES.usd).length === 0) {
-      el.innerHTML = '<span style="color:#FCD34D;">• USD prices unavailable — showing coin amounts only</span>';
+      el.innerHTML = '<span style="color: var(--amber-text);">• USD prices unavailable — showing coin amounts only</span>';
       return;
     }
     const when = new Date(LIVE_PRICES.asOf).toLocaleTimeString('en-US', { hour12: false });
@@ -4518,10 +4565,10 @@
     const balances = formatBalanceLines(item.balances);
     const confirmedAt = item.foundAt || item.detectedAt ? fmtTimestamp(item.foundAt || item.detectedAt) : '';
     return `
-      <div style="font-size:10.5px; color:#6EE7B7; margin-top:4px; line-height:1.5; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.3); border-radius:6px; padding:6px 8px;">
+      <div style="font-size:10.5px; color: var(--emerald-text); margin-top:4px; line-height:1.5; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.3); border-radius:6px; padding:6px 8px;">
         <div><b style="color:#94A3B8;">Current Balance:</b> ${Number(item.balanceUsd || 0) > 0
           ? `<span style="font-size:13px; font-weight:800;">${fmtUsd(item.balanceUsd)}</span>`
-          : '<span style="color:#FCD34D; font-size:10.5px;">USD unavailable — no market quote</span>'}</div>
+          : '<span style="color: var(--amber-text); font-size:10.5px;">USD unavailable — no market quote</span>'}</div>
         ${balances ? `<div style="margin-top:3px;">${balances}</div>` : ''}
         ${confirmedAt ? `<div style="font-size:9.5px; color:var(--text-muted); margin-top:3px;">confirmed ${confirmedAt}</div>` : ''}
       </div>
@@ -4536,11 +4583,11 @@
     if (Number(item.totalEverReceivedEth || 0) > 0) parts.push(`Ξ ${Number(item.totalEverReceivedEth).toFixed(6)} ETH`);
     if (item.historicalTokenSummary) parts.push(`(${item.historicalTokenSummary})`);
     const summary = parts.length
-      ? `${parts.join(' ')} <span style="color:#34D399;">(~${Number((item.totalEverReceivedBtc || 0) * (uiPrice('btc') || 0) + (item.totalEverReceivedEth || 0) * (uiPrice('eth') || 0) + (item.totalEverReceivedTokensUsd || 0)).toFixed(2)} Historical)</span>`
+      ? `${parts.join(' ')} <span style="color: var(--emerald-text);">(~${Number((item.totalEverReceivedBtc || 0) * (uiPrice('btc') || 0) + (item.totalEverReceivedEth || 0) * (uiPrice('eth') || 0) + (item.totalEverReceivedTokensUsd || 0)).toFixed(2)} Historical)</span>`
       : (item.ethHistoryAudited
           ? `Gas/Contract Calls Only (${item.historicalTx || 1} TX)`
           : `⏳ Auditing On-Chain TX Volume (${item.historicalTx || 1} TX)...`);
-    return `<div style="font-size:10.5px; color:#FCD34D; margin-top:4px; line-height:1.4;"><b>Ever Held:</b> ${summary}</div>`;
+    return `<div style="font-size:10.5px; color: var(--amber-text); margin-top:4px; line-height:1.4;"><b>Ever Held:</b> ${summary}</div>`;
   }
 
   /* ───────────────── Funded-wallet vault (live-confirmed only) ───────────────── */
@@ -4624,6 +4671,9 @@
     pill.style.color = m.color;
     pill.style.borderColor = m.border;
     pill.style.background = m.bg;
+    pill.title = (snap.issues && snap.issues.length)
+      ? snap.issues.map(i => `[${i.severity}] ${i.title}`).join('\n')
+      : 'All checks passing — click for the self-monitor report';
   }
 
   function diagChainsLine(chains) {
@@ -4637,6 +4687,22 @@
   function renderDiagnostics(snap) {
     diagCache = snap;
     renderHealthPill(snap);
+    const verEl = document.getElementById('AppVersionLabel');
+    if (verEl && snap.version) verEl.textContent = 'v' + snap.version;
+    // The old label only updated when the BROWSER verifier ran, so it sat on
+    // "CONNECTING..." forever while the server pump did the real work. Drive it
+    // from actual chain answers instead.
+    const probed = (snap.chains || []).filter(c => Number(c.attempts || 0) > 0);
+    const failing = probed.filter(c => c.health === 'failing');
+    if (probed.length > 0 && failing.length === 0) {
+      liveRpcOnlineStatus = 'ONLINE';
+    } else if (probed.length > 0) {
+      liveRpcOnlineStatus = `DEGRADED ${probed.length - failing.length}/${probed.length}`;
+    }
+    const qB = document.getElementById('QuantumUpgradesBadge');
+    if (qB && qB.textContent.includes('Live Mainnet RPC')) {
+      qB.textContent = qB.textContent.replace(/Live Mainnet RPC \([^)]*\)/, `Live Mainnet RPC (${liveRpcOnlineStatus})`);
+    }
     const summary = document.getElementById('DiagSummary');
     const issuesEl = document.getElementById('DiagIssues');
     const reportEl = document.getElementById('DiagReportText');
@@ -4652,7 +4718,7 @@
       + `<div>Prices ${pr.stale ? '⚠️ stale' : (pr.asOf ? '✅ fresh' : '❌ none')} &nbsp;·&nbsp; Telegram ${tg.running ? '✅ running' : '⏸ stopped'}${tg.muted ? ' (muted)' : ''}</div>`;
 
     if (!snap.issues || snap.issues.length === 0) {
-      issuesEl.innerHTML = '<div class="mono" style="font-size:11px; color:#6EE7B7; padding:8px 10px; border-radius:8px; background:rgba(52,211,153,0.08); border:1px solid rgba(52,211,153,0.30);">✅ Every check is passing — nothing needs your attention.</div>';
+      issuesEl.innerHTML = '<div class="mono" style="font-size:11px; color: var(--emerald-text); padding:8px 10px; border-radius:8px; background:rgba(52,211,153,0.08); border:1px solid rgba(52,211,153,0.30);">✅ Every check is passing — nothing needs your attention.</div>';
     } else {
       issuesEl.innerHTML = snap.issues.map(inc => {
         const st = DIAG_SEVERITY_STYLE[inc.severity] || DIAG_SEVERITY_STYLE.info;
@@ -4859,7 +4925,7 @@
         <td style="white-space:normal; word-break:break-word; vertical-align:top; user-select:all;">
           <div style="font-weight:700; color:#F8FAFC; line-height:1.45;">${rawInput}</div>
           <div style="margin-top:4px; display:flex; gap:6px;">
-            <button class="btn" style="height:20px; padding:0 6px; font-size:9.5px; color:#7DD3FC;" data-copy="${rawInput.replace(/"/g, '&quot;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy ${isSeed ? '12 Words' : 'Input'}</button>
+            <button class="btn" style="height:20px; padding:0 6px; font-size:9.5px; color: var(--cyan-text);" data-copy="${rawInput.replace(/"/g, '&quot;')}" onclick="copyTextValue(this.dataset.copy, this)">📋 Copy ${isSeed ? '12 Words' : 'Input'}</button>
           </div>
         </td>
         <td style="white-space:normal; word-break:break-all; vertical-align:top; font-size:10.5px; user-select:all;">
@@ -5006,7 +5072,7 @@
             <div style="font-size:11px; color:#94A3B8; display:flex; gap:16px; flex-wrap:wrap;">
               <span><b>Lifetime BTC Received:</b> <span style="color:#F7931A;">${w.totalEverReceivedBtc || 0} BTC</span></span>
               <span><b>Lifetime ETH Received:</b> <span style="color:#627EEA;">${w.totalEverReceivedEth || 0} ETH</span></span>
-              <span><b>Deep Sweep:</b> <span style="color:#34D399;">${w.deepSweepStatus || 'BIP44/49/84/86 + EVM Nonce + USDT + SOL verified'}</span></span>
+              <span><b>Deep Sweep:</b> <span style="color: var(--emerald-text);">${w.deepSweepStatus || 'BIP44/49/84/86 + EVM Nonce + USDT + SOL verified'}</span></span>
             </div>
           </div>
         `;
@@ -5017,7 +5083,7 @@
               <div style="font-size:12px; font-weight:700; color:#94A3B8;">0 HISTORICAL TRANSACTIONS — VERIFIED ON LIVE MAINNET</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">total_received = 0 • n_tx = 0 • EVM nonce = 0 across BIP44, BIP49, BIP84, BIP86 Taproot, ETH &amp; Solana</div>
             </div>
-            <span class="pill mono" style="background:rgba(16,185,129,0.12); color:#6EE7B7;">LIVE RPC VERIFIED</span>
+            <span class="pill mono" style="background:rgba(16,185,129,0.12); color: var(--emerald-text);">LIVE RPC VERIFIED</span>
           </div>
         `;
       }
@@ -5103,13 +5169,13 @@
       </div>
       <div style="margin-bottom:10px;">
         <div style="font-size:10.5px; color:var(--text-muted); font-weight:700;">CORRECTIONS APPLIED (${(data.corrections || []).length})</div>
-        ${(data.corrections || []).map(c => `<div style="color:#34D399;">• ${c}</div>`).join('') || '<div>• All words already valid BIP39</div>'}
+        ${(data.corrections || []).map(c => `<div style="color: var(--emerald-text);">• ${c}</div>`).join('') || '<div>• All words already valid BIP39</div>'}
       </div>
       ${w.btcSegwit ? `
         <div style="background:var(--bg-input); border:1px solid var(--border-hairline); border-radius:7px; padding:10px; margin-top:8px;">
           <div>BTC SegWit: <span style="color:var(--btc-color);">${w.btcSegwit}</span></div>
           <div>ETH Address: <span style="color:var(--eth-color);">${w.ethAddress}</span></div>
-          <div style="margin-top:4px;">Live Mainnet Status: <span style="color:#6EE7B7;">${statusText}</span></div>
+          <div style="margin-top:4px;">Live Mainnet Status: <span style="color: var(--emerald-text);">${statusText}</span></div>
         </div>
       ` : ''}
     `;
@@ -5141,7 +5207,7 @@
           <tr><th>Client / Wallet Profile</th><th>Derivation Path</th><th>Encoding</th><th>Derived Address</th></tr>
         </thead>
         <tbody>
-          ${paths.map(p => `<tr><td style="color:var(--text-primary); font-weight:600;">${p[0]}</td><td style="color:#7DD3FC;">${p[1]}</td><td>${p[2]}</td><td>${p[3] || '—'}</td></tr>`).join('')}
+          ${paths.map(p => `<tr><td style="color:var(--text-primary); font-weight:600;">${p[0]}</td><td style="color: var(--cyan-text);">${p[1]}</td><td>${p[2]}</td><td>${p[3] || '—'}</td></tr>`).join('')}
         </tbody>
       </table>
     `;
@@ -5256,11 +5322,11 @@
         const w = s.hit.wallet || {};
         document.getElementById('ForensicResultOutput').innerHTML = `
           <div style="background:rgba(16,185,129,0.14); border:1px solid rgba(16,185,129,0.5); border-radius:8px; padding:12px; color:#ECFDF5;">
-            <div style="font-size:14px; font-weight:700; color:#34D399; margin-bottom:8px;">🎯 FORENSIC RECOVERY MATCH CONFIRMED IN ${(s.elapsedMs / 1000).toFixed(2)}s!</div>
-            <div><strong>Matched Target:</strong> <span style="color:#FCD34D;">${s.hit.matchedAddress}</span> (${s.hit.matchedField})</div>
-            ${s.hit.mnemonic ? `<div style="margin-top:6px;"><strong>Recovered Mnemonic Seed:</strong> <span style="color:#7DD3FC;">${s.hit.mnemonic}</span></div>` : ''}
-            ${s.hit.passphrase !== undefined && s.hit.passphrase !== '' ? `<div><strong>Recovered 25th Passphrase:</strong> <span style="color:#FCD34D;">${s.hit.passphrase}</span></div>` : ''}
-            ${s.hit.password ? `<div><strong>Recovered Vault Password:</strong> <span style="color:#34D399;">${s.hit.password}</span> (${s.hit.vaultType || ''})</div>` : ''}
+            <div style="font-size:14px; font-weight:700; color: var(--emerald-text); margin-bottom:8px;">🎯 FORENSIC RECOVERY MATCH CONFIRMED IN ${(s.elapsedMs / 1000).toFixed(2)}s!</div>
+            <div><strong>Matched Target:</strong> <span style="color: var(--amber-text);">${s.hit.matchedAddress}</span> (${s.hit.matchedField})</div>
+            ${s.hit.mnemonic ? `<div style="margin-top:6px;"><strong>Recovered Mnemonic Seed:</strong> <span style="color: var(--cyan-text);">${s.hit.mnemonic}</span></div>` : ''}
+            ${s.hit.passphrase !== undefined && s.hit.passphrase !== '' ? `<div><strong>Recovered 25th Passphrase:</strong> <span style="color: var(--amber-text);">${s.hit.passphrase}</span></div>` : ''}
+            ${s.hit.password ? `<div><strong>Recovered Vault Password:</strong> <span style="color: var(--emerald-text);">${s.hit.password}</span> (${s.hit.vaultType || ''})</div>` : ''}
             <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px; font-size:11px; color:#CBD5E1;">
               <div>BTC SegWit: ${w.btcSegwit || '—'} | Taproot: ${w.btcTaproot || '—'}</div>
               <div>ETH / L2:   ${w.ethAddress || '—'} | PK: ${w.ethPrivateKeyHex || s.hit.privateKeyHex || '—'}</div>
@@ -5275,8 +5341,8 @@
         if (forensicPollTimer) clearInterval(forensicPollTimer);
         const list = (s.candidates || []).slice(0, 15);
         document.getElementById('ForensicResultOutput').innerHTML = `
-          <div style="color:#FCD34D; font-weight:700; margin-bottom:8px;">Completed ${Number(s.checkedCombos || 0).toLocaleString()} combinations (${Number(s.validChecksums || 0).toLocaleString()} valid checksums) in ${(s.elapsedMs / 1000).toFixed(2)}s.</div>
-          ${list.map((c, idx) => `<div style="padding:6px 0; border-bottom:1px solid var(--border-hairline);">#${idx + 1}: <span style="color:#7DD3FC;">${c.mnemonic || c.passphrase}</span> → ETH: ${(c.wallet && c.wallet.ethAddress) || ''} | TRX: ${(c.wallet && c.wallet.trxAddress) || ''}</div>`).join('')}
+          <div style="color: var(--amber-text); font-weight:700; margin-bottom:8px;">Completed ${Number(s.checkedCombos || 0).toLocaleString()} combinations (${Number(s.validChecksums || 0).toLocaleString()} valid checksums) in ${(s.elapsedMs / 1000).toFixed(2)}s.</div>
+          ${list.map((c, idx) => `<div style="padding:6px 0; border-bottom:1px solid var(--border-hairline);">#${idx + 1}: <span style="color: var(--cyan-text);">${c.mnemonic || c.passphrase}</span> → ETH: ${(c.wallet && c.wallet.ethAddress) || ''} | TRX: ${(c.wallet && c.wallet.trxAddress) || ''}</div>`).join('')}
         `;
       }
     } catch (_) {}
@@ -5357,7 +5423,7 @@
     const bar = document.getElementById('BloomUploadProgressBar');
     if (bar) bar.style.background = 'linear-gradient(90deg,#FB7185,#F43F5E)';
     document.getElementById('BloomUploadStatusText').innerHTML =
-      `<span style="color:#FB7185;">❌ Import stopped — ${String(err.message || err).replace(/</g, '&lt;')}</span>`;
+      `<span style="color: var(--rose-text);">❌ Import stopped — ${String(err.message || err).replace(/</g, '&lt;')}</span>`;
   }
 
   /** First bytes of a file, without loading it. */
@@ -5395,7 +5461,7 @@
           if (gz.running && gz.linesParsed !== lastLines) {
             lastLines = gz.linesParsed;
             const pct = file.size > 0 ? Math.round((gz.bytesIn / file.size) * 100) : 0;
-            label.innerHTML = `<span style="color:#7DD3FC;">Decompressing on the server — ${pct}% sent, `
+            label.innerHTML = `<span style="color: var(--cyan-text);">Decompressing on the server — ${pct}% sent, `
               + `${Number(gz.linesParsed).toLocaleString()} addresses read, `
               + `${Number(gz.added).toLocaleString()} new</span>`;
           }
@@ -5406,7 +5472,7 @@
         if (!e.lengthComputable) return;
         const pct = Math.round((e.loaded / e.total) * 100);
         if (bar) bar.style.width = `${pct}%`;
-        label.innerHTML = `<span style="color:#7DD3FC;">Uploading ${pct}% `
+        label.innerHTML = `<span style="color: var(--cyan-text);">Uploading ${pct}% `
           + `(${(e.loaded / 1e9).toFixed(2)} / ${(e.total / 1e9).toFixed(2)} GB) — server is decompressing as it arrives…</span>`;
       };
 
@@ -5453,10 +5519,10 @@
       const total = Number(result.totalImported || 0);
       const fp = Number(result.falsePositiveRate || 0);
       document.getElementById('BloomUploadStatusText').innerHTML = total > 0
-        ? `<span style="color:#6EE7B7;">✅ ${file.name} imported — ${total.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>`
+        ? `<span style="color: var(--emerald-text);">✅ ${file.name} imported — ${total.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>`
           + `<span style="color:var(--text-muted);"> (${Number(result.linesParsed).toLocaleString()} lines read, `
           + `${Number(result.added).toLocaleString()} new, false-positive rate ${fp < 0.01 ? fp.toExponential(2) : fp.toFixed(2)}%)</span>`
-        : '<span style="color:#FCD34D;">⚠️ The file decompressed but no addresses were recognised — is it an address list (one per line / CSV with address first)?</span>';
+        : '<span style="color: var(--amber-text);">⚠️ The file decompressed but no addresses were recognised — is it an address list (one per line / CSV with address first)?</span>';
       return;
     }
 
@@ -5495,11 +5561,11 @@
       const total = Number((lastChunk && lastChunk.totalImported) || 0);
       const fp = lastChunk ? Number(lastChunk.falsePositiveRate || 0) : 0;
       document.getElementById('BloomUploadStatusText').innerHTML =
-        `<span style="color:#6EE7B7;">✅ ${file.name} imported — ${total.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>` +
+        `<span style="color: var(--emerald-text);">✅ ${file.name} imported — ${total.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>` +
         `<span style="color:var(--text-muted);"> (false-positive rate ${fp < 0.01 ? fp.toExponential(2) : fp.toFixed(2)}%)</span>`;
       if (total === 0) {
         document.getElementById('BloomUploadStatusText').innerHTML =
-          '<span style="color:#FCD34D;">⚠️ Upload finished but 0 addresses were recognised — is this an address list (one per line / CSV with address first)?</span>';
+          '<span style="color: var(--amber-text);">⚠️ Upload finished but 0 addresses were recognised — is this an address list (one per line / CSV with address first)?</span>';
       }
       return;
     }
@@ -5533,8 +5599,8 @@
     await refreshBloomStatus();
     const totalPlain = Number((lastChunk && lastChunk.totalImported) || 0);
     document.getElementById('BloomUploadStatusText').innerHTML = totalPlain > 0
-      ? `<span style="color:#6EE7B7;">✅ ${file.name} imported — ${totalPlain.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>`
-      : '<span style="color:#FCD34D;">⚠️ Upload finished but 0 addresses were recognised — is this an address list (one per line / CSV with address first)?</span>';
+      ? `<span style="color: var(--emerald-text);">✅ ${file.name} imported — ${totalPlain.toLocaleString()} unique addresses in the 32 MB Bloom filter</span>`
+      : '<span style="color: var(--amber-text);">⚠️ Upload finished but 0 addresses were recognised — is this an address list (one per line / CSV with address first)?</span>';
     } catch (err) {
       bloomUploadFailed(err);
     }
@@ -5584,7 +5650,7 @@
   async function requestDesktopPushPermission() {
     if ('Notification' in window) {
       const p = await Notification.requestPermission();
-      document.getElementById('AlertDeliveryLogBox').innerHTML = `Desktop Notification permission status: <strong style="color:#34D399;">${p}</strong>`;
+      document.getElementById('AlertDeliveryLogBox').innerHTML = `Desktop Notification permission status: <strong style="color: var(--emerald-text);">${p}</strong>`;
     }
   }
 
@@ -5611,7 +5677,7 @@
     } else {
       await tgBotAction('stop');
     }
-    document.getElementById('AlertDeliveryLogBox').innerHTML = `<span style="color:#34D399;">✅ Saved multi-channel alert settings (${new Date().toLocaleTimeString()}).</span>`;
+    document.getElementById('AlertDeliveryLogBox').innerHTML = `<span style="color: var(--emerald-text);">✅ Saved multi-channel alert settings (${new Date().toLocaleTimeString()}).</span>`;
     return r.config || cfg;
   }
 
@@ -5687,19 +5753,19 @@
       const b = await fetch('/api/telegram-bot').then(r => r.json());
       if (chk && document.activeElement !== chk) chk.checked = b.enabled !== false;
       if (!b.tokenPresent) {
-        line.innerHTML = '<span style="color:#FCD34D;">● Not configured — paste a bot token and click Save channels</span>';
+        line.innerHTML = '<span style="color: var(--amber-text);">● Not configured — paste a bot token and click Save channels</span>';
         detail.textContent = '';
         return;
       }
       if (b.running && !b.lastError) {
-        line.innerHTML = `<span style="color:#6EE7B7;">● Listening${b.botUsername ? ` as @${b.botUsername}` : ''}</span>`
+        line.innerHTML = `<span style="color: var(--emerald-text);">● Listening${b.botUsername ? ` as @${b.botUsername}` : ''}</span>`
           + (b.linked ? `<span style="color:var(--text-muted);"> • chat ${b.chatIdMasked}</span>`
-                      : '<span style="color:#FCD34D;"> • no chat linked yet — send /start to the bot</span>')
-          + (b.muted ? '<span style="color:#FCD34D;"> • 🔇 muted</span>' : '');
+                      : '<span style="color: var(--amber-text);"> • no chat linked yet — send /start to the bot</span>')
+          + (b.muted ? '<span style="color: var(--amber-text);"> • 🔇 muted</span>' : '');
       } else if (b.running && b.lastError) {
-        line.innerHTML = `<span style="color:#FCD34D;">● Retrying — ${String(b.lastError).replace(/</g, '&lt;')}</span>`;
+        line.innerHTML = `<span style="color: var(--amber-text);">● Retrying — ${String(b.lastError).replace(/</g, '&lt;')}</span>`;
       } else {
-        line.innerHTML = '<span style="color:#FB7185;">● Stopped</span>';
+        line.innerHTML = '<span style="color: var(--rose-text);">● Stopped</span>';
       }
       const awakeRow = document.getElementById('KeepAwakeRow');
       const awakeChk = document.getElementById('KeepAwakeChk');
@@ -5785,7 +5851,7 @@
       } else {
         statusEl.style.color = '#FB7185';
         statusEl.textContent = `❌ ${r.error || 'failed'}`;
-        if (r.hint) lines.push(`<div style="color:#FCD34D; margin-top:5px;">💡 ${r.hint.replace(/</g, '&lt;')}</div>`);
+        if (r.hint) lines.push(`<div style="color: var(--amber-text); margin-top:5px;">💡 ${r.hint.replace(/</g, '&lt;')}</div>`);
       }
       if (r.bot) lines.unshift(`<div style="color:#94A3B8;">Bot: @${r.bot.username} (${r.bot.name || r.bot.id})</div>`);
       detailEl.innerHTML = lines.join('') || '<div>No details returned.</div>';
@@ -5809,7 +5875,7 @@
       mnemonic: 'DELIVERY TEST — no seed, no keys, no balance'
     }, true);
     document.getElementById('AlertDeliveryLogBox').innerHTML = `
-      <div style="color:#34D399; font-weight:700;">✅ Multi-Channel Alert Test Executed (${new Date().toLocaleTimeString()})</div>
+      <div style="color: var(--emerald-text); font-weight:700;">✅ Multi-Channel Alert Test Executed (${new Date().toLocaleTimeString()})</div>
       <div>• Synthesized Web Audio Multi-Tone Siren: <strong>PLAYED</strong></div>
       <div>• Server Dispatch Log: ${JSON.stringify(srv.deliveries || [])}</div>
       <div>• Browser Direct CORS Dispatch: ${browserLogs.length ? browserLogs.join(' | ') : 'Ready (enter Telegram Bot Token / Discord Webhook URL above to dispatch externally)'}</div>
