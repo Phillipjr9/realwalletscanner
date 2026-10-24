@@ -1,0 +1,12 @@
+{
+  "name": "codehaven-ui-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "jsdom UI regression suites for the CodeHaven Workstation (theme, honesty badges, diagnostics)",
+  "scripts": {
+    "test": "node theme.js && node regression.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}

@@ -51,3 +51,6 @@ WebWorkstation/desktop/package-lock.json
 
 # Bundled Node runtime (downloaded at build time)
 WebWorkstation/desktop/build/node/
+
+tests/ui/node_modules/
+tests/ui/package-lock.json

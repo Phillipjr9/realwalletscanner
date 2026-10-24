@@ -2311,7 +2311,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.6.8';
+const APP_VERSION = '2.6.9';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2445,6 +2445,22 @@ function diagEvaluate() {
   // 0. Scan throughput over the evaluation window.
   const checkedNow = Number(multiIndexAddressesChecked || 0) + Number(liveRpcAddressesChecked || 0);
   const spanMs = now - diagPrevScan.at;
+  // 0b. Scan stall watchdog — the engine must always produce addresses while
+  // active. If the counter goes flat, name it and restart the workers.
+  if (serverDaemonActive && scanLastProgressAt && (now - scanLastProgressAt) > 120000) {
+    diagRaise('scan.stalled', 'warning', 'The scan engine stopped producing addresses',
+      `No new addresses for ${Math.round((now - scanLastProgressAt) / 60000)} minutes although the engine is marked active. The scan workers are being restarted automatically. If this message keeps returning, check Energy Saver settings (the Mac may be sleeping).`);
+    restartHunterWorkers();
+  } else if (serverDaemonActive && scanLastProgressAt && (now - scanLastProgressAt) < 30000) {
+    diagClear('scan.stalled');
+  }
+  // 0c. Sleep lock — keep-awake is on but the lock is gone: the Mac can sleep.
+  if (process.platform === 'darwin' && caffeinateEnabled && !caffeinateChild) {
+    diagRaise('power.sleep_lock', 'warning', 'The Mac sleep lock is not active',
+      'Keep-awake is enabled but the caffeinate lock is not running — the Mac can go to sleep and stop the scan (and Telegram pushes). It is restarted automatically.');
+  } else {
+    diagClear('power.sleep_lock');
+  }
   if (spanMs >= 5000) {
     diagScanRatePerSec = Math.max(0, (checkedNow - diagPrevScan.checked) / (spanMs / 1000));
     diagPrevScan.at = now;
@@ -2659,6 +2675,11 @@ function diagSnapshot() {
     },
     scan: {
       daemonActive: Boolean(serverDaemonActive),
+      workersAlive: hunterWorkers.length,
+      workersConfigured: WORKER_THREAD_COUNT,
+      workerRestarts: hunterWorkerRespawns,
+      keepAwake: Boolean(caffeinateEnabled),
+      sleepLockActive: Boolean(caffeinateChild),
       workers: hunterWorkers.length,
       addressesChecked: Number(multiIndexAddressesChecked || 0) + Number(liveRpcAddressesChecked || 0),
       addressesPerSec: +diagScanRatePerSec.toFixed(1),
@@ -2734,6 +2755,9 @@ const DIAG_ADVICE = {
   'verify.backoff': 'The chains are not answering. Check the network, then add API keys to raise the rate limits.',
   'verify.parked': 'Nothing is lost. Press "Retry parked" once the network or keys are fixed.',
   'verify.cap': 'Clear the queue if those leads are not worth verifying, or import a smaller dump.',
+  'scan.stalled': 'The scan engine produced no new addresses for over 2 minutes. The workers restart themselves; if this keeps returning, the Mac is probably sleeping — enable keep-awake and check Energy Saver.',
+  'scan.worker_down': 'A scan worker crashed. Workers restart automatically, so scanning continues; a repeating crash means one generation path needs fixing — send the report.',
+  'power.sleep_lock': 'Keep-awake is on but the sleep lock is not running, so the Mac can still sleep and stop the scan. It is restarted automatically.',
   'prices.missing': 'No price feed is reachable. USD values stay blank on purpose rather than showing a guessed number.',
   'prices.stale': 'Market data is old. It refreshes every 5 minutes when a feed is reachable.',
   'bloom.fp': 'This is expected for a large dump. Importing a smaller list, or using exact target addresses, cuts the work.',
@@ -2796,6 +2820,8 @@ function diagnosticsReportText(snapshot) {
   L.push('');
   L.push('SCANNING');
   L.push(`  server engine        ${s.scan.daemonActive ? 'running' : 'stopped'}`);
+  L.push(`  worker threads       ${s.scan.workersAlive}/${s.scan.workersConfigured} alive · ${s.scan.workerRestarts} restart(s)`);
+  L.push(`  keep-awake           ${s.scan.keepAwake ? (s.scan.sleepLockActive ? 'ON (sleep lock active)' : 'ON but lock INACTIVE') : 'OFF — the Mac can sleep and stop the scan'}`);
   L.push(`  worker threads       ${s.scan.workers}`);
   L.push(`  addresses checked    ${s.scan.addressesChecked.toLocaleString()} (${s.scan.addressesPerSec}/s)`);
   L.push(`  live RPC requests    ${s.scan.liveRpcRequestsSent.toLocaleString()}`);
@@ -3579,6 +3605,11 @@ const recentDaemonItems = [];
 const workerReadyQueue = [];
 const hunterWorkers = [];
 const WORKER_THREAD_COUNT = Math.max(4, Math.min(8, os.cpus().length * 2));
+let hunterWorkerRespawns = 0;
+let scanLastProgressAt = Date.now();
+let lastWorkerRestartAt = 0;
+let suppressWorkerRespawn = false;
+const hunterWorkerRespawnTimes = [];
 
 // Event-loop health probe: the worker pool already saturates the CPU, so the
 // supplemental main-thread daemon yields whenever the loop falls behind.
@@ -3653,57 +3684,112 @@ function broadcastTargetsAndRescreenQueue() {
 }
 
 // Spawn Multi-Core worker_threads Pool sharing Confirmed-Empty Bloom + Session Dedupe Bloom + 32MB Funded Bloom + Live Targets
-const initialWorkerTargets = Array.from(targetAddressMap.keys());
+function spawnHunterWorker(wId) {
+  const worker = new Worker(path.join(__dirname, 'hunter_worker.js'), {
+    workerData: {
+      workerId: wId,
+      sharedBloomBuffer,
+      sharedSessionBloomBuffer,
+      sharedFundedBloomBuffer,
+      initialTargets: Array.from(targetAddressMap.keys())
+    }
+  });
+  worker.on('message', msg => {
+    if (!serverDaemonActive) return;
+    if (msg && msg.type === 'worker_error') {
+      // The worker survived (loop is wrapped) — log and count it, do not die.
+      console.warn(`[HunterWorker #${wId}] recovered from error:`, msg.error);
+      return;
+    }
+    if (msg && msg.type === 'batch') {
+      const itemsArr = Array.isArray(msg.items) ? msg.items : [];
+      const burstHitsArr = Array.isArray(msg.burstHits) ? msg.burstHits : [];
+      const extraScreened = Math.max(0, Number(msg.screenedWallets || 0));
+      serverDaemonScanned += extraScreened;
+      multiIndexAddressesChecked += extraScreened * 4;
+      apiQuotaSavedCount += extraScreened * 4;
+      if (extraScreened > 0) scanLastProgressAt = Date.now();
+
+      for (const hit of burstHitsArr) {
+        processIncomingDaemonCandidate(hit, true);
+      }
+      for (const cand of itemsArr) {
+        processIncomingDaemonCandidate(cand, false);
+      }
+
+      const now = Date.now();
+      const dtSec = (now - prevRateSnapshotAt) / 1000;
+      if (dtSec >= 0.75) {
+        const instRate = Math.round((serverDaemonScanned - prevRateSnapshotScanned) / dtSec);
+        if (instRate >= 0) {
+          hardwareScanRatePerSec = hardwareScanRatePerSec === 0
+            ? instRate
+            : Math.round(hardwareScanRatePerSec * 0.55 + instRate * 0.45);
+        }
+        prevRateSnapshotScanned = serverDaemonScanned;
+        prevRateSnapshotAt = now;
+      }
+    }
+  });
+  worker.on('error', err => {
+    console.error(`[HunterWorker #${wId} Error]`, err.message);
+  });
+  worker.on('exit', (code) => {
+    const idx = hunterWorkers.indexOf(worker);
+    if (idx >= 0) hunterWorkers.splice(idx, 1);
+    if (!serverDaemonActive || suppressWorkerRespawn) return; // shutdown or manual restart
+    hunterWorkerRespawns++;
+    const stamp = Date.now();
+    hunterWorkerRespawnTimes.push(stamp);
+    while (hunterWorkerRespawnTimes.length && stamp - hunterWorkerRespawnTimes[0] > 600000) hunterWorkerRespawnTimes.shift();
+    const storms = hunterWorkerRespawnTimes.length;
+    console.warn(`[HunterWorker #${wId}] exited (code ${code}) — respawning (restart #${hunterWorkerRespawns})`);
+    diagRaise('scan.worker_down', 'warning', 'A scan worker crashed and was restarted',
+      `Worker #${wId} exited with code ${code}. The engine restarts workers automatically (total restarts: ${hunterWorkerRespawns}). If this repeats, send the diagnostics report.`);
+    const delay = storms > 10 ? 30000 : 1500;
+    setTimeout(() => {
+      if (!serverDaemonActive || suppressWorkerRespawn) return;
+      try {
+        const w2 = spawnHunterWorker(wId);
+        w2.unref();
+        hunterWorkers.push(w2);
+        if (hunterWorkers.length >= WORKER_THREAD_COUNT) diagClear('scan.worker_down');
+      } catch (e) {
+        console.error(`[HunterWorker #${wId} respawn failed]`, e.message);
+      }
+    }, delay);
+  });
+  worker.unref();
+  return worker;
+}
+
 for (let wId = 0; wId < WORKER_THREAD_COUNT; wId++) {
   try {
-    const worker = new Worker(path.join(__dirname, 'hunter_worker.js'), {
-      workerData: {
-        workerId: wId,
-        sharedBloomBuffer,
-        sharedSessionBloomBuffer,
-        sharedFundedBloomBuffer,
-        initialTargets: initialWorkerTargets
-      }
-    });
-    worker.on('message', msg => {
-      if (!serverDaemonActive) return;
-      if (msg && msg.type === 'batch') {
-        const itemsArr = Array.isArray(msg.items) ? msg.items : [];
-        const burstHitsArr = Array.isArray(msg.burstHits) ? msg.burstHits : [];
-        const extraScreened = Math.max(0, Number(msg.screenedWallets || 0));
-        serverDaemonScanned += extraScreened;
-        multiIndexAddressesChecked += extraScreened * 4;
-        apiQuotaSavedCount += extraScreened * 4;
-
-        for (const hit of burstHitsArr) {
-          processIncomingDaemonCandidate(hit, true);
-        }
-        for (const cand of itemsArr) {
-          processIncomingDaemonCandidate(cand, false);
-        }
-
-        const now = Date.now();
-        const dtSec = (now - prevRateSnapshotAt) / 1000;
-        if (dtSec >= 0.75) {
-          const instRate = Math.round((serverDaemonScanned - prevRateSnapshotScanned) / dtSec);
-          if (instRate >= 0) {
-            hardwareScanRatePerSec = hardwareScanRatePerSec === 0
-              ? instRate
-              : Math.round(hardwareScanRatePerSec * 0.55 + instRate * 0.45);
-          }
-          prevRateSnapshotScanned = serverDaemonScanned;
-          prevRateSnapshotAt = now;
-        }
-      }
-    });
-    worker.on('error', err => {
-      console.error(`[HunterWorker #${wId} Error]`, err.message);
-    });
-    worker.unref();
-    hunterWorkers.push(worker);
+    hunterWorkers.push(spawnHunterWorker(wId));
   } catch (err) {
     console.error(`[HunterWorker Spawn Error]`, err.message);
   }
+}
+
+function restartHunterWorkers() {
+  if (Date.now() - lastWorkerRestartAt < 300000) return; // at most once per 5 min
+  lastWorkerRestartAt = Date.now();
+  suppressWorkerRespawn = true;
+  const old = hunterWorkers.splice(0, hunterWorkers.length);
+  for (const w of old) {
+    try { w.terminate(); } catch (_) {}
+  }
+  setTimeout(() => {
+    suppressWorkerRespawn = false;
+    for (let wId = 0; wId < WORKER_THREAD_COUNT; wId++) {
+      try {
+        hunterWorkers.push(spawnHunterWorker(wId));
+      } catch (err) {
+        console.error(`[HunterWorker Restart Error]`, err.message);
+      }
+    }
+    console.warn('[HunterWorker] pool restarted by the scan watchdog');
+  }, 400);
 }
 
 /** Alchemy accepts either a full RPC URL or the bare API key from the dashboard. */
@@ -4322,31 +4408,48 @@ const telegramPushedKeys = new Set();
  * for exactly as long as this server process lives.
  */
 let caffeinateChild = null;
+let caffeinateEnabled = false;
+let caffeinateRespawns = 0;
+
+function startCaffeinate() {
+  if (process.platform !== 'darwin' || !caffeinateEnabled) return false;
+  if (caffeinateChild) return true;
+  try {
+    // -i: no idle sleep · -s: no system sleep on AC · -w: as long as we live.
+    caffeinateChild = spawn('caffeinate', ['-i', '-s', '-w', String(process.pid)], { stdio: 'ignore' });
+    caffeinateChild.on('error', (err) => {
+      console.warn('[Power] caffeinate unavailable:', err.message);
+      caffeinateChild = null;
+    });
+    caffeinateChild.on('exit', () => {
+      caffeinateChild = null;
+      if (caffeinateEnabled && serverDaemonActive && caffeinateRespawns < 50) {
+        caffeinateRespawns++;
+        console.warn('[Power] caffeinate exited — restoring the keep-awake lock');
+        setTimeout(startCaffeinate, 2000);
+      }
+    });
+    console.log('[Power] keeping the Mac awake while the scanner runs');
+    return true;
+  } catch (e) {
+    console.warn('[Power] could not start caffeinate:', e.message);
+    return false;
+  }
+}
 
 function applyKeepAwake(enabled) {
   if (process.platform !== 'darwin') {
     return { ok: false, supported: false, active: false, reason: 'Only available on macOS' };
   }
-  if (enabled) {
-    if (!caffeinateChild) {
-      try {
-        caffeinateChild = spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' });
-        caffeinateChild.on('error', (err) => {
-          console.warn('[Power] caffeinate unavailable:', err.message);
-          caffeinateChild = null;
-        });
-        caffeinateChild.on('exit', () => { caffeinateChild = null; });
-        console.log('[Power] keeping the Mac awake while the scanner runs');
-      } catch (e) {
-        console.warn('[Power] could not start caffeinate:', e.message);
-      }
-    }
+  caffeinateEnabled = Boolean(enabled);
+  if (caffeinateEnabled) {
+    startCaffeinate();
   } else if (caffeinateChild) {
     try { caffeinateChild.kill(); } catch (_) {}
     caffeinateChild = null;
     console.log('[Power] normal sleep behaviour restored');
   }
-  return { ok: true, supported: true, active: Boolean(caffeinateChild) };
+  return { ok: true, supported: true, active: Boolean(caffeinateChild), enabled: caffeinateEnabled };
 }
 
 function telegramApiUrl(method) {
@@ -5164,6 +5267,43 @@ const server = http.createServer((req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify({ ok: false, error: err.message }));
     }
+  }
+
+  if (url.pathname === '/api/power') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({
+        ok: true,
+        supported: process.platform === 'darwin',
+        enabled: Boolean(caffeinateEnabled),
+        active: Boolean(caffeinateChild),
+        respawns: caffeinateRespawns
+      }));
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', c => { body += c; if (body.length > 4096) req.destroy(); });
+      req.on('end', () => {
+        let keepAwake = false;
+        try { keepAwake = Boolean(JSON.parse(body || '{}').keepAwake); } catch (_) {}
+        const r = applyKeepAwake(keepAwake);
+        try {
+          alertChannelsConfig.keepAwake = Boolean(keepAwake);
+          saveAlertChannelsConfig();
+        } catch (_) {}
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({
+          ...r,
+          ok: Boolean(r.supported),
+          message: !r.supported
+            ? 'Keep-awake is only available on macOS'
+            : (keepAwake ? 'Keep-awake enabled' : 'Keep-awake disabled')
+        }));
+      });
+      return;
+    }
+    res.writeHead(405);
+    return res.end();
   }
 
   if (url.pathname === '/api/diagnostics/report' && req.method === 'POST') {
@@ -6651,7 +6791,23 @@ server.listen(PORT, HOST, () => {
       normalizeTelegramToken(alertChannelsConfig.telegramBotToken)) {
     startTelegramBot().catch(err => console.warn('[Telegram] could not start:', err.message));
   }
-  if (alertChannelsConfig.keepAwake === true) applyKeepAwake(true);
+
+  // A sleeping Mac runs no scans and sends no pushes. Keep-awake is ON by
+  // default on macOS: an explicit saved OFF wins, then CODEHAVEN_KEEP_AWAKE=0.
+  try {
+    if (process.platform === 'darwin' && process.env.CODEHAVEN_KEEP_AWAKE !== '0' &&
+        alertChannelsConfig.keepAwake !== false) {
+      if (alertChannelsConfig.keepAwake !== true) {
+        alertChannelsConfig.keepAwake = true;
+        saveAlertChannelsConfig();
+      }
+      applyKeepAwake(true);
+    } else if (alertChannelsConfig.keepAwake === true) {
+      applyKeepAwake(true);
+    }
+  } catch (e) {
+    console.warn('[Power] keep-awake boot failed:', e.message);
+  }
   // Self-monitor: starts sampling, writes DIAGNOSTIC_REPORT.txt every minute.
   diagStart();
   console.log(`[diagnostics] self-monitor online — report at ${DIAG_REPORT_FILE}`);

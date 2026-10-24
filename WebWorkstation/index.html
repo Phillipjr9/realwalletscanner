@@ -2219,6 +2219,19 @@
               <div class="settings-block">
                 <div class="settings-block-head">
                   <div>
+                    <div class="settings-block-title">Mac power</div>
+                    <div class="settings-block-desc">A sleeping Mac runs no scans and sends no pushes. Keep-awake prevents idle and system sleep while the scanner runs (display may still sleep).</div>
+                  </div>
+                  <span class="pill pill-emerald mono">RECOMMENDED</span>
+                </div>
+                <div class="check-grid">
+                  <label class="check-row"><input type="checkbox" id="KeepAwakeChk" onchange="setKeepAwake(this.checked)" /> Keep this Mac awake while scanning</label>
+                </div>
+              </div>
+
+              <div class="settings-block">
+                <div class="settings-block-head">
+                  <div>
                     <div class="settings-block-title">Engine safeguards</div>
                     <div class="settings-block-desc">Read-only guarantees applied to every scan batch.</div>
                   </div>
@@ -2739,6 +2752,28 @@
     if (scroll) scroll.scrollTop = 0;
   }
 
+  async function loadPowerConfig() {
+    try {
+      const r = await fetch('/api/power').then(x => x.json());
+      const chk = document.getElementById('KeepAwakeChk');
+      if (chk && r) chk.checked = Boolean(r.enabled || r.active);
+    } catch (_) {}
+  }
+
+  async function setKeepAwake(enabled) {
+    try {
+      const r = await fetch('/api/power', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepAwake: Boolean(enabled) })
+      }).then(x => x.json());
+      if (r && r.ok) toast(enabled ? 'Keep-awake enabled — the Mac will not sleep while scanning' : 'Keep-awake disabled', 'success');
+      else toast((r && r.error) || 'Could not change keep-awake', 'error');
+    } catch (e) {
+      toast('Could not change keep-awake: ' + e.message, 'error');
+    }
+  }
+
   function openSettings(section) {
     const modal = document.getElementById('settingsModal');
     if (!modal) return;
@@ -2747,6 +2782,7 @@
     modal.classList.add('open');
     try { loadSmtpConfig(); } catch (_) {}
     try { loadApiKeysConfig(); } catch (_) {}
+    try { loadPowerConfig(); } catch (_) {}
   }
 
   function toggleWindowFullscreen() {

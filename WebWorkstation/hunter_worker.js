@@ -424,7 +424,8 @@ function isCandidatePriorityHit(item) {
 }
 
 function workerLoop() {
-  if (!paused && parentPort) {
+  try {
+    if (!paused && parentPort) {
     const { screenedWallets, burstHits } = runUltraFastHardwareBurst(32);
 
     const batch = [];
@@ -453,8 +454,27 @@ function workerLoop() {
         addressesChecked: (screenedWallets * 5) + (batch.length * 14)
       });
     }
+    }
+  } catch (err) {
+    // One bad candidate must never kill the loop — or the whole thread.
+    try {
+      if (parentPort) parentPort.postMessage({ type: 'worker_error', workerId, error: String((err && err.message) || err) });
+    } catch (_) {}
   }
   setTimeout(workerLoop, 25);
 }
+
+// Belt and braces: anything that escapes the loop must not terminate the
+// worker thread (a dead worker used to mean the scan silently stopped).
+process.on('uncaughtException', (err) => {
+  try {
+    if (parentPort) parentPort.postMessage({ type: 'worker_error', workerId, error: String((err && err.message) || err) });
+  } catch (_) {}
+});
+process.on('unhandledRejection', (err) => {
+  try {
+    if (parentPort) parentPort.postMessage({ type: 'worker_error', workerId, error: String((err && err.message) || err) });
+  } catch (_) {}
+});
 
 workerLoop();
