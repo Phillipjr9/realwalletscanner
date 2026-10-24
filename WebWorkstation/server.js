@@ -2311,7 +2311,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.6.6';
+const APP_VERSION = '2.6.7';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -5127,6 +5127,19 @@ const server = http.createServer((req, res) => {
       'Expires': '0'
     });
     return res.end(html);
+  }
+
+  if (url.pathname === '/favicon.png' || url.pathname === '/assets/logo.png' || url.pathname === '/assets/favicon.png') {
+    const assetName = url.pathname.endsWith('favicon.png') ? 'favicon.png' : 'logo.png';
+    const asset = path.join(APP_DIR, 'assets', assetName);
+    const fallback = path.join(APP_DIR, assetName);
+    const file = fs.existsSync(asset) ? asset : fallback;
+    if (fs.existsSync(file)) {
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600' });
+      return res.end(fs.readFileSync(file));
+    }
+    res.writeHead(404);
+    return res.end();
   }
 
   if (url.pathname === '/api/brain-status') {

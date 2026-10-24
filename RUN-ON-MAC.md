@@ -29,6 +29,8 @@ your ISP or the internet.
 | **Self-healing** | If the scanner process dies it is restarted automatically (up to 5 tries, then it tells you) |
 | **Start at login** | Optional LaunchAgent — launches hidden in the menu bar every time you log in |
 | **Quit** | ⌘Q or menu bar → *Quit CodeHaven Workstation* — stops the scanner and flushes the vaults |
+| **Appearance** | Light and dark mode — the 3D sun/moon switch in the top bar flips the whole app; the choice is remembered |
+| **Logo** | The 3D shield-and-wallet icon is the Dock icon, the sidebar brand mark and the browser favicon |
 
 ### The menu-bar menu
 
