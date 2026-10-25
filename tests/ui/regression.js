@@ -174,6 +174,25 @@ checks.push(['9b keep-awake toggle   ', Boolean(d.getElementById('KeepAwakeChk')
   const banner = w.walletLockBanner({ fundsLocked: true, lockReason: 'These funds sit in a smart contract' });
   checks.push(['17 lock banner honest  ', banner.includes('NOT spendable') && banner.includes('smart contract')]);
 
+  // 18: manual check page exposes the transferability verdict
+  checks.push(['18 manual check verdict',
+    Boolean(d.getElementById('InspectorTransferBanner')) && typeof w.renderTransferVerdict === 'function']);
+
+  // 19: a locked manual result must say NOT transferable and never claim vaulted-found
+  const lockHtml = w.renderTransferVerdict(
+    { fundedNow: true, allTransferable: false, savedTo: 'none' },
+    { balances: { ETH: '1.2' }, fundsLocked: true, lockReason: 'Safe multisig' });
+  checks.push(['19 manual locked honest',
+    /LOCKED/.test(lockHtml) && /NOT all transferable/.test(lockHtml) &&
+    /Safe multisig/.test(lockHtml) && !/Saved to <b>Wallets Found/.test(lockHtml)]);
+
+  // 20: a transferable manual result is recorded and says so
+  const freeHtml = w.renderTransferVerdict(
+    { fundedNow: true, allTransferable: true, savedTo: 'found' },
+    { balances: { BTC: '0.5' } });
+  checks.push(['20 manual spendable saves',
+    /TRANSFERABLE/.test(freeHtml) && /Saved to <b>Wallets Found/.test(freeHtml)]);
+
   console.log(checks.map(([n, v]) => n + ': ' + v).join('\n'));
   const failed = checks.filter(([, v]) => !v).length;
   console.log(failed === 0 ? 'ALL PASS' : 'FAILED: ' + failed);

@@ -1269,7 +1269,7 @@
             </span>
           </button>
 
-          <button class="tab-btn" data-tab="Check" data-title="Multi-Chain Seed &amp; Balance Inspector" data-sub="Verify any seed, brainwallet or private key against live mainnet" onclick="switchTab('Check')">
+          <button class="tab-btn" data-tab="Check" data-title="Multi-Chain Seed &amp; Balance Inspector" data-sub="Verify any phrase or key against live mainnet — and whether the funds are transferable or multisig-locked" onclick="switchTab('Check')">
             <span class="tab-btn-left">
               <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <span>Seed Inspector</span>
@@ -1715,7 +1715,7 @@
               <span id="InspectChecksumBadge" class="pill pill-emerald mono">READY</span>
             </div>
             <p class="card-desc">
-              Enter any 12/24-word BIP39 seed phrase, Brainwallet passphrase (e.g. <span class="mono">correct horse battery staple</span>), or 256-bit hex private key to check if it has <b>ever held crypto</b> (<span class="mono">total_received &gt; 0</span> / <span class="mono">n_tx &gt; 0</span> / EVM <span class="mono">txCount &gt; 0</span>) or has a current balance.
+              Enter any 12/24-word BIP39 seed phrase, Brainwallet passphrase (e.g. <span class="mono">correct horse battery staple</span>), or 256-bit hex private key to check if it has <b>ever held crypto</b> (<span class="mono">total_received &gt; 0</span> / <span class="mono">n_tx &gt; 0</span> / EVM <span class="mono">txCount &gt; 0</span>) or has a current balance. It also tells you instantly whether the funds are <b>transferable</b> with this key or locked behind a multisig / smart contract — and records transferable finds into the vaults.
             </p>
             <textarea id="CheckSeedBox" class="input-box mono" rows="4">planet crystal ocean velvet silver canyon harvest timber shadow marble winter ankle</textarea>
             <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
@@ -1731,6 +1731,7 @@
           <div class="card">
             <div class="card-header"><span class="card-title">Ever-Held Chain History &amp; Derived Multi-Chain Portfolio</span></div>
             <div id="InspectorHistoryBanner" class="mono" style="margin-bottom:10px;"></div>
+            <div id="InspectorTransferBanner" class="mono" style="margin-bottom:10px;"></div>
             <div id="InspectorContent" class="mono" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; overflow-y:auto;"></div>
           </div>
         </div>
@@ -5085,6 +5086,45 @@
     });
   }
 
+  function renderTransferVerdict(data, w) {
+    const transferEl = document.getElementById('InspectorTransferBanner');
+    if (!transferEl) return '';
+    const lockedCoins = (w && w.lockedCoins) || {};
+    const coinKeys = Object.keys((w && w.balances) || {});
+    const lockedKeys = coinKeys.filter(c => lockedCoins[c]);
+    let html;
+    if (data.fundedNow) {
+      const allOk = Boolean(data.allTransferable) && !w.fundsLocked;
+      const coinLine = coinKeys.map(c => {
+        const locked = Boolean(lockedCoins[c]);
+        return `<span class="pill ${locked ? 'pill-rose' : 'pill-emerald'} mono" style="margin:2px;">${locked ? '🔒' : '💰'} ${escHtml(String(c))} ${escHtml(String(w.balances[c]))} — ${locked ? 'LOCKED' : 'TRANSFERABLE'}</span>`;
+      }).join('') || '<span style="color:#94A3B8;">balances pending</span>';
+      html = `
+        <div style="background:${allOk ? 'rgba(16,185,129,0.12)' : 'rgba(244,63,94,0.12)'}; border:1px solid ${allOk ? 'rgba(16,185,129,0.4)' : 'rgba(244,63,94,0.45)'}; border-radius:8px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:12.5px; font-weight:700; color:${allOk ? '#6EE7B7' : '#FDA4AF'};">
+              ${allOk ? '✅ ALL FUNDS TRANSFERABLE — this key can move everything' : `🔒 ${lockedKeys.length || 'SOME'} OF ${coinKeys.length || '?'} COINS LOCKED — NOT all transferable`}
+            </span>
+            <span class="pill ${allOk ? 'pill-emerald' : 'pill-rose'} mono">${allOk ? 'SPENDABLE' : 'MULTISIG / CONTRACT LOCK'}</span>
+          </div>
+          <div style="margin-bottom:6px;">${coinLine}</div>
+          ${w.lockReason ? `<div style="font-size:11px; color:#FDA4AF; margin-bottom:4px;"><b>Why locked:</b> ${escHtml(String(w.lockReason))}</div>` : ''}
+          <div style="font-size:11px; color:#94A3B8;">
+            ${data.savedTo === 'found' ? '💾 Saved to <b>Wallets Found</b> &amp; <b>Ever Held</b> vaults ✓ (transferable)'
+              : data.savedTo === 'ever-held' ? '💾 Saved to <b>Ever Held</b> vault ✓'
+              : '🚫 <b>Not saved to Wallets Found</b> — locked funds are reported, never recorded as recoverable'}
+          </div>
+        </div>`;
+    } else {
+      html = `
+        <div style="background:rgba(148,163,184,0.10); border:1px solid var(--border-hairline); border-radius:8px; padding:10px;">
+          <span style="font-size:11.5px; color:#94A3B8;">No live balance — nothing to transfer.${data.savedTo === 'ever-held' ? ' 💾 Saved to <b>Ever Held</b> vault ✓' : ''}</span>
+        </div>`;
+    }
+    transferEl.innerHTML = html;
+    return html;
+  }
+
   async function inspectSingleSeed() {
     const mnemonic = document.getElementById('CheckSeedBox').value;
     const badge = document.getElementById('InspectChecksumBadge');
@@ -5103,10 +5143,11 @@
     const funded = Number(w.balanceUsd || 0) > 0;
     badge.textContent = funded
       ? `💰 LIVE FUNDED ($${Number(w.balanceUsd).toLocaleString()})`
-      : (everHeld ? '📜 EVER HELD CRYPTO' : (data.isValid ? 'BIP39 VALID • LIVE 0 TX' : 'CHECKED • LIVE 0 TX'));
+      : (everHeld ? '📜 EVER HELD CRYPTO' : (data.isValid ? (w.keyType === 'hex' ? 'PRIVATE KEY VALID • LIVE 0 TX' : 'BIP39 VALID • LIVE 0 TX') : 'CHECKED • LIVE 0 TX'));
     badge.className = funded
       ? 'pill pill-emerald mono'
       : (everHeld ? 'pill pill-amber mono' : (data.isValid ? 'pill pill-cyan mono' : 'pill pill-amber mono'));
+    renderTransferVerdict(data, w);
 
     const bannerEl = document.getElementById('InspectorHistoryBanner');
     if (bannerEl) {
