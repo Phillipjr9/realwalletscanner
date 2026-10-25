@@ -54,3 +54,4 @@ WebWorkstation/desktop/build/node/
 
 tests/ui/node_modules/
 tests/ui/package-lock.json
+StateArchive/
