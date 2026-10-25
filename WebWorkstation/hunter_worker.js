@@ -404,8 +404,10 @@ function runKdfFamilySweep(round) {
     }
     for (const [label, priv] of variants) screenKdfPriv(priv, label, passDisplay, hits, stats);
   }
-  // Slow scrypt KDFs (warp/bwio/brainv2): one passphrase every 25 rounds
-  if (round % 25 === 0) {
+  // Slow scrypt KDFs (warp/bwio/brainv2): throttled + staggered per worker so four
+  // ~256MB scrypt derivations never run at the same time (Mac memory spikes used to
+  // stall the whole scan). Each worker takes its own slot every 240 rounds.
+  if (((round + workerId * 53) % 240) === 0) {
     const passBuf = kdfSlowList[kdfSlowCursor++ % kdfSlowList.length];
     const passDisplay = passBuf.toString('utf8');
     const saltBuf = Buffer.alloc(0);
