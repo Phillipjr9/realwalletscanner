@@ -193,6 +193,30 @@ checks.push(['9b keep-awake toggle   ', Boolean(d.getElementById('KeepAwakeChk')
   checks.push(['20 manual spendable saves',
     /TRANSFERABLE/.test(freeHtml) && /Saved to <b>Wallets Found/.test(freeHtml)]);
 
+  // 21: typo repair helper suggests one-edit BIP39 fixes (the new recovery engine mode)
+  checks.push(['21 typo repair helper',
+    typeof w.bip39EditFixes === 'function' &&
+    w.bip39EditFixes('aboot', ['about', 'abandon']).includes('about') &&
+    w.bip39EditFixes('abandno', ['abandon', 'zoo']).includes('abandon')]);
+
+  // 22: brainflayer-grade KDF families documented with real parameters
+  checks.push(['22 kdf families armed',
+    /scrypt/.test(w.explainKdfFamily('warpwallet')) &&
+    /262144/.test(w.explainKdfFamily('warpwallet')) &&
+    /keccak/.test(w.explainKdfFamily('camp2')) &&
+    /2031/.test(w.explainKdfFamily('camp2')) &&
+    /sha256/.test(w.explainKdfFamily('brainwallet.io'))]);
+
+  // 23: funded-dump coverage report renders chains + totals (audit GAP 3)
+  const dumpHtml = w.renderFundedDumpReport({
+    totalImported: 15,
+    byChain: { BTC: 12, ETH_EVM: 3 },
+    deadWeight: 0,
+    falsePositiveRate: '0.001%'
+  });
+  checks.push(['23 dump coverage report',
+    /BTC/.test(dumpHtml) && /15/.test(dumpHtml) && /12/.test(dumpHtml) && /false-positive/i.test(dumpHtml)]);
+
   console.log(checks.map(([n, v]) => n + ': ' + v).join('\n'));
   const failed = checks.filter(([, v]) => !v).length;
   console.log(failed === 0 ? 'ALL PASS' : 'FAILED: ' + failed);

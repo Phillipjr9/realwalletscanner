@@ -221,6 +221,140 @@ function runMissingWordsSolver() {
   });
 }
 
+function editDistance1Candidates(word) {
+  const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+  const w = String(word || '').toLowerCase();
+  const out = new Set();
+  const has = (x) => eng.WORD_TO_INDEX.has(x);
+  // deletions
+  for (let i = 0; i < w.length; i++) {
+    const t = w.slice(0, i) + w.slice(i + 1);
+    if (has(t)) out.add(t);
+  }
+  // adjacent transpositions
+  for (let i = 0; i + 1 < w.length; i++) {
+    const a = w.split('');
+    [a[i], a[i + 1]] = [a[i + 1], a[i]];
+    const t = a.join('');
+    if (has(t)) out.add(t);
+  }
+  // substitutions
+  for (let i = 0; i < w.length; i++) {
+    for (const c of LETTERS) {
+      const t = w.slice(0, i) + c + w.slice(i + 1);
+      if (has(t)) out.add(t);
+    }
+  }
+  // insertions
+  for (let i = 0; i <= w.length; i++) {
+    for (const c of LETTERS) {
+      const t = w.slice(0, i) + c + w.slice(i);
+      if (has(t)) out.add(t);
+    }
+  }
+  out.delete(w);
+  return Array.from(out);
+}
+
+function runTypoFixSolver() {
+  const rawTokens = String(job.pattern || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (rawTokens.length !== 12 && rawTokens.length !== 24) {
+    parentPort.postMessage({ type: 'error', error: `Expected 12 or 24 tokens (mistyped words allowed), got ${rawTokens.length}` });
+    return;
+  }
+  const targetSet = buildTargetSet(job.targets);
+  const passphrase = String(job.passphrase || '');
+  const idxArr = new Int32Array(rawTokens.length);
+  const suspect = []; // { pos, candidates[] }
+  let comboCount = 1;
+
+  for (let i = 0; i < rawTokens.length; i++) {
+    const tok = rawTokens[i];
+    const wIdx = eng.WORD_TO_INDEX.get(tok);
+    if (wIdx !== undefined) {
+      idxArr[i] = wIdx;
+    } else {
+      const candidates = editDistance1Candidates(tok);
+      if (candidates.length === 0) {
+        parentPort.postMessage({ type: 'error', error: `Word #${i + 1} ("${tok}") is not a BIP39 word and has no one-edit fix` });
+        return;
+      }
+      suspect.push({ pos: i, candidates });
+      comboCount *= candidates.length;
+    }
+  }
+
+  if (suspect.length === 0) {
+    parentPort.postMessage({ type: 'error', error: 'All words are valid BIP39 words - nothing to fix. Use the missing-word solver for ? positions.' });
+    return;
+  }
+  if (suspect.length > 2 || comboCount > 250000) {
+    parentPort.postMessage({ type: 'error', error: `Typo solver supports up to 2 mistyped words (and <= 250k fix combos); this input needs ${comboCount} combos across ${suspect.length} words` });
+    return;
+  }
+
+  const is12 = rawTokens.length === 12;
+  const checkFn = is12 ? isValid12WordIndices : isValid24WordIndices;
+  let checkedCombos = 0;
+  let validChecksums = 0;
+  const foundCandidates = [];
+  let lastReport = Date.now();
+
+  const reportProgress = (force = false) => {
+    const now = Date.now();
+    if (force || now - lastReport >= 250) {
+      lastReport = now;
+      parentPort.postMessage({ type: 'progress', workerIndex, checkedCombos, validChecksums });
+    }
+  };
+
+  // Cartesian product of fix candidates, partitioned across workers on the flat index
+  const product = [];
+  const sizes = suspect.map(x => x.candidates.length);
+  const walk = (depth, acc) => {
+    if (product.length >= 300000) return;
+    if (depth === suspect.length) { product.push(acc.slice()); return; }
+    for (let c = 0; c < sizes[depth]; c++) walk(depth + 1, [...acc, c]);
+  };
+  walk(0, []);
+
+  for (let ci = workerIndex; ci < product.length; ci += totalWorkers) {
+    const combo = product[ci];
+    for (let k = 0; k < suspect.length; k++) {
+      const sp = suspect[k];
+      idxArr[sp.pos] = eng.WORD_TO_INDEX.get(sp.candidates[combo[k]]);
+    }
+    checkedCombos++;
+    if (checkFn(idxArr)) {
+      validChecksums++;
+      const mnem = Array.from(idxArr, k => eng.WORDLIST[k]).join(' ');
+      const wallet = eng.deriveWalletFromMnemonic(mnem, passphrase, true);
+      if (targetSet.size > 0) {
+        const hit = matchesTargetSet(wallet, targetSet);
+        if (hit) {
+          parentPort.postMessage({ type: 'hit', workerIndex, mnemonic: mnem, passphrase, wallet, ...hit });
+          reportProgress(true);
+          return;
+        }
+      } else if (foundCandidates.length < 25) {
+        foundCandidates.push({ mnemonic: mnem, wallet });
+      }
+    }
+    if ((ci % 64) === 0) reportProgress();
+  }
+
+  reportProgress(true);
+  parentPort.postMessage({
+    type: 'done', workerIndex, checkedCombos, validChecksums,
+    candidates: foundCandidates,
+    fixes: suspect.map((sp, i) => ({
+      position: sp.pos + 1,
+      typed: rawTokens[sp.pos],
+      tried: sp.candidates.length
+    }))
+  });
+}
+
 function runPassphrase25thSolver() {
   const mnem = String(job.mnemonic || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const candidates = Array.isArray(job.passwords) ? job.passwords : [];
@@ -463,7 +597,9 @@ function runKeystoreVaultSolver() {
 }
 
 try {
-  if (job.mode === 'missing_words') {
+  if (job.mode === 'fix_typos') {
+    runTypoFixSolver();
+  } else if (job.mode === 'missing_words') {
     runMissingWordsSolver();
   } else if (job.mode === 'passphrase_25th') {
     runPassphrase25thSolver();

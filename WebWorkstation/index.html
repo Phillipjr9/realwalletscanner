@@ -1281,7 +1281,7 @@
       <div>
         <div class="nav-group-label">Advanced Suite</div>
         <div class="nav-list">
-          <button class="tab-btn" data-tab="ForensicPro" data-title="Multi-Core Forensic Recovery Engine" data-sub="Missing words, 25th-word passphrases, scrambled grids and keystore vaults" onclick="switchTab('ForensicPro')">
+          <button class="tab-btn" data-tab="ForensicPro" data-title="Multi-Core Forensic Recovery Engine" data-sub="Missing words, mistyped words, 25th-word passphrases, scrambled grids and keystore vaults" onclick="switchTab('ForensicPro')">
             <span class="tab-btn-left">
               <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
               <span>Forensic Pro Suite</span>
@@ -1930,14 +1930,16 @@
               <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:5px;">Forensic Recovery Mode</label>
               <select id="ForensicModeSelect" class="input-box" style="width:100%;" onchange="onForensicModeChanged()">
                 <option value="missing_words">1. Missing 1–3 BIP39 Words (? Wildcard + SHA256 Pre-Filter)</option>
-                <option value="passphrase_25th">2. BIP39 25th-Word Passphrase + Human Mutation Cracker</option>
-                <option value="scrambled_words">3. Scrambled 12/24-Word Paper Grid &amp; Permutation Solver</option>
-                <option value="keystore_vault">4. Ethereum Keystore V3 (scrypt/pbkdf2) &amp; MetaMask Vault Cracker</option>
+                <option value="fix_typos">2. Mistyped-Word Repair (Edit-Distance Fixes + BIP39 Checksum)</option>
+                <option value="passphrase_25th">3. BIP39 25th-Word Passphrase + Human Mutation Cracker</option>
+                <option value="scrambled_words">4. Scrambled 12/24-Word Paper Grid &amp; Permutation Solver</option>
+                <option value="keystore_vault">5. Ethereum Keystore V3 (scrypt/pbkdf2) &amp; MetaMask Vault Cracker</option>
               </select>
             </div>
 
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
               <button class="btn" style="font-size:10.5px; height:24px;" onclick="loadForensicDemo('missing_words')">Demo: 2 Missing Words</button>
+              <button class="btn" style="font-size:10.5px; height:24px;" onclick="loadForensicDemo('fix_typos')">Demo: Fix Typos</button>
               <button class="btn" style="font-size:10.5px; height:24px;" onclick="loadForensicDemo('passphrase_25th')">Demo: 25th Passphrase</button>
               <button class="btn" style="font-size:10.5px; height:24px;" onclick="loadForensicDemo('scrambled_words')">Demo: Scrambled Seed</button>
               <button class="btn" style="font-size:10.5px; height:24px;" onclick="loadForensicDemo('keystore_vault')">Demo: Wiki Keystore V3</button>
@@ -2158,6 +2160,7 @@
       <div style="padding:16px 18px; overflow:auto;">
         <div id="DiagSummary" class="mono" style="font-size:11.5px; line-height:1.8; margin-bottom:12px;"></div>
         <div id="DiagIssues" style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;"></div>
+        <div id="BloomReportBox" style="margin-bottom:14px;"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
           <button class="btn btn-emerald" style="height:28px; font-size:11px;" onclick="runDiagnosticProbe()">🔌 Check connectivity</button>
           <button class="btn" style="height:28px; font-size:11px;" onclick="copyDiagnosticReport()">📋 Copy report</button>
@@ -4802,6 +4805,7 @@
   }
 
   function openDiagnostics() {
+    loadBloomReport();
     window.__diagModalOpen = true;
     openModal('diagnosticsModal');
     refreshDiagnostics(true);
@@ -5086,6 +5090,87 @@
     });
   }
 
+  function bip39EditFixes(word, wordlist) {
+    const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+    const w = String(word || '').toLowerCase();
+    const set = new Set(wordlist || []);
+    const out = new Set();
+    const has = (x) => set.has(x);
+    for (let i = 0; i < w.length; i++) {
+      const t = w.slice(0, i) + w.slice(i + 1);
+      if (has(t)) out.add(t);
+    }
+    for (let i = 0; i + 1 < w.length; i++) {
+      const a = w.split('');
+      [a[i], a[i + 1]] = [a[i + 1], a[i]];
+      const t = a.join('');
+      if (has(t)) out.add(t);
+    }
+    for (let i = 0; i < w.length; i++) {
+      for (const c of LETTERS) {
+        const t = w.slice(0, i) + c + w.slice(i + 1);
+        if (has(t)) out.add(t);
+        const t2 = w.slice(0, i) + c + w.slice(i);
+        if (has(t2)) out.add(t2);
+      }
+    }
+    out.delete(w);
+    return Array.from(out);
+  }
+
+  function explainKdfFamily(name) {
+    const map = {
+      warpwallet: 'scrypt N=262144 r=8 p=1 over (passphrase+0x01) XOR pbkdf2-hmac-sha256 65536 iters over (passphrase+0x02)',
+      'brainwallet.io': 'sha256( hex( scrypt N=262144 r=8 p=1 ) )',
+      brainv2: '3-stage scrypt (16384/65536) then sha256(hex16)',
+      keccak256: 'keccak256(passphrase) raw private key',
+      camp2: 'keccak256 iterated 2031 times (ether.camp)',
+      'sha3-256': 'NIST SHA3-256(passphrase)',
+      rushwallet: 'sha256( hex( sha256(passphrase) ) )',
+      timestamp: 'unix-time private keys and sha256(time) candidates',
+      smallint: 'sequential integer private keys 1..N, range-bounded'
+    };
+    return map[name] || '';
+  }
+
+  function renderFundedDumpReport(data) {
+    const byChain = (data && data.byChain) || {};
+    const rows = Object.entries(byChain)
+      .filter(([, n]) => n > 0)
+      .map(([ch, n]) => `<span class="pill pill-cyan mono" style="margin:2px;">${escHtml(String(ch))}: ${n}</span>`)
+      .join('') || '<span style="color:#94A3B8;">no addresses imported</span>';
+    return `
+      <div style="background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.3); border-radius:8px; padding:10px;">
+        <div style="font-size:12px; font-weight:700; color:#7DD3FC; margin-bottom:6px;">
+          Funded-Dump Coverage: ${data && data.totalImported ? data.totalImported : 0} target addresses
+          ${data && data.deadWeight ? ` — ⚠️ ${data.deadWeight} DEAD-WEIGHT (not screened by any active chain)` : ''}
+        </div>
+        <div>${rows}</div>
+        <div style="font-size:10px; color:#94A3B8; margin-top:4px;">
+          Bloom false-positive estimate: ${data && data.falsePositiveRate ? escHtml(String(data.falsePositiveRate)) : 'n/a'} ·
+          import more via /api/bloom-import (txt / csv / json)
+        </div>
+      </div>`;
+  }
+
+  async function loadBloomReport() {
+    const box = document.getElementById('BloomReportBox');
+    if (!box) return;
+    try {
+      const r = await fetch('/api/bloom-report').then(x => x.json());
+      box.innerHTML = renderFundedDumpReport(r);
+    } catch (e) {
+      box.innerHTML = `<span style="color:#F87171;">Report failed: ${escHtml(e.message)}</span>`;
+    }
+  }
+
+  let _bip39WordlistCache = null;
+  async function getBip39Wordlist() {
+    if (_bip39WordlistCache) return _bip39WordlistCache;
+    _bip39WordlistCache = await fetch('/api/bip39-wordlist').then(x => x.json()).then(j => j.words || []);
+    return _bip39WordlistCache;
+  }
+
   function renderTransferVerdict(data, w) {
     const transferEl = document.getElementById('InspectorTransferBanner');
     if (!transferEl) return '';
@@ -5201,6 +5286,26 @@
         <div style="font-size:11.5px; color:${col}; word-break:break-all;">${val || '—'}</div>
       </div>
     `).join('');
+    try {
+      const rawWords = document.getElementById('CheckSeedBox').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (rawWords.length === 12 || rawWords.length === 24) {
+        const wl = await getBip39Wordlist();
+        const bad = rawWords.map((word, i) => ({ word, i })).filter(x => !wl.includes(x.word));
+        if (bad.length && bad.length <= 2) {
+          const hints = bad.map(x => {
+            const fixes = bip39EditFixes(x.word, wl);
+            return fixes.length
+              ? `<b>word #${x.i + 1}</b> "${escHtml(x.word)}" → ${fixes.slice(0, 4).map(f => `<b>${escHtml(f)}</b>`).join(', ')}`
+              : `<b>word #${x.i + 1}</b> "${escHtml(x.word)}" has no one-edit fix`;
+          }).join(' &nbsp;·&nbsp; ');
+          document.getElementById('InspectorContent').innerHTML += `
+            <div style="background:rgba(251,191,36,0.10); border:1px solid rgba(251,191,36,0.4); border-radius:8px; padding:10px; margin-top:8px;">
+              <div style="font-size:11.5px; color:#FCD34D;">✏️ Possible typos — did you mean: ${hints}</div>
+              <div style="font-size:10px; color:#94A3B8; margin-top:4px;">Run <b>ForensicPro → Mode 2 (Mistyped-Word Repair)</b> to solve the full phrase against your target addresses.</div>
+            </div>`;
+        }
+      }
+    } catch (_) { /* wordlist fetch unavailable - skip hint */ }
   }
 
   async function importTargetAddresses() {
@@ -5337,6 +5442,10 @@
     if (mode === 'missing_words') {
       document.getElementById('ForensicSeedInput').value = 'abandon ? abandon ? abandon abandon abandon abandon abandon abandon abandon about';
       document.getElementById('ForensicTargetsInput').value = '0x9858EfFD232B4033E47d90003D41EC34EcaEda94, TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH';
+      document.getElementById('ForensicHintsInput').value = '';
+    } else if (mode === 'fix_typos') {
+      document.getElementById('ForensicSeedInput').value = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon aboot';
+      document.getElementById('ForensicTargetsInput').value = '';
       document.getElementById('ForensicHintsInput').value = '';
     } else if (mode === 'passphrase_25th') {
       document.getElementById('ForensicSeedInput').value = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';

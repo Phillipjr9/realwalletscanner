@@ -2368,7 +2368,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.7.3';
+const APP_VERSION = '2.8.0';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -5288,7 +5288,10 @@ function startForensicRecoveryPool(payload) {
   }
 
   let totalExpected = 0;
-  if (mode === 'missing_words') {
+  if (mode === 'fix_typos') {
+    const toks = String(payload.pattern || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    totalExpected = Math.max(1, toks.length * 25); // rough upper hint; solver reports exact
+  } else if (mode === 'missing_words') {
     const qCount = (String(payload.pattern || '').match(/[?*_]/g) || []).length;
     totalExpected = Math.pow(2048, Math.max(1, Math.min(3, qCount)));
   } else if (mode === 'passphrase_25th' || mode === 'keystore_vault') {
@@ -6689,6 +6692,46 @@ const server = http.createServer((req, res) => {
 
     req.pipe(gunzip).pipe(sink);
     return;
+  }
+
+  if (url.pathname === '/api/bip39-wordlist' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true, words: eng.WORDLIST }));
+  }
+
+  if (url.pathname === '/api/bloom-report' && req.method === 'GET') {
+    // Funded-dump chain coverage report (audit GAP 3): what the dump contains,
+    // which chains are actually screened, and how much is dead weight.
+    const VERIFIED_CHAINS = ['BTC', 'ETH_EVM', 'TRX', 'XRP', 'LTC', 'DOGE', 'SOL_OTHER'];
+    const byChain = fundedBloomMeta.byChain || {};
+    let verifiedCount = 0;
+    let deadWeight = 0;
+    for (const [ch, n] of Object.entries(byChain)) {
+      if (VERIFIED_CHAINS.includes(ch)) verifiedCount += n;
+      else deadWeight += n;
+    }
+    const dumpFiles = [];
+    for (const f of ['funded_addresses.json', 'funded_addresses_meta.json', 'funded_bloom_meta.json']) {
+      const fp = path.join(PERSISTENT_STATE_DIR, f);
+      try {
+        const st = fs.statSync(fp);
+        dumpFiles.push({ file: f, bytes: st.size, modifiedAt: st.mtime.toISOString() });
+      } catch (_) {}
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      ok: true,
+      totalImported: fundedBloomMeta.totalImported,
+      chunksImported: fundedBloomMeta.chunksImported,
+      lastImportedAt: fundedBloomMeta.lastImportedAt,
+      byChain,
+      verifiedCount,
+      deadWeight,
+      coveredChains: VERIFIED_CHAINS,
+      falsePositiveRate: fundedBloomFalsePositiveRate(),
+      bloomBits: FUNDED_BLOOM_TOTAL_BITS,
+      dumpFiles
+    }));
   }
 
   if (url.pathname === '/api/bloom-clear' && req.method === 'POST') {
