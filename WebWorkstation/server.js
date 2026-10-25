@@ -2368,7 +2368,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.8.2';
+const APP_VERSION = '2.8.3';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -7090,9 +7090,27 @@ if (deferredSignals.length > 0) {
   gracefulShutdown(deferredSignals[deferredSignals.length - 1]);
 }
 
+// Crash diary: written to disk the moment anything kills or derails the engine,
+// so "it stopped" always leaves a reason behind. Survives the process.
+function appendCrashDiary(line) {
+  try {
+    const file = path.join(DATA_DIR, 'crash.log');
+    fs.appendFileSync(file, `[${new Date().toISOString()}] ${line}\n`);
+  } catch (_) {}
+}
 process.on('uncaughtException', (err) => {
   console.error('[Uncaught Exception — workstation kept alive]', err && err.message);
+  appendCrashDiary(`uncaughtException: ${(err && err.stack) || err}`);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[Unhandled Rejection — workstation kept alive]', reason && reason.message ? reason.message : reason);
+  appendCrashDiary(`unhandledRejection: ${(reason && reason.stack) || reason}`);
 });
+process.on('exit', (code) => {
+  appendCrashDiary(`process exit, code ${code}`);
+});
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT']) {
+  process.on(sig, () => {
+    appendCrashDiary(`received ${sig} - shutting down`);
+  });
+}

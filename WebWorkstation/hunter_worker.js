@@ -388,8 +388,8 @@ function runKdfFamilySweep(round) {
   const hits = [];
   const stats = { checked: 0 };
   try {
-  // Fast hash-based KDFs: 2 passphrases per round across 5 variants (camp2 throttled - 2031 keccaks)
-  for (let i = 0; i < 2; i++) {
+  // Fast hash-based KDFs: 1 passphrase per round; camp2 (2031 keccaks) every 7th
+  for (let i = 0; i < 1; i++) {
     const passBuf = kdfFastList[kdfFastCursor++ % kdfFastList.length];
     const passDisplay = passBuf.toString('utf8');
     const variants = [
@@ -397,17 +397,18 @@ function runKdfFamilySweep(round) {
       ['sha3-256', crypto.createHash('sha3-256').update(passBuf).digest()],
       ['rushwallet', crypto.createHash('sha256').update(crypto.createHash('sha256').update(passBuf).digest('hex')).digest()]
     ];
-    if (((kdfFastCursor + i) % 5) === 0) {
+    if (((kdfFastCursor + i) % 7) === 0) {
       let h = eng.keccak256(passBuf);
       for (let r = 1; r < 2031; r++) h = eng.keccak256(h);
       variants.push(['camp2-2031', h]);
     }
     for (const [label, priv] of variants) screenKdfPriv(priv, label, passDisplay, hits, stats);
   }
-  // Slow scrypt KDFs (warp/bwio/brainv2): throttled + staggered per worker so four
-  // ~256MB scrypt derivations never run at the same time (Mac memory spikes used to
-  // stall the whole scan). Each worker takes its own slot every 240 rounds.
-  if (((round + workerId * 53) % 240) === 0) {
+  // Slow scrypt KDFs (warp/bwio/brainv2): OPT-IN via RWS_KDF_SLOW=1. Each scrypt
+  // derivation allocates ~256MB; on laptops that pressure could take the whole
+  // engine down with it. Coverage: 10 famous passphrases - enable only when the
+  // machine has RAM to spare. Staggered per worker when enabled.
+  if (process.env.RWS_KDF_SLOW === '1' && ((round + workerId * 53) % 240) === 0) {
     const passBuf = kdfSlowList[kdfSlowCursor++ % kdfSlowList.length];
     const passDisplay = passBuf.toString('utf8');
     const saltBuf = Buffer.alloc(0);
