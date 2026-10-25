@@ -1,5 +1,13 @@
 # Changelog — CodeHaven Workstation (RealWalletScanner)
 
+## 2.9.0-beta.2 — 2026-10-25 (BETA)
+
+- **Connectivity watcher**: when the internet comes back, the workstation heals
+  itself — parked live-checks are re-queued automatically, prices refresh, and
+  alerts retry. When the internet drops, the Self-Monitor says so plainly while
+  scanning continues 100% offline. New `POST /api/connectivity/refresh` forces
+  a check right now.
+
 ## 2.9.0-beta.1 — 2026-10-25 (BETA)
 
 First packaged beta. Everything below is built, tested (34/34 UI checks green)

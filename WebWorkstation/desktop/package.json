@@ -1,7 +1,7 @@
 {
   "name": "codehaven-workstation-desktop",
   "productName": "CodeHaven Workstation",
-  "version": "2.9.0-beta.1",
+  "version": "2.9.0-beta.2",
   "description": "Native desktop shell for the CodeHaven Quantum Wallet Recovery Workstation",
   "private": true,
   "main": "main.js",

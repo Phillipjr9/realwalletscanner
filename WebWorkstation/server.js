@@ -2387,7 +2387,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.9.0-beta.1';
+const APP_VERSION = '2.9.0-beta.2';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2858,6 +2858,7 @@ const DIAG_ADVICE = {
   'verify.neverran': 'Wait one minute; if it persists, restart the app and re-run the diagnostic.',
   'verify.backoff': 'The chains are not answering. Check the network, then add API keys to raise the rate limits.',
   'verify.parked': 'Nothing is lost. Press "Retry parked" once the network or keys are fixed.',
+  'network.offline': 'Normal without internet. Scanning continues; checks, prices and alerts resume automatically when the connection returns.',
   'verify.cap': 'Clear the queue if those leads are not worth verifying, or import a smaller dump.',
   'find.nofabric': 'Open the Bloom Importer and load your funded-address dump. Without it the scanner has nothing to match against and can never report a wallet.',
   'scan.stalled': 'The scan engine produced no new addresses for over 2 minutes. The workers restart themselves; if this keeps returning, the Mac is probably sleeping — enable keep-awake and check Energy Saver.',
@@ -3084,6 +3085,61 @@ function tronBase58ToHex(address) {
  * only check that proves the exact code path the scanner uses can reach a chain
  * from this machine. persist:false means nothing can enter a vault.
  */
+// ============================================================================
+// CONNECTIVITY WATCHER — network-dependent work heals itself when internet returns
+// ============================================================================
+function probeInternetLight() {
+  // Cheap pings (2 hosts, 4s each): any success = the link is back.
+  const targets = [
+    'https://api.coingecko.com/api/v3/ping',
+    'https://api.etherscan.io/api?module=stats&action=ethprice'
+  ];
+  return Promise.allSettled(targets.map(u => httpsJsonRequest(u, 'GET', null, 4000)))
+    .then(results => results.some(r => r.status === 'fulfilled'));
+}
+
+let connectivityOnline = null; // null = unknown, true/false = last probe
+let lastConnectivityRestoreAt = 0;
+
+async function onConnectivityRestored() {
+  if (Date.now() - lastConnectivityRestoreAt < 60000) return; // debounce link flapping
+  lastConnectivityRestoreAt = Date.now();
+  diagClear('network.offline');
+  diagClear('verify.stalled');
+  diagClear('verify.parked');
+  const parked = deferredVerificationLeads.length;
+  if (parked > 0) {
+    for (const lead of deferredVerificationLeads.splice(0, deferredVerificationLeads.length)) {
+      pendingVerificationSeen.delete(lead.key);
+      pendingVerificationLeads.push({ ...lead, attempts: 0 });
+    }
+    saveDeferredVerificationLeads();
+    savePendingVerificationLeads();
+  }
+  verificationBackoffMs = 0;
+  if (!verificationPaused) scheduleVerificationPump(200);
+  ensureLivePrices(true).catch(() => {});
+  console.log(`[connectivity] internet is back — auto-resumed: ${parked} parked check(s) re-queued, prices refreshing`);
+}
+
+function onConnectivityLost() {
+  diagRaise('network.offline', 'info', 'Internet is down — the hunt continues',
+    'Scanning is 100% local and keeps running right now. Live checks, prices and alerts resume automatically the moment the network returns — nothing needs to be pressed.');
+}
+
+async function checkConnectivityNow() {
+  const online = await probeInternetLight();
+  const was = connectivityOnline;
+  connectivityOnline = online;
+  if (online && was !== true) await onConnectivityRestored();
+  else if (!online && was !== false) onConnectivityLost();
+  return { online, was };
+}
+
+// Probe every 60s (first one after 8s). unref() so shutdown is never blocked.
+setInterval(() => { checkConnectivityNow().catch(() => {}); }, 60000).unref();
+setTimeout(() => { checkConnectivityNow().catch(() => {}); }, 8000).unref();
+
 async function runConnectivityProbe() {
   const before = new Map();
   for (const [label, e] of diagChainStats) before.set(label, { ok: e.ok, fail: e.fail });
@@ -5522,6 +5578,19 @@ const server = http.createServer((req, res) => {
     runConnectivityProbe()
       .then(result => { clearTimeout(guard); finish({ ok: true, probe: result, snapshot: diagSnapshot() }, 200); })
       .catch(err => { clearTimeout(guard); finish({ ok: false, error: err.message }, 500); });
+    return;
+  }
+
+  if (url.pathname === '/api/connectivity/refresh' && req.method === 'POST') {
+    checkConnectivityNow()
+      .then(r => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, ...r, deferred: deferredVerificationLeads.length, pending: pendingVerificationCount() }));
+      })
+      .catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      });
     return;
   }
 
