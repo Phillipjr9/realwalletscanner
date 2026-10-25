@@ -12,8 +12,9 @@
 #    - crash.log                   diagnostics
 #
 #  Usage:  bash scripts/reset-scan.sh
-#  Stop the scanner / quit the app first — this script refuses to run while
-#  the scanner is listening on its port.
+#  One command is enough: it politely stops a running scanner (the desktop
+#  app, the start-sturdy restart loop, and anything on the scan port), then
+#  does the reset.
 # ============================================================================
 set -u
 
@@ -21,6 +22,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORK_DIR="${CODEHAVEN_DATA_DIR:-$REPO_DIR/WebWorkstation}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ARCHIVE_DIR="$REPO_DIR/StateArchive/$STAMP"
+SCAN_PORT="${CODEHAVEN_PORT:-2525}"
 
 echo "=========================================================="
 echo "  CodeHaven — full scan reset"
@@ -28,14 +30,50 @@ echo "=========================================================="
 echo "Scanner folder: $WORK_DIR"
 echo
 
-# ---- 1. refuse to run while the scanner is up -------------------------------
-if command -v lsof >/dev/null 2>&1; then
-  if lsof -ti TCP:2525 -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "❌ The scanner is still running (port 2525 is open)."
-    echo "   Quit the CodeHaven app (tray icon → Quit) or press Ctrl+C in the"
-    echo "   Terminal window running start-sturdy, then run this again."
+# ---- 1. stop the scanner politely (so the reset is safe) --------------------
+port_pids() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti "TCP:$SCAN_PORT" -sTCP:LISTEN 2>/dev/null || true
+  elif command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null | awk "/:$SCAN_PORT /" | grep -oP 'pid=\K[0-9]+' | sort -u || true
+  fi
+}
+
+if [ -n "$(port_pids)" ]; then
+  echo "Stopping the running scanner first…"
+  # (a) quit the desktop app if it's open (macOS)
+  if [ "$(uname)" = "Darwin" ] && command -v osascript >/dev/null 2>&1; then
+    osascript -e 'quit application "CodeHaven Workstation"' >/dev/null 2>&1 && \
+      echo "  ↪ quit the CodeHaven app" && sleep 2
+  fi
+  # (b) stop the start-sturdy restart loop BEFORE the server (it would restart it)
+  if command -v pgrep >/dev/null 2>&1; then
+    for pid in $(pgrep -f 'start-sturdy\.command$' 2>/dev/null); do
+      [ "$pid" != "$$" ] && kill "$pid" 2>/dev/null && echo "  ↪ stopped the restart loop (pid $pid)"
+    done
+    sleep 1
+  fi
+  # (c) stop whatever is listening on the scan port (SIGTERM, then SIGKILL)
+  for _try in 1 2 3 4 5; do
+    pids="$(port_pids)"
+    [ -z "$pids" ] && break
+    for pid in $pids; do
+      kill "$pid" 2>/dev/null && echo "  ↪ stopping scanner (pid $pid)…"
+    done
+    sleep 2
+  done
+  for pid in $(port_pids); do
+    kill -9 "$pid" 2>/dev/null && echo "  ↪ force-stopped scanner (pid $pid)"
+  done
+  sleep 1
+  if [ -n "$(port_pids)" ]; then
+    echo "❌ Could not stop the scanner (port $SCAN_PORT is still open)."
+    echo "   Quit the CodeHaven app by hand (tray icon → Quit), or press Ctrl+C"
+    echo "   in the Terminal window running start-sturdy, then run this again."
     exit 1
   fi
+  echo "Scanner stopped. Continuing with the reset…"
+  echo
 fi
 
 # ---- 2. archive (move, never destroy) --------------------------------------
