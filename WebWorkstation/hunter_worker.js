@@ -156,6 +156,10 @@ const sessionFastOffset = entropySeedBuf.readUInt32LE(4);
 let localCounter = (workerId + 1) * 10000000 + (sessionEntropyOffset % 9000000);
 let fastKeyCounter = (workerId + 1) * 50000000 + (sessionFastOffset % 40000000);
 let paused = false;
+// Small-integer raw-key sweep (finite family): worker w owns keys n ≡ w+1 (mod workerCount).
+const workerCount = Math.max(1, Number((workerData && workerData.workerCount)) || 4);
+let smallIntNext = (Number(workerData && workerData.smallIntCursor) || 0) + workerId + 1;
+const smallIntStep = workerCount;
 
 if (parentPort) {
   parentPort.on('message', msg => {
@@ -233,6 +237,48 @@ function runUltraFastHardwareBurst(burstCount = 32) {
     }
   }
   return { screenedWallets, burstHits };
+}
+
+/**
+ * Finite Family: Raw Small-Integer Private Keys (1..N as secp256k1 scalars).
+ * The oldest weak-key checklist in the recovery world — countable, cheap and
+ * reportable as a milestone ("small-int sweep through key N"). Partitioned
+ * across workers; the server persists the shared frontier in the checkpoint.
+ */
+function runSmallIntSweep(count = 24) {
+  const hits = [];
+  let checked = 0;
+  for (let i = 0; i < count; i++) {
+    const n = smallIntNext;
+    smallIntNext += smallIntStep;
+    const privKey = Buffer.from(BigInt(n).toString(16).padStart(64, '0'), 'hex');
+    const privHex = privKey.toString('hex');
+    if (!tryClaimUniqueCandidate(privHex, 'pk:')) continue;
+    const fast = eng.deriveUltraFastScreener(privKey);
+    checked++;
+    if (
+      isTargetOrFundedHit(fast.btcLegacy) ||
+      isTargetOrFundedHit(fast.btcLegacyUncompressed) ||
+      isTargetOrFundedHit(fast.btcNestedSegwit) ||
+      isTargetOrFundedHit(fast.btcSegwit) ||
+      isTargetOrFundedHit(fast.ethAddressLower) ||
+      isTargetOrFundedHit(fast.trxAddress)
+    ) {
+      const fullAddrs = eng.deriveAddressesFromPrivKey(privKey, true);
+      hits.push({
+        source: `Worker #${workerId + 1} • Small-Int Sweep #${n}`,
+        vectorKey: 'smallint',
+        feedType: 'Private',
+        phraseType: `Raw Integer Key ${n}`,
+        input: `0x${privHex}`,
+        brainArm: 'SmallIntSweep',
+        priorityHit: true,
+        smallIntKeyNumber: n,
+        ...fullAddrs
+      });
+    }
+  }
+  return { checked, hits };
 }
 
 function generateWorkerCandidate() {
@@ -427,6 +473,9 @@ function workerLoop() {
   try {
     if (!paused && parentPort) {
     const { screenedWallets, burstHits } = runUltraFastHardwareBurst(32);
+    const smallInt = runSmallIntSweep(24);
+    if (smallInt.hits.length) burstHits.push(...smallInt.hits);
+    const screenedTotal = screenedWallets + smallInt.checked;
 
     const batch = [];
     let attempts = 0;
@@ -443,15 +492,17 @@ function workerLoop() {
       }
     }
 
-    if (batch.length > 0 || burstHits.length > 0 || screenedWallets > 0) {
+    if (batch.length > 0 || burstHits.length > 0 || screenedTotal > 0) {
       parentPort.postMessage({
         type: 'batch',
         workerId,
         items: batch,
         burstHits,
-        screenedWallets,
-        scannedCount: screenedWallets + batch.length,
-        addressesChecked: (screenedWallets * 5) + (batch.length * 14)
+        screenedWallets: screenedTotal,
+        scannedCount: screenedTotal + batch.length,
+        addressesChecked: (screenedTotal * 5) + (batch.length * 14),
+        smallIntNext,
+        smallIntChecked: smallInt.checked
       });
     }
     }

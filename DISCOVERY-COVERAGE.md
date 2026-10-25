@@ -41,16 +41,16 @@ TRX, XRP (10 chains).
 
 ## Gaps found (priority order)
 
-### GAP 1 — raw small-integer private keys (the oldest finite family) — MISSING
-`private key = 1, 2, 3, … N` as raw secp256k1 scalars. Every recovery hunter
-checks these first; they are trivially cheap (no BIP39 work) and **finite**.
-Add a dedicated family sweeping 1…N (multi-chain derive per key), reported as
-"small-int keys through N" so progress is a visible milestone.
+### GAP 1 — raw small-integer private keys — ✅ DONE (v2.7.2)
+Shipped in v2.7.2: `runSmallIntSweep` in every hunter worker (24 keys/round,
+partitioned n ≡ w+1 mod workerCount), 6 fast address formats per key with full
+derive on bloom hit, frontier persisted in scan_checkpoint.json so restarts
+never repeat the sweep, and a live "through key N" line in the FIND FUNNEL.
 
-### GAP 2 — family-level yield stats — MISSING
-The FIND FUNNEL aggregates everything. Per-`vectorKey` lead/verdict/confirm
-counters would show which family actually pays (and let us re-weight the
-uniform 1/6 worker rotation toward proven families).
+### GAP 2 — family-level yield stats — ✅ DONE (v2.7.2)
+Shipped in v2.7.2: `familyStats` per vectorKey (leads / empty / funded /
+ever-held) tracked at enqueue and verdict time, rendered as a by-family table
+in the FIND FUNNEL report. Use it to re-weight the worker rotation.
 
 ### GAP 3 — dump/derived-chain mismatch check — MISSING
 Nothing verifies that the funded dump's chain coverage matches the derived
@@ -67,7 +67,7 @@ brainwallet phrases ("correct horse battery staple", "Satoshi Nakamoto",
 
 ## Recommended order of work
 
-1. GAP 1 (small-int family) + GAP 5 (famous phrases) — both finite checklists
+1. GAP 5 (famous phrases) — finite checklist, the last easy win
 2. GAP 2 (per-family funnel) — makes every later decision evidence-based
 3. GAP 3 (fabric chain report) — kills wasted derivation early
 4. GAP 4 (task 17) — unlocks LTC/SOL/DOGE confirmation

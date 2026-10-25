@@ -1,6 +1,6 @@
 {
   "name": "codehaven-workstation",
-  "version": "2.7.1",
+  "version": "2.7.2",
   "description": "CodeHaven Quantum Wallet Recovery Workstation \u2014 local scanner + live UI",
   "main": "server.js",
   "scripts": {
