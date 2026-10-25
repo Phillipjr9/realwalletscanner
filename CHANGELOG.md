@@ -1,5 +1,33 @@
 # Changelog — CodeHaven Workstation (RealWalletScanner)
 
+## 2.9.0-beta.6 — 2026-10-25 (BETA)
+
+**Verdict correctness: a partially-checked wallet can no longer be buried as
+"empty"** — plus BTC provider overhaul and the Telegram 409 fix.
+
+The beta.5 diagnostics exposed a dangerous leak: an item was finalized
+"verified" as soon as ONE chain answered. With BTC failing 51% of requests
+(HTTP 429), a wallet whose BTC check failed but whose EVM checks returned
+zero was marked **confirmed empty and permanently excluded** — even if it
+held BTC. For a wallet scanner that is the one unforgivable bug.
+
+- **Asked-vs-answered gate:** every chain check an item receives marks it
+  "asked"; the verdict is only finalized when EVERY asked chain has replied.
+  Partially-answered items are requeued automatically — and a partial retry
+  never burns an attempt (no more parking real hits because a public endpoint
+  sneezed).
+- **BTC providers rebuilt:** BlockCypher joins the rotation
+  (blockchain.info → blockcypher → mempool.space → blockstream.info),
+  cooldowns grow to 8 minutes, payloads must cover EVERY requested address or
+  the call is treated as a failure (no more half-answered batches), and the
+  per-address esplora fallback only serves small batches in parallel — a big
+  batch defers instead of crawling and starving the verify pump.
+- **Telegram HTTP 409 ("webhook is active")** — the app now calls
+  `deleteWebhook` automatically (Telegram's documented fix) and resumes
+  polling. Re-saving the bot token was never going to fix this one.
+
+No re-import needed: the bloom keeps its 256 MB / 0.012% size.
+
 ## 2.9.0-beta.5 — 2026-10-25 (BETA)
 
 **Auto-sized bloom filter (11% → ~0.01% false positives) + BTC rate-limit rescue.**

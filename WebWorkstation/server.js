@@ -384,6 +384,7 @@ let bloomGzipImport = { running: false, bytesIn: 0, linesParsed: 0, added: 0, st
    cools down exponentially instead of being hammered. */
 const btcBalanceProviders = [
   { id: 'blockchain.info', kind: 'multi' },
+  { id: 'blockcypher.com', kind: 'blockcypher' },
   { id: 'mempool.space', kind: 'esplora' },
   { id: 'blockstream.info', kind: 'esplora' }
 ];
@@ -401,43 +402,63 @@ function btcProviderPick() {
 function btcProviderPenalize(p) {
   const st = btcProviderStatus(p.id);
   st.strikes = Math.min(6, st.strikes + 1);
-  st.cooldownUntil = Date.now() + Math.min(120000, 5000 * Math.pow(2, st.strikes - 1));
+  st.cooldownUntil = Date.now() + Math.min(480000, 30000 * Math.pow(2, st.strikes - 1));
 }
 function btcProviderReward(p) {
   btcProviderStatus(p.id).strikes = 0;
 }
 
 /** Batch BTC balance lookup with provider rotation. Resolves to rows shaped
- *  like blockchain.info multiaddr ({address, final_balance, total_received, n_tx}). */
+ *  like blockchain.info multiaddr ({address, final_balance, total_received, n_tx}).
+ *  ONLY complete results are returned: a provider that cannot cover every
+ *  requested address throws, so unchecked addresses are retried later and can
+ *  never be silently finalized as empty. */
 async function btcFetchBalances(addrs) {
   const p = btcProviderPick();
   try {
     if (p.kind === 'multi') {
       const data = await httpsJsonRequest(`https://blockchain.info/multiaddr?active=${encodeURIComponent(addrs.join('|'))}&n=0`, 'GET', null, 1800);
-      if (!data || !Array.isArray(data.addresses) || data.addresses.length === 0) throw new Error('empty multiaddr payload');
+      if (!data || !Array.isArray(data.addresses) || data.addresses.length < addrs.length) throw new Error('incomplete multiaddr payload');
       btcProviderReward(p);
       return data.addresses;
     }
-    // esplora fallbacks: per-address, capped per call so one batch cannot stall the pump
-    const rows = [];
-    for (const a of addrs.slice(0, 25)) {
+    if (p.kind === 'blockcypher') {
+      const data = await httpsJsonRequest(`https://api.blockcypher.com/v1/btc/main/addrs/${encodeURIComponent(addrs.join(';'))}/balance`, 'GET', null, 1800);
+      const raw = Array.isArray(data) ? data
+        : (data && Array.isArray(data.addresses) ? data.addresses
+        : (data && data.address ? [data] : null));
+      if (!raw || raw.length < addrs.length) throw new Error('incomplete blockcypher payload');
+      btcProviderReward(p);
+      return raw.map(r => ({
+        address: r.address,
+        final_balance: Number(r.balance != null ? r.balance : (r.final_balance || 0)),
+        total_received: Number(r.total_received || 0),
+        n_tx: Number(r.n_tx || 0)
+      }));
+    }
+    // esplora fallbacks are per-address: only for small batches, checked in
+    // parallel. A big batch must DEFER (throw) rather than crawl at 25
+    // sequential requests — a crawl starves the whole verify pump.
+    if (addrs.length > 12) throw new Error('deferred: only per-address providers free and batch too large');
+    const rows = await Promise.all(addrs.map(async (a) => {
       const d = await httpsJsonRequest(`https://${p.id}/api/address/${encodeURIComponent(a)}`, 'GET', null, 1800);
       const chain = (d && d.chain_stats) || {};
       const mem = (d && d.mempool_stats) || {};
       const funded = Number(chain.funded_txo_sum || 0) + Number(mem.funded_txo_sum || 0);
       const spent = Number(chain.spent_txo_sum || 0) + Number(mem.spent_txo_sum || 0);
-      rows.push({
+      return {
         address: a,
         final_balance: Math.max(0, funded - spent),
         total_received: Number(chain.funded_txo_sum || 0),
         n_tx: Number(chain.tx_count || 0)
-      });
-    }
-    if (rows.length === 0) throw new Error('esplora returned no rows');
+      };
+    }));
+    if (rows.length < addrs.length) throw new Error('incomplete esplora payload');
     btcProviderReward(p);
     return rows;
   } catch (e) {
-    btcProviderPenalize(p);
+    // "deferred" is our own pacing decision, not the provider failing.
+    if (!String(e && e.message || '').startsWith('deferred:')) btcProviderPenalize(p);
     throw e;
   }
 }
@@ -2120,7 +2141,7 @@ async function runVerificationPump() {
     }
 
     const answeredCount = (outcome && Number(outcome.answered)) || 0;
-    const hostReachable = answeredCount > 0;
+    const hostReachable = batch.some(it => Number(it.rpcChainsAnswered || 0) > 0);
 
     let confirmedNow = 0;
     for (const it of batch) {
@@ -2152,9 +2173,14 @@ async function runVerificationPump() {
         bumpFamily(it.vectorKey, 'unanswered');
         pendingVerificationSeen.delete(key);
         const previousAttempts = Number(it.attempts || 0);
+        // A PARTIAL answer (some chains replied, others failed — typically BTC
+        // 429s) is not this lead's fault either: its unchecked chains may still
+        // hold funds, so it must come back without burning an attempt.
+        const itAnswered = Number(it.rpcChainsAnswered || 0);
+        const itPartial = itAnswered > 0 && itAnswered < Number(it.rpcChainsAsked || 0);
         // If no chain answered for the *whole batch*, the network is down or
         // throttled — that is not this lead's fault, so do not burn an attempt.
-        requeueLead(snapshotPendingLead(it), hostReachable ? previousAttempts + 1 : previousAttempts);
+        requeueLead(snapshotPendingLead(it), (hostReachable && !itPartial) ? previousAttempts + 1 : previousAttempts);
       }
     }
 
@@ -2480,7 +2506,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.9.0-beta.5';
+const APP_VERSION = '2.9.0-beta.6';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -3591,6 +3617,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
   // balances can never be double-counted or inherited from a Bloom lead.
   for (const it of items) {
     it.rpcChainsAnswered = 0;
+    it.rpcChainsAsked = 0;
     if (it.verification !== 'confirmed') {
       it.balanceUsd = 0;
       it.balances = {};
@@ -3618,13 +3645,19 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       }
       const allBtc = Array.from(btcMap.keys()).slice(0, 100);
       if (allBtc.length > 0) {
+        // Only items whose addresses actually made it into the request were
+        // "asked" — anything else must be retried, never finalized.
+        const coveredBtcAddrs = new Set(allBtc);
+        const btcItemsCovered = new Set();
+        for (const [a, it] of btcMap) if (coveredBtcAddrs.has(a)) btcItemsCovered.add(it);
+        for (const it of btcItemsCovered) it.rpcChainsAsked = (it.rpcChainsAsked || 0) + 1;
         tasks.push(
           diagTrackTask('BTC', btcFetchBalances(allBtc))
             .then(rows => {
               liveRpcRequestsSent++;
               liveRpcAddressesChecked += allBtc.length;
               if (Array.isArray(rows) && rows.length > 0) {
-                for (const it of btcMap.values()) it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
+                for (const it of btcItemsCovered) it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
                 for (const row of rows) {
                   const owner = btcMap.get(row.address);
                   if (!owner) continue;
@@ -3690,6 +3723,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         const alchemyUrl = alchemyRpcUrl(apiKeysConfig.alchemyApiKey);
         const rpcUrl = (chainFlag === 'ETH' && alchemyUrl) ? alchemyUrl : cfg.rpcs[0];
         const contractChecks = [];
+        for (const it of ethItems) it.rpcChainsAsked = (it.rpcChainsAsked || 0) + 1;
         tasks.push(
           diagTrackTask(chainFlag, httpsJsonRequest(rpcUrl, 'POST', {
             jsonrpc: '2.0',
@@ -3758,6 +3792,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
         const TRC20_USDT_HEX = '0xa614f803b6fd780986a42c78ec9c7f77e6ded13c';
         const trxBatch = [];
         const trxLockChecks = [];
+        for (const it of trxItems) it.rpcChainsAsked = (it.rpcChainsAsked || 0) + 1;
         trxItems.forEach((it, idx) => {
           trxBatch.push({ jsonrpc: '2.0', id: idx * 2 + 1, method: 'eth_getBalance', params: [it.trxHexAddress, 'latest'] });
           trxBatch.push({
@@ -3828,6 +3863,7 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
     if (chainSet.has('XRP')) {
       const xrpSample = items.filter(it => it.xrpAddress).slice(0, 6);
       for (const it of xrpSample) {
+        it.rpcChainsAsked = (it.rpcChainsAsked || 0) + 1;
         tasks.push(
           diagTrackTask('XRP', httpsJsonRequest('https://xrplcluster.com/', 'POST', {
             method: 'account_info',
@@ -3868,6 +3904,13 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       // No chain replied for this wallet → it stays "unverified". We must never
       // promote silence into a finding.
       if (Number(it.rpcChainsAnswered || 0) === 0) continue;
+      // A PARTIAL answer is not an answer: if any chain we asked failed (429,
+      // timeout, malformed payload), this wallet may still hold funds on that
+      // chain. Never finalize it as verified/empty — the caller requeues it
+      // until every chain it was checked on has actually replied. (Before this
+      // gate, a BTC 429 masked by an empty EVM answer buried real BTC hits as
+      // "confirmed empty" — the one unforgivable bug in a wallet scanner.)
+      if (Number(it.rpcChainsAnswered || 0) < Number(it.rpcChainsAsked || 0)) continue;
       answered++;
       it.liveVerified = true;
       it.verification = 'confirmed';
@@ -5180,6 +5223,8 @@ async function handleTelegramCommand(message) {
   }
 }
 
+let tgWebhookCleared = false;
+
 async function telegramPollLoop() {
   while (telegramBotRuntime.running) {
     try {
@@ -5194,6 +5239,7 @@ async function telegramPollLoop() {
       telegramBotRuntime.lastError = null;
       telegramBotRuntime.lastOkAt = new Date().toISOString();
       if (wasErroring) console.log('[Telegram] bot reconnected');
+      tgWebhookCleared = false;
 
       if (Array.isArray(updates) && updates.length > 0) {
         for (const u of updates) {
@@ -5215,6 +5261,17 @@ async function telegramPollLoop() {
       }
     } catch (e) {
       if (!telegramBotRuntime.running) break;
+      // HTTP 409: some other tool (or an old setup) registered a webhook on
+      // this bot, and getUpdates can never work while a webhook is active.
+      // Telegram's own documented fix is deleteWebhook — do it automatically.
+      if (/409|webhook/i.test(String(e.message)) && !tgWebhookCleared) {
+        tgWebhookCleared = true;
+        try {
+          await telegramCall('deleteWebhook', { drop_pending_updates: false });
+          console.log('[Telegram] cleared a conflicting webhook — polling resumed');
+          continue;
+        } catch (_) {}
+      }
       telegramBotRuntime.consecutiveErrors++;
       telegramBotRuntime.lastError = e.message;
       const backoff = Math.min(5000 * Math.pow(2, Math.min(telegramBotRuntime.consecutiveErrors - 1, 4)), TELEGRAM_MAX_BACKOFF_MS);
