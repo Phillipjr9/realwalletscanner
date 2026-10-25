@@ -1,5 +1,25 @@
 # Changelog — CodeHaven Workstation (RealWalletScanner)
 
+## 2.9.0-beta.5 — 2026-10-25 (BETA)
+
+**Auto-sized bloom filter (11% → ~0.01% false positives) + BTC rate-limit rescue.**
+
+A 57.7M-address dump in the old FIXED 32 MB filter gave ~11% false positives —
+1 in 9 random wallets became a "lead" to verify. That flood filled the 50k
+backlog and hammered the free BTC endpoint into 86% rate-limit failures.
+
+- **Bloom filter auto-sizes to the dump** (~4 bytes per imported address,
+  32 MB..1 GB; `RWS_BLOOM_MB` overrides). At 57.7M addresses that is 256 MB
+  and ≈0.01% FP — 1000× fewer false leads. Size is pinned in the filter meta
+  so it stays stable across restarts. **One-time: re-import the dump after
+  this update** (the old 32 MB bit file cannot be rehashed in place — the
+  filter will say "import the dump again" at boot).
+- **BTC balances rotate across providers** (blockchain.info multiaddr →
+  mempool.space → blockstream.info) with exponential per-provider cooldown on
+  HTTP 429 — rate-limit storms back off instead of failing 86% of checks.
+- Diagnostics "bloom FP" line now shows the theoretical rate when no
+  empirical one is available (was showing 0.000% beside an 11% dump).
+
 ## 2.9.0-beta.4 — 2026-10-25 (BETA)
 
 - **THE live-display freeze, fixed.** The feed pulled 48 rows every 220ms

