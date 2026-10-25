@@ -23,7 +23,9 @@ MACOS_DIR="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 
 echo "Building $APP"
-echo "NOTE: this is the LIGHTWEIGHT browser-launcher variant (opens the UI in your browser)." >&2
+echo "DEPRECATED: this is the old LIGHTWEIGHT variant that opens the UI IN YOUR BROWSER." >&2
+echo "Use instead:  bash scripts/macos/make-standalone-app.command  — that builds the NATIVE" >&2
+echo "CodeHaven Workstation.app (own window, Dock icon, menu-bar shield; no browser)." >&2
 echo "      For the standalone installed app (native window, own runtime) run instead:" >&2
 echo "      bash scripts/macos/make-standalone-app.command" >&2
 

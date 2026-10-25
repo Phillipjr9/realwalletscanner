@@ -44,8 +44,8 @@ already_running() {
 }
 
 if already_running; then
-  printf 'Scanner already running — opening the UI.\n'
-  open "http://127.0.0.1:$PORT/"
+  printf 'Scanner already running at http://127.0.0.1:%s\n' "$PORT"
+  printf 'The native app (CodeHaven Workstation.app) is the interface - no browser needed.\n'
   exit 0
 fi
 

@@ -333,7 +333,12 @@ step "Done"
 printf 'App:    %s\n' "$TARGET"
 printf 'Data:   %s\n' "$HOME/Library/Application Support/CodeHaven Workstation"
 printf 'Logs:   %s\n' "$HOME/Library/Logs/CodeHaven"
-printf '\n%sOpen it from Launchpad, or:%s\n  open "%s"\n' "$DIM" "$RESET" "$TARGET"
+printf '\n%sThis is the NATIVE Mac app - its own window, Dock icon and menu-bar shield.%s\n' "$GREEN" "$RESET"
+printf '%sNo browser is involved at any point. (Old browser-launcher is replaced automatically.)%s\n' "$DIM" "$RESET"
 printf '\n%sThe scanner binds to 127.0.0.1 only. Nothing is exposed to your network.%s\n' "$DIM" "$RESET"
 printf '%sIt lives in the menu bar: quit with ⌘Q or the shield icon; reopen from Launchpad.%s\n' "$DIM" "$RESET"
 printf '%sFirst launch after a download: right-click the app → Open (Gatekeeper).%s\n' "$DIM" "$RESET"
+if [[ "${CODEHAVEN_NO_LAUNCH:-0}" != "1" ]]; then
+  printf '\n%sLaunching CodeHaven Workstation now…%s\n' "$CYAN" "$RESET"
+  open "$TARGET" 2>/dev/null || warn "Could not auto-launch - open it from Launchpad"
+fi

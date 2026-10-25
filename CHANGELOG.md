@@ -1,5 +1,12 @@
 # Changelog — CodeHaven Workstation (RealWalletScanner)
 
+## 2.9.0-beta.3 — 2026-10-25 (BETA)
+
+- Native-app path polished end to end: `make-standalone-app.command` now launches
+  the installed CodeHaven Workstation.app itself (no browser, ever), the old
+  lightweight browser-launcher is loudly deprecated, and `start-sturdy.command`
+  no longer pops a browser window — it prints the URL instead.
+
 ## 2.9.0-beta.2 — 2026-10-25 (BETA)
 
 - **Connectivity watcher**: when the internet comes back, the workstation heals
