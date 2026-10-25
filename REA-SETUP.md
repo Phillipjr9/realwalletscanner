@@ -62,16 +62,20 @@ export GHIDRA_INSTALL_DIR=~/Downloads/ghidra_12.1.4_PUBLIC   # folder name may d
 
 Ghidra needs **two extra things** on macOS that `rea doctor` will nag about:
 
-- **A full JDK 21 or newer** (macOS often has an old JDK 17 left behind by other
-  apps, and Ghidra refuses it):
+- **A full JDK between 21 and 25** (Ghidra refuses old JDK 17 that other apps
+  leave behind — and avoid the newest JDK 27: the Ghidra native build's Gradle
+  fails on it with "Unsupported class file major version 71"). Java 25 is the
+  sweet spot:
 
 ```bash
-brew install openjdk
-echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home' >> ~/.zshrc
+brew install openjdk@25
+echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home' >> ~/.zshrc
 echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
-java -version    # should print 21 or newer
+java -version    # should print 25.x
 ```
+
+(If brew has no `openjdk@25`, use `openjdk@21` and the matching path instead.)
 
 - **The mac decompiler binary is NOT in the download** (the release zip only
   ships Linux/Windows ones — Ghidra's own manual says to build it). It's a
