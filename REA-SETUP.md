@@ -73,15 +73,19 @@ source ~/.zshrc
 java -version    # should print 21 or newer
 ```
 
-- **The native decompiler binary must be executable** (zip extraction on macOS
-  sometimes drops the exec bit — doctor says "native decompiler was not found"):
+- **The mac decompiler binary is NOT in the download** (the release zip only
+  ships Linux/Windows ones — Ghidra's own manual says to build it). It's a
+  documented 2-minute build. `rea doctor` will say
+  "Matching native decompiler for darwin/arm64 was not found" until you do:
 
 ```bash
-chmod +x ~/Downloads/ghidra_12.1.4_PUBLIC/Ghidra/Features/Decompiler/os/mac_arm_64/decompile
+xcode-select --install        # C++ compiler — skip if already installed
+cd ~/Downloads/ghidra_12.1.4_PUBLIC/support/gradle
+./gradlew buildNatives        # compiles it; needs the JDK 21 from above
 ```
 
-If that path doesn't exist at all, re-extract the release zip — the file should
-be inside it.
+The new binary lands in `.../Decompiler/build/os/mac_arm_64/decompile` —
+Ghidra and REA both prefer that location automatically.
 
 **Option B — Hopper (paid, friendlier app):** `npx rea-agents setup` can offer
 to install it for you with your approval.
