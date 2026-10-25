@@ -1,5 +1,16 @@
 # Changelog — CodeHaven Workstation (RealWalletScanner)
 
+## 2.9.0-beta.4 — 2026-10-25 (BETA)
+
+- **THE live-display freeze, fixed.** The feed pulled 48 rows every 220ms
+  (~218/s) but only drew 1 row per 18ms tick (~55/s). Whenever the backlog hit
+  140 the poller switched itself OFF - freezing the rate, counters and stream
+  (the session timer, being just the local clock, kept ticking) - then burst
+  again when the backlog drained: the 'keeps stopping every time' see-saw.
+  Now: the poll never stalls, excess rows are dropped oldest-first (capped at
+  96), the drawer handles 12 rows per tick, and the localStorage bookkeeping
+  write is throttled to every 3s.
+
 ## 2.9.0-beta.3 — 2026-10-25 (BETA)
 
 - Native-app path polished end to end: `make-standalone-app.command` now launches

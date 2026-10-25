@@ -3438,6 +3438,13 @@
 
   // Smooth streaming queue & continuous counter interpolation state
   const streamQueue = [];
+  // Live-display feed: never let backlog stall the poll - drop oldest instead.
+  const STREAM_QUEUE_MAX = 96;
+  function pushStreamItems(items) {
+    for (const it of items) streamQueue.push(it);
+    while (streamQueue.length > STREAM_QUEUE_MAX) streamQueue.shift();
+    return streamQueue.length;
+  }
   const browserSeenInputs = new Set();
   const BROWSER_SEEN_STORAGE_KEY = 'codehaven_seen_mnemonics_v3';
   try {
@@ -3496,7 +3503,10 @@
   // not a market guess.
   const uiPriceOrPeg = key => key === 'usdpeg' ? 1 : uiPrice(key);
 
+  let lastBrowserSeenPersistAt = 0;
   function persistBrowserSeenInputs() {
+    if (Date.now() - lastBrowserSeenPersistAt < 3000) return; // localStorage write was stuttering every poll
+    lastBrowserSeenPersistAt = Date.now();
     try {
       const recent = Array.from(browserSeenInputs).slice(-4000);
       localStorage.setItem(BROWSER_SEEN_STORAGE_KEY, JSON.stringify(recent));
@@ -4091,30 +4101,34 @@
       pollScanBatch();
     }
 
-    if (streamQueue.length === 0) return;
+    // Drain up to 12 rows per 18ms tick so the stream can never fall 4x behind
+    // the poll again (that imbalance used to freeze the whole live display).
+    for (let drained = 0; drained < 12; drained++) {
+      if (streamQueue.length === 0) break;
 
-    const item = streamQueue.shift();
-    if (!item) return;
+      const item = streamQueue.shift();
+      if (!item) break;
 
-    lastPreviewItem = item;
-    registerWalletDetail(item);
-    const watchKey = item.btcLegacy || item.ethAddress || item.input;
-    if ((item.everHeldCrypto || item.historicalTx > 0 || item.balanceUsd > 0) && !watchlistItems.has(watchKey)) {
-      watchlistItems.set(watchKey, item);
-      renderWatchlist();
+      lastPreviewItem = item;
+      registerWalletDetail(item);
+      const watchKey = item.btcLegacy || item.ethAddress || item.input;
+      if ((item.everHeldCrypto || item.historicalTx > 0 || item.balanceUsd > 0) && !watchlistItems.has(watchKey)) {
+        watchlistItems.set(watchKey, item);
+        renderWatchlist();
+      }
+
+      prependTableRow(item);
+
+      const enabledChains = getEnabledChains();
+      document.getElementById('LivePreviewSourceText').textContent = (item.source || 'SMART').toUpperCase();
+      document.getElementById('PreviewBtcAddressTextBox').textContent = enabledChains.includes('BTC')
+        ? ((item.btcSegwit || item.btcLegacy || '').slice(0, 18) + '…')
+        : 'DISABLED';
+      document.getElementById('PreviewEthAddressTextBox').textContent = enabledChains.includes('ETH')
+        ? ((item.ethAddress || '').slice(0, 16) + '…')
+        : 'DISABLED';
+      document.getElementById('PreviewMnemonicWideTextBox').textContent = item.input;
     }
-
-    prependTableRow(item);
-
-    const enabledChains = getEnabledChains();
-    document.getElementById('LivePreviewSourceText').textContent = (item.source || 'SMART').toUpperCase();
-    document.getElementById('PreviewBtcAddressTextBox').textContent = enabledChains.includes('BTC')
-      ? ((item.btcSegwit || item.btcLegacy || '').slice(0, 18) + '…')
-      : 'DISABLED';
-    document.getElementById('PreviewEthAddressTextBox').textContent = enabledChains.includes('ETH')
-      ? ((item.ethAddress || '').slice(0, 16) + '…')
-      : 'DISABLED';
-    document.getElementById('PreviewMnemonicWideTextBox').textContent = item.input;
   }
 
   async function pollScanBatch() {
@@ -4125,7 +4139,6 @@
     if (currentMode === 'smart' && enabledVectors.length === 0) {
       return;
     }
-    if (streamQueue.length > 140) return;
 
     pollInFlight = true;
     pollStartedAt = Date.now();
@@ -4180,7 +4193,7 @@
           browserSeenInputs.add(key);
           newSeenAdded = true;
         }
-        streamQueue.push(item);
+        pushStreamItems([item]);
         if (!item.liveVerified && liveRpcQueue.length < 72) {
           liveRpcQueue.push(item);
         }

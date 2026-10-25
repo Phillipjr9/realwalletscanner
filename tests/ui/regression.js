@@ -217,6 +217,16 @@ checks.push(['9b keep-awake toggle   ', Boolean(d.getElementById('KeepAwakeChk')
   checks.push(['23 dump coverage report',
     /BTC/.test(dumpHtml) && /15/.test(dumpHtml) && /12/.test(dumpHtml) && /false-positive/i.test(dumpHtml)]);
 
+  // 24: live-display feed caps its backlog by dropping oldest (never stalls)
+  checks.push(['24 stream queue drops oldest',
+    typeof w.pushStreamItems === 'function' &&
+    w.pushStreamItems(new Array(300).fill(0).map((_, i) => ({ input: 'w' + i }))) <= 96]);
+
+  // 25: the poller must never contain the old display-freezing stall rule
+  checks.push(['25 poll never stalls display',
+    !/streamQueue\.length\s*>\s*140/.test(String(w.pollScanBatch)) &&
+    /drained < 12/.test(String(w.drainNextStreamItem))]);
+
   console.log(checks.map(([n, v]) => n + ': ' + v).join('\n'));
   const failed = checks.filter(([, v]) => !v).length;
   console.log(failed === 0 ? 'ALL PASS' : 'FAILED: ' + failed);
