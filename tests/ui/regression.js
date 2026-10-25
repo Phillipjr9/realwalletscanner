@@ -227,6 +227,21 @@ checks.push(['9b keep-awake toggle   ', Boolean(d.getElementById('KeepAwakeChk')
     !/streamQueue\.length\s*>\s*140/.test(String(w.pollScanBatch)) &&
     /drained < 12/.test(String(w.drainNextStreamItem))]);
 
+  // 26: Profanity RE — mt19937-64 matches the canonical reference vector
+  // (seed 5489 -> 14514284786278117030; validates init + twist + temper)
+  {
+    const eng = require(path.join(ROOT, 'WebWorkstation', 'crypto_engine.js'));
+    const g = new eng.Mt19937_64(5489n);
+    checks.push(['26 profanity mt19937-64 vector', g.next() === 14514284786278117030n]);
+    // 27: Profanity grid formula key = d0 + w·2^192 + t (Amber Group reconstruction)
+    const keys = eng.profanityKeys(12345, 2, 3);
+    checks.push(['27 profanity key grid formula',
+      keys.length === 6 &&
+      keys[1] - keys[0] === 1n &&
+      keys[3] - keys[0] === (1n << 192n) &&
+      keys[0] === eng.profanitySeedKey(12345)]);
+  }
+
   console.log(checks.map(([n, v]) => n + ': ' + v).join('\n'));
   const failed = checks.filter(([, v]) => !v).length;
   console.log(failed === 0 ? 'ALL PASS' : 'FAILED: ' + failed);

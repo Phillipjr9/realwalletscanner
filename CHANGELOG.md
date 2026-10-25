@@ -1,5 +1,36 @@
 # Changelog — CodeHaven Workstation (RealWalletScanner)
 
+## 2.9.0-beta.7 — 2026-10-25 (BETA)
+
+**NEW FINITE FAMILY: the Profanity vanity-generator key space (CVE-2022-40769).**
+
+Reverse-engineered end-to-end from johguse/profanity's own source
+(Dispatcher.cpp `createSeed`/`printResult` + the `profanity.cl` kernels),
+cross-checked against Amber Group's Wintermute post-mortem:
+
+- `std::random_device()` → **32-bit seed** (the entire weakness) →
+  `std::mt19937_64` → 4×64-bit words = the 256-bit key `d0` (first output =
+  least significant word).
+- GPU lane `w` starts at `d0 + w·2^192` and walks +1 per round; a vanity hit
+  at round `R` prints **`key = d0 + w·2^192 + R`** — the exact grid real
+  users' wallets live on (including Wintermute's seven-zero EOA).
+
+The hunter workers now sweep that grid like the small-int sweep: strided
+across workers, checkpointed (`profanitySeedCursor`), bloom-screened against
+the funded dump, verified live, vaulted on hit, and reported as
+`profanity sweep through seed N` in the diagnostics funnel (`vectorKey:
+profanity` in the family table).
+
+- Derivation verified against the canonical mt19937-64 reference vector
+  (seed 5489 → 14514284786278117030) and locked in regression tests 26–27.
+- Knobs: `RWS_PROFANITY_SEED_START/END` (default 0..2^32),
+  `RWS_PROFANITY_LANES` (default 1, max 64), `RWS_PROFANITY_DEPTH`
+  (default 4, max 256), `RWS_PROFANITY_BATCH` (seeds per burst, default 3).
+- Honest math: full grid coverage is 2^32 seeds × 2^22 lanes × rounds — that
+  is the targeted-crack problem (Amber needed a 32 GB precompute + per-address
+  work). The sweep covers the low-round slice of every seed — the same kind of
+  patient finite-family grind that already paid off in the small-int sweep.
+
 ## 2.9.0-beta.6 — 2026-10-25 (BETA)
 
 **Verdict correctness: a partially-checked wallet can no longer be buried as

