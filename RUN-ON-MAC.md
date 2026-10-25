@@ -622,3 +622,11 @@ If you want it reachable from your other devices, keep it private and behind aut
 - Integrations (Telegram, Discord, SMTP, webhooks) only transmit data when you configure and
   enable them, and only over the endpoints you enter.
 - Use this software only on wallets and systems you are authorised to access.
+
+## The "X-ray machine": working with REA
+
+Want an AI agent that can take apart apps, read machine code and smart-contract
+bytecode, and watch live processes — with proof for every claim? See
+**[REA-SETUP.md](REA-SETUP.md)** for the simple Mac install (2 minutes plus an
+optional free decompiler). The scanner itself does not need it; it is extra
+power for auditing your own software and releases.
