@@ -51,12 +51,37 @@ it, you also get **"turn machine code back into readable code"**.
 **Option A — Ghidra (free, made by the NSA):**
 
 1. Download **Ghidra 12.1.x** from the official site: <https://ghidra-sre.org/>
-2. Unzip it, e.g. into `~/ghidra/`
+   (the ready-made release zip, e.g. `ghidra_12.1.4_PUBLIC_20260921.zip` — NOT
+   the GitHub "source code" download)
+2. Unzip it, e.g. into `~/Downloads/`
 3. Tell REA where it lives (add to `~/.zshrc` so it sticks):
 
 ```bash
-export GHIDRA_INSTALL_DIR=~/ghidra/ghidra_12.1_PUBLIC   # folder name may differ
+export GHIDRA_INSTALL_DIR=~/Downloads/ghidra_12.1.4_PUBLIC   # folder name may differ
 ```
+
+Ghidra needs **two extra things** on macOS that `rea doctor` will nag about:
+
+- **A full JDK 21 or newer** (macOS often has an old JDK 17 left behind by other
+  apps, and Ghidra refuses it):
+
+```bash
+brew install openjdk
+echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home' >> ~/.zshrc
+echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+java -version    # should print 21 or newer
+```
+
+- **The native decompiler binary must be executable** (zip extraction on macOS
+  sometimes drops the exec bit — doctor says "native decompiler was not found"):
+
+```bash
+chmod +x ~/Downloads/ghidra_12.1.4_PUBLIC/Ghidra/Features/Decompiler/os/mac_arm_64/decompile
+```
+
+If that path doesn't exist at all, re-extract the release zip — the file should
+be inside it.
 
 **Option B — Hopper (paid, friendlier app):** `npx rea-agents setup` can offer
 to install it for you with your approval.
