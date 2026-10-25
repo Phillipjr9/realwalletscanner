@@ -4,10 +4,11 @@
 #
 #  Double-click in Finder (or run from Terminal). This version:
 #    • keeps the Mac awake while it runs (caffeinate)
+#    • survives the Terminal window closing (the engine keeps running!)
 #    • restarts the engine automatically within 5 seconds if it ever dies
 #    • writes everything to /tmp/scanrun.log so we can see WHY it stopped
 #
-#  Stop it with Ctrl+C (or close this window).
+#  Stop everything: Ctrl+C in this window, or:  kill \$(lsof -ti:2525)
 # =============================================================================
 set -uo pipefail
 
@@ -38,14 +39,21 @@ if [[ ! -d node_modules/bip39 ]]; then
   npm install --no-audit --no-fund --loglevel=error || { printf '\033[31mnpm install failed\033[0m\n'; exit 1; }
 fi
 
-if /usr/bin/curl -fsS -m 1 "http://127.0.0.1:$PORT/api/brain-status" >/dev/null 2>&1; then
+already_running() {
+  /usr/bin/curl -fsS -m 1 "http://127.0.0.1:$PORT/api/brain-status" >/dev/null 2>&1
+}
+
+if already_running; then
   printf 'Scanner already running — opening the UI.\n'
   open "http://127.0.0.1:$PORT/"
   exit 0
 fi
 
-printf 'Starting scanner on http://127.0.0.1:%s  (keep this window open)\n' "$PORT"
-printf 'If the engine ever dies it restarts itself in 5 seconds. Ctrl+C to stop.\n\n'
+printf 'Starting scanner on http://127.0.0.1:%s\n' "$PORT"
+printf 'You can close this window later — the engine survives it. Ctrl+C stops it now.\n\n'
+
+STOP_REQUESTED=0
+trap 'STOP_REQUESTED=1; printf "\nStopped by you. Bye!\n"; exit 0' INT TERM
 
 while true; do
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] starting scanner..." >> "$LOG"
@@ -53,6 +61,11 @@ while true; do
     CODEHAVEN_DATA_DIR="$HOME/Library/Application Support/CodeHaven Workstation" \
     "$NODE_BIN" "$WEB_DIR/server.js" 2>&1 | tee -a "$LOG"
   EXIT_CODE=${PIPESTATUS[0]}
+  [[ "$STOP_REQUESTED" == "1" ]] && exit 0
+  if already_running; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] another instance is serving port $PORT — this launcher exits." | tee -a "$LOG"
+    exit 0
+  fi
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] scanner exited (code ${EXIT_CODE}) — restarting in 5s..." | tee -a "$LOG"
   sleep 5
 done

