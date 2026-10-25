@@ -387,6 +387,7 @@ function screenKdfPriv(privKey, label, passDisplay, hits, stats) {
 function runKdfFamilySweep(round) {
   const hits = [];
   const stats = { checked: 0 };
+  try {
   // Fast hash-based KDFs: 2 passphrases per round across 5 variants (camp2 throttled - 2031 keccaks)
   for (let i = 0; i < 2; i++) {
     const passBuf = kdfFastList[kdfFastCursor++ % kdfFastList.length];
@@ -414,12 +415,14 @@ function runKdfFamilySweep(round) {
       screenKdfPriv(kdfBrainV2Priv(passBuf, saltBuf), 'brainv2', passDisplay, hits, stats);
     } catch (_) { /* scrypt memory pressure - skip this round */ }
   }
+  } catch (_) { /* never let a KDF family error disturb the main scan loop */ }
   return { hits, checked: stats.checked };
 }
 
 function runTimestampSweep(count = 12) {
   const hits = [];
   let checked = 0;
+  try {
   for (let i = 0; i < count && tsCursor < tsEnd; i++) {
     const ts = tsCursor += workerCount ? workerCount : 1;
     if (ts >= tsEnd) break;
@@ -456,6 +459,7 @@ function runTimestampSweep(count = 12) {
       }
     }
   }
+  } catch (_) { /* never let the timestamp family disturb the main scan loop */ }
   return { hits, checked };
 }
 
